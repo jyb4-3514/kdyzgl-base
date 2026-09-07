@@ -1,0 +1,63 @@
+# =========================================================================
+# 快递驿站智汇系统 · 后端 systemd 服务单元样例（TASK.md D03 配套）
+# ---------------------------------------------------------------------------
+# 与宝塔 Java 项目管理器的关系（二选一，不要同时接管同一进程）：
+#   - 方式 A（主推，图形化）  ：宝塔面板 → 网站 → Java项目 添加项目，指向
+#     /www/wwwroot/hrm-server/hrm-server.jar，本文件则【不需要】安装；
+#   - 方式 B（本文件，命令行）：适合 deploy.sh 自动化部署（RESTART_MODE=systemd），
+#     安装步骤见 docs/deploy.md 4.4-B；
+#   - deploy.sh 默认 RESTART_MODE=auto：检测到本单元已安装即走 systemd，
+#     否则回退 nohup。
+#
+# 安装（服务器 root 执行）：
+#   cp /www/wwwroot/kdyzgl-base/hrm-dev/deploy/hrm-server.service /etc/systemd/system/
+#   systemctl daemon-reload
+#   systemctl enable --now hrm-server
+#   journalctl -u hrm-server -f        # 查看启动日志（含 Flyway 迁移输出）
+#
+# 注意事项：
+#   1. ExecStart 中 java 路径按实际调整：宝塔安装的 JDK 一般在
+#      /www/server/java/ 下（用 `readlink -f $(which java)` 确认）；
+#   2. --spring.config.additional-location 以 / 结尾（目录形式），Spring 会
+#      加载其中的 application-prod.yml（真实密码只存在该文件，600 权限，
+#      被 .gitignore 忽略，不入 Git）；
+#   3. /www/wwwroot/hrm-server 是运行目录而非 Nginx 站点目录，
+#      8080 端口不得在安全组/防火墙对公网放行。
+# =========================================================================
+
+[Unit]
+Description=hrm-server - 快递驿站智汇系统后端（Spring Boot 3 / Java 17）
+Documentation=file:///www/wwwroot/kdyzgl-base/hrm-dev/docs/deploy.md
+After=network-online.target
+Wants=network-online.target
+# 若 MySQL/Redis 也由 systemd 管理，可追加：
+# After=mysqld.service redis.service
+
+[Service]
+Type=simple
+User=www
+Group=www
+WorkingDirectory=/www/wwwroot/hrm-server
+
+# JVM 参数说明：-Duser.timezone 与 MySQL serverTimezone 保持一致（Asia/Shanghai）
+ExecStart=/usr/bin/java -Xms512m -Xmx1024m -Duser.timezone=Asia/Shanghai -Dfile.encoding=UTF-8 -jar /www/wwwroot/hrm-server/hrm-server.jar --spring.profiles.active=prod --spring.config.additional-location=file:/www/wwwroot/hrm-server/config/
+
+# 崩溃自动拉起；正常退出码 143 = SIGTERM 优雅停止，不视为失败
+Restart=on-failure
+RestartSec=10
+SuccessExitStatus=143
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+# 标准输出/错误进入 journald，用 journalctl -u hrm-server 查看；
+# Spring 业务日志级别在 config/application-prod.yml 的 logging 段配置
+StandardOutput=journal
+StandardError=journal
+
+# 可选安全加固（确认与宝塔目录权限无冲突后按需启用）：
+# NoNewPrivileges=true
+# ProtectSystem=full
+# ReadWritePaths=/www/wwwroot/hrm-server/logs
+
+[Install]
+WantedBy=multi-user.target

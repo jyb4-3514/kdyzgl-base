@@ -1,0 +1,60 @@
+/* ==================== 全局基础样式 ==================== */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', Arial, sans-serif;
+  font-size: 14px;
+  color: #303133;
+  background-color: #f0f2f5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ==================== 页面通用 ==================== */
+/* 筛选卡片与内容卡片间距 */
+.filter-card {
+  margin-bottom: 16px;
+
+  .el-form-item {
+    margin-bottom: 0;
+  }
+}
+
+/* 表格工具栏：左侧操作按钮 + 右侧刷新 */
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+
+  .toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+}
+
+/* 分页容器：右对齐 */
+.pagination-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/* 表单内提示文字 */
+.form-tip {
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #909399;
+}

@@ -1,0 +1,68 @@
+# ==================== 环境与敏感配置（严禁提交） ====================
+# 环境变量文件（真实密钥/密码只放服务器磁盘，不进仓库）
+.env
+.env.*
+*.env
+
+# Spring Boot 环境专属配置（含真实数据库/JWT/Redis 密码）
+# 说明：基础文件 application.yml（无后缀环境名）不在此列；如含密钥请迁移到 env.example
+application-*.yml
+application-*.yaml
+application-*.properties
+
+# ==================== 密钥 / 证书 / 私钥 ====================
+*.pem
+*.key
+*.crt
+*.p12
+*.p8
+*.jks
+*.keystore
+*.cert
+id_rsa
+id_rsa.*
+
+# ==================== Java 编译产物 ====================
+target/
+*.class
+*.jar
+*.war
+*.ear
+
+# ==================== 前端（Vue）依赖与构建产物 ====================
+node_modules/
+dist/
+build/
+*.local
+.history/
+
+# ==================== IDE / Trae / 本地缓存 ====================
+.idea/
+.vscode/
+*.iml
+.trae/
+.trae-cn/
+.settings/
+.classpath
+.project
+*.suo
+*.tmp
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# ==================== 日志 ====================
+*.log
+*.log.*
+logs/
+
+# ==================== 数据库备份 / 数据导出（严禁提交真实数据） ====================
+# 注意：此处只忽略「含真实业务数据」的备份/导出文件。
+# 建表脚本（hrm-dev/sql/schema/）与 Flyway 迁移脚本（db/migration/）必须正常提交，
+# 因此【不要】在此全局忽略 *.sql。
+backup/
+backups/
+*.dump
+*.sql.bak
+*.backup

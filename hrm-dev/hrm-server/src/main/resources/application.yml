@@ -1,0 +1,79 @@
+# =====================================================================
+# 快递驿站智汇系统 · 后端基础配置（可提交仓库，不含任何真实密钥）
+# ---------------------------------------------------------------------
+# 说明：
+#   1. 本文件只含基础结构与 change_me_* 占位值，所有敏感项由部署环境覆盖：
+#      - 服务器侧外置 application-prod.yml（被 .gitignore 忽略，不入仓库）；
+#      - 或通过环境变量 / 启动参数覆盖（Spring 标准优先级）；
+#   2. 完整参数项模板见仓库根目录 env.example；
+#   3. PostgreSQL 切换方式见下方数据源注释（Flyway 自动按 {vendor} 选脚本）。
+# =====================================================================
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: hrm-server
+
+  # ---------- 数据源（默认 MySQL 8；PostgreSQL 备选见注释） ----------
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/kdyzgl?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: change_me_db_user
+    password: change_me_db_password
+  # PostgreSQL 备选（覆盖下面四项即可，Flyway 会自动选择 postgresql 目录脚本）：
+  #   spring.datasource.driver-class-name: org.postgresql.Driver
+  #   spring.datasource.url: jdbc:postgresql://127.0.0.1:5432/kdyzgl
+  #   spring.datasource.username: change_me_db_user
+  #   spring.datasource.password: change_me_db_password
+
+  # ---------- Flyway：按连接数据库自动选择 mysql/ 或 postgresql/ 目录（决策 D2） ----------
+  flyway:
+    enabled: true
+    locations: classpath:db/migration/{vendor}
+
+  # ---------- Redis（登录会话） ----------
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      password: change_me_redis_password
+      database: 0
+      timeout: 5s
+
+  # ---------- 上传（Excel 导入限制 10MB） ----------
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 12MB
+
+# ---------- MyBatis-Plus ----------
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+      logic-delete-field: is_deleted   # 全局逻辑删除（0=未删，1=已删）
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# ---------- JWT / 登录态（密钥务必替换为 ≥32 字节随机串） ----------
+jwt:
+  secret: change_me_jwt_secret_please_generate_a_long_random_string
+  expire: 86400   # 秒，默认 24 小时（与 Redis 会话 TTL 一致）
+
+# ---------- 业务配置 ----------
+hrm:
+  # Excel 导入账号统一初始密码（首登强制改密兜底）
+  employee-init-password: change_me_init_password
+
+# ---------- 日志 ----------
+logging:
+  level:
+    root: info
+    com.qiujie: info
