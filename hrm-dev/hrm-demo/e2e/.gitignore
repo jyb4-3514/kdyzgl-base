@@ -1,0 +1,4 @@
+# 端到端测试产物：截图证据、指标 JSON、Playwright 报告与重试工件一律不入 Git
+evidence/
+playwright-report/
+test-results/

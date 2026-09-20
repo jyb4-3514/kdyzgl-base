@@ -1,0 +1,173 @@
+/**
+ * 网页端 Design Tokens（T01，demo-ui-redesign.md 2.2–2.6 / 2.8 / 2.10）
+ *
+ * 分层：跨端一致的部分已抽到 shared/styles/tokens.base.scss（L1 原始值 + L2 共用语义 + 通用基础），
+ * 本文件只保留 PC 私有内容：字号阶梯、布局/组件尺寸、Element Plus 变量覆盖、以及页面级基础样式。
+ * 为什么拆两份而不合并成一份：合并会把 Element 与 Vant 的变量覆盖塞进同一作用域，
+ * 两个 MPA 入口互相污染（PC 包凭空多出 100+ 条 --van-*）。
+ *
+ * 引入顺序（main.js）：@admin/styles/index.scss → 本文件（内含 tokens.base）→ element-overrides.scss。
+ */
+
+@use '../../shared/styles/tokens.base.scss';
+
+:root {
+  /* ==================== 字号阶梯（PC 列） ==================== */
+  /* 与移动端列取值不同（--fs-body-strong / --lh-body / --fs-h3 等），属合法平台差异 */
+
+  --fs-h1: 20px;
+  --fs-h2: 16px;
+  --fs-h3: 15px;
+  --fs-body: 14px;
+  --fs-body-strong: 14px;
+  --fs-caption: 12px;
+  --fs-micro: 11px; /* 仅限图表轴标签与徽标内计数 */
+  --fs-num-lg: 26px;
+  --fs-num-md: 20px;
+  --fs-num-sm: 15px;
+
+  --lh-h1: 28px;
+  --lh-h2: 24px;
+  --lh-h3: 22px;
+  --lh-body: 22px;
+  --lh-caption: 18px;
+  --lh-micro: 16px;
+  --lh-num-lg: 32px;
+  --lh-num-md: 26px;
+  --lh-num-sm: 20px;
+
+  --font-num: var(--font-sans);
+
+  /* ==================== L3 Component ==================== */
+
+  /* 自定义框架尺寸（layout 组件引用，替换散落的 60px / 210px 魔数） */
+  --aside-w: 210px;
+  --aside-w-collapsed: 64px;
+  --header-h: 60px;
+  --table-row-h: 44px;
+  --table-head-h: 44px;
+  --drawer-w: 520px;
+  /* 宽抽屉（C3-4）：仅 AutoDispatchDrawer / 薪资编辑 / 工资单规则编辑四处使用，窄屏仍退化 min(…, 92vw) */
+  --drawer-w-lg: 720px;
+  /* 内容区最大宽度（P2-3）：1920 屏下表格列被拉散、行高视觉失衡，超过此宽度不再撑满 */
+  --content-max: 1440px;
+
+  /* 状态标签尺寸（P2-7）：PC 24 / 移动 20，属合法平台差异，故不进真源 */
+  --tag-h: 24px;
+  --tag-pad-x: 8px;
+
+  /* KPI 达成率环形图（C3-2）：PC 与移动共用一套色，尺寸各自成档 */
+  --gauge-size: 112px;
+  --gauge-stroke: 10px;
+  --gauge-track: var(--c-neutral-100);
+  /* 原用 500 档 #1890FF 对 --gauge-track #EDF0F4 实测仅 2.839:1，不达 WCAG SC 1.4.11 的 3:1
+   *（设计文档原记「约 3.1:1 临界」偏乐观，此处更正）；改 700 档后为 5.388:1。
+   * 环形进度属「非文本内容」，不承载白字，因此按对比度取值而非 500/700 分工规则 */
+  --gauge-fill: var(--color-primary);
+
+  /* 入离职步骤条尺寸（C3-3）：颜色复用语义色，不新增色 Token */
+  --step-dot: 24px;
+  --step-line: 2px;
+  --step-gap: var(--sp-4);
+
+  /* ---- Element Plus 2.9 变量覆盖（不引主题包，不引新依赖） ----
+   * 浅色阶命名与取值按 2.8 给定；变量名已核对 node_modules/element-plus/theme-chalk 产物 */
+  --el-color-primary: var(--c-blue-700);
+  --el-color-primary-light-3: #538ae4;
+  --el-color-primary-light-5: #84acec;
+  --el-color-primary-light-7: #b5cdf4;
+  --el-color-primary-light-8: #cedef7;
+  --el-color-primary-light-9: #e6eefb;
+  --el-color-primary-dark-2: #0746ae;
+
+  --el-color-success: #237804;
+  --el-color-success-light-3: #6aa84f;
+  --el-color-success-light-5: #9dc98a;
+  --el-color-success-light-7: #cde5c1;
+  --el-color-success-light-8: #def0d6;
+  --el-color-success-light-9: #eef9e8;
+  --el-color-success-dark-2: #1c6003;
+
+  --el-color-warning: #b45309;
+  --el-color-warning-light-3: #d08a50;
+  --el-color-warning-light-5: #e0ad84;
+  --el-color-warning-light-7: #efd2bc;
+  --el-color-warning-light-8: #f4e0d2;
+  --el-color-warning-light-9: #fef7e8;
+  --el-color-warning-dark-2: #903f04;
+
+  --el-color-danger: #cf1322;
+  --el-color-danger-light-3: #dd5862;
+  --el-color-danger-light-5: #e78990;
+  --el-color-danger-light-7: #f1b7bc;
+  --el-color-danger-light-8: #f6ced1;
+  --el-color-danger-light-9: #ffeded;
+  --el-color-danger-dark-2: #a60f1b;
+
+  --el-color-info: var(--c-neutral-600);
+  --el-color-info-light-3: #8b9199;
+  --el-color-info-light-5: #aeb2b8;
+  --el-color-info-light-7: #d1d3d7;
+  --el-color-info-light-8: #e3e4e7;
+  --el-color-info-light-9: #edeeef;
+  --el-color-info-dark-2: #3c444f;
+
+  --el-text-color-primary: var(--c-neutral-800);
+  --el-text-color-regular: var(--c-neutral-600);
+  --el-text-color-secondary: var(--c-neutral-500);
+  --el-text-color-placeholder: var(--c-neutral-400);
+  --el-text-color-disabled: var(--c-neutral-300);
+
+  --el-bg-color: var(--c-neutral-0);
+  --el-bg-color-page: var(--c-neutral-50);
+  --el-bg-color-overlay: var(--c-neutral-0);
+  --el-border-color: var(--c-neutral-200);
+  --el-border-color-light: var(--c-neutral-200);
+  --el-border-color-lighter: var(--c-neutral-100);
+  --el-border-color-extra-light: var(--c-neutral-100);
+  --el-border-color-dark: var(--c-neutral-300);
+  --el-border-color-darker: var(--border-control);
+  --el-fill-color-light: var(--c-neutral-50);
+  --el-fill-color-lighter: var(--c-neutral-25);
+
+  --el-border-radius-base: var(--r-sm);
+  --el-border-radius-small: var(--r-xs);
+  --el-border-radius-round: var(--r-full);
+  --el-font-size-base: 14px;
+  --el-font-size-small: 12px;
+  --el-font-size-extra-small: 12px;
+  --el-font-size-large: 16px;
+  --el-component-size: 32px;
+  --el-component-size-small: 28px;
+  --el-component-size-large: 36px;
+
+  --el-box-shadow-light: var(--e2);
+  --el-box-shadow-lighter: var(--e1);
+}
+
+/* 字体栈统一：一期 index.scss 用 'Helvetica Neue' 打头，与移动端字形不一致，这里收口（2.4） */
+body {
+  font-family: var(--font-sans);
+  color: var(--text-1);
+  background-color: var(--surface-page);
+}
+
+/* 数字一律等宽：表格、看板、排行纵向对齐的前提（2.4 硬规则 2） */
+.tabular-nums,
+.el-table,
+.el-pagination {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 仅读屏可读：图表的 <table> 数据替代与 aria-live 播报用（6.5） */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

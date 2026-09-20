@@ -1,242 +1,178 @@
 # 快递驿站智汇系统 · 项目协作与开发规范
 
-> 适用范围：Java 后端 + 安卓 H5 壳前端 + Gitee/GitHub 托管 + 宝塔部署 + Trae AI 辅助开发。
-> 迭代路线：一期员工管理 → 二期驿站数据同步 → 三期工单。
-> 本文档是仓库内唯一权威协作规范，新成员与 AI 助手均须遵守。
+> Java + Spring Boot 后端 | Vue 管理前端 | 安卓 H5 壳 | 宝塔部署 | Trae AI 辅助
+> 迭代路线：一期员工管理 → 二期驿站数据同步 → 三期工单
+> 代码托管：**Gitee**（国内稳定，服务器直连拉取）
+> 全局通用准则见 `全局规则.md`，本文件仅定义项目特有约束。
 
-***
+## 核心原则
 
-## 0. 项目概览
+1. **反幻觉：** 遇到不确定的 API、语法、命令、版本，必须查阅官方源文档，禁止编造、禁止凭记忆臆断。查不到时说"不确定"并给出验证方案。
+2. **精简优先：** 完成功能前提下，以精简并删除历史冗余代码为荣，以堆砌重复实现为耻。同一逻辑不得重复实现三次以上。
+3. **中文注释：** 所有注释使用中文，写"为什么"不写废话。`TODO(扩展): 说明` 标注预留代码。
 
-### 0.1 技术栈
+## 0. 对话对齐（每轮对话启动时执行）
 
-| 层     | 技术                      | 说明                         |
-| ----- | ----------------------- | -------------------------- |
-| 后端    | Java + Spring Boot      | 主服务，含员工/考勤/薪资/知识库/LLM 等模块  |
-| 数据库   | MySQL / PostgreSQL      | 两套 schema 均维护，迁移脚本用 Flyway |
-| 缓存    | Redis                   | 登录态、常用缓存                   |
-| 管理前端  | Vue + Vue Router + Vuex | `hrm-admin`                |
-| 移动端   | 安卓 H5 壳                 | 内嵌 H5 页面，走同一后端 API         |
-| 部署    | 宝塔 + Linux（腾讯云）         | 生产环境只拉 Git 代码              |
-| 托管    | Gitee / GitHub          | 双远端按需同步                    |
-| AI 辅助 | Trae                    | 代码生成后必须人工 Review           |
+> 新会话首轮工具调用中，必须完成项目对齐，确保不跑偏。
 
-### 0.2 仓库结构
+**对齐步骤：**
 
+1. 读取 `SESSION-STATE.md`（如存在）→ 恢复上次进度
+2. 读取 `hrm-dev/docs/plan.md` → 确认当前迭代阶段
+3. 确认当前分支 → 确保在正确的 feature/dev 分支上
+4. 对齐后一句话输出当前状态：`[对齐] 当前阶段：一期/员工管理 | 进度：{x}/{y} | 分支：{branch}`
+
+**输出格式：**
 ```
-kdyzgl-base/                              # 仓库根目录
-├── .github/CONTRIBUTING.md               # 本文档：协作与开发规范
-├── .gitignore                            # 忽略规则
-├── env.example                           # 配置模板（只含参数名，无真实密钥）
-└── hrm-dev/                              # 一期：员工管理
-    ├── hrm-server/                       # Java 后端（Spring Boot）
-    ├── hrm-admin/                        # 管理前端（Vue）
-    ├── docs/                             # 项目文档（db.md / api.md / plan.md / deploy.md）
-    ├── sql/schema/{mysql,postgresql}/    # 建表脚本（版本化，仅表结构）
-    ├── deploy/                           # 部署脚本与配置
-    └── examples/                         # 导入样例
+[项目对齐] 一期员工管理 | 进度：3/8 | 分支：feature/员工管理模块
 ```
 
-***
+## 技术栈与仓库结构
 
-## 1. 分支模型
+| 层 | 技术 | 路径 |
+|----|------|------|
+| 后端 | Java + Spring Boot | `hrm-dev/hrm-server/` |
+| 数据库 | MySQL / PostgreSQL + Flyway | `hrm-dev/sql/schema/` |
+| 缓存 | Redis | — |
+| 管理前端 | Vue + Vue Router + Vuex | `hrm-dev/hrm-admin/` |
+| 移动端 | 安卓 H5 壳 | 内嵌 H5，走同一后端 API |
+| 部署 | 宝塔 + Linux（腾讯云） | 生产环境只拉 Git 代码 |
+| 文档 | db / api / plan / deploy | `hrm-dev/docs/` |
 
-| 分支          | 用途                    | 规则                           |
-| ----------- | --------------------- | ---------------------------- |
-| `main`      | 生产环境代码，永远对应服务器正在运行的版本 | **禁止直接提交**，只接受 `dev` 合并      |
-| `dev`       | 日常开发与联调分支             | 所有功能最终汇入这里                   |
-| `feature/*` | 功能分支                  | 从 `dev` 切出，开发完成后合并回 `dev`    |
-| `fix/*`     | 缺陷修复分支                | 从 `dev` 或 `main` 切出，视影响范围定去向 |
+## 1. 分支与工作流
 
-**命名示例：**
+| 分支 | 用途 | 规则 |
+|------|------|------|
+| `main` | 生产环境 | **禁止直接提交**，只接受 `dev` 合并 |
+| `dev` | 日常开发 | 所有功能汇入这里 |
+| `feature/*` | 功能分支 | 从 `dev` 切出，完成后合并回 `dev` |
+| `fix/*` | 缺陷修复 | 从 `dev` 或 `main` 切出 |
 
-```text
-feature/员工管理模块
-feature/驿站包裹同步
-feature/工单流转
-fix/登录bug
-fix/员工登录token过期
-```
+**流程：** `feature 分支开发 → 自测 → 合并 dev 联调 → 验证通过 → 合并 main，打 tag → 服务器 pull 部署`
 
-**版本标签：**
+**命名：** `feature/员工管理模块` `fix/登录bug` | **版本标签：** `v1.0.0-一期员工管理`
 
-```text
-v1.0.0-一期员工管理
-v1.1.0-二期包裹同步
-v1.2.0-三期工单
-```
+## 2. Commit 规范
 
-***
+格式：`类型: 中文简短描述`（动词开头，50 字以内）
 
-## 2. 开发工作流
+| 类型 | 含义 | 类型 | 含义 |
+|------|------|------|------|
+| `feat` | 新增功能 | `fix` | 修复 bug |
+| `refactor` | 代码重构 | `docs` | 文档更新 |
+| `style` | 格式调整 | `test` | 测试代码 |
+| `chore` | 构建/部署/配置 | | |
 
-```text
-从 dev 切 feature 分支开发
-        ↓
-feature 自测通过 → 合并到 dev 联调测试
-        ↓
-测试验证通过 → 合并到 main，打版本 tag
-        ↓
-服务器从 main 拉取代码部署
-```
+**禁止** `更新代码` `改bug` `fix bug` 等模糊信息。
 
-1. 一个 feature 分支只做一件事，避免超大合并。
-2. 合并前先在本地或测试环境自测，并更新对应文档。
-3. 上线前从 dev 拉取最新代码，解决冲突后再合并 main。
+## 3. 环境与配置
 
-***
+| 环境 | 分支 | 数据库 | 用途 |
+|------|------|--------|------|
+| 本地 | feature 分支 | 本地测试库 | Trae 本地运行 |
+| 测试 | 服务器 `dev` | 测试库 | 联调 |
+| 生产 | 服务器 `main` | 正式库 | 对外服务 |
 
-## 3. Commit 提交规范
+**红线：** 配置文件（`.env*` `application-*.yml` `*.pem` `*.key` `*.jks` 数据库备份）绝不进 Git。仓库只提交 `env.example` 模板（无真实密码）。服务器通过本地配置/环境变量读取密码。
 
-格式为：`类型: 简短描述`（描述用中文，动词开头，50 字以内）。
+**生产域名：** `kongzhen1.com`（HTTPS，宝塔 Nginx 反向代理，证书走 Let's Encrypt 自动续签）。前端接口基址与后端 CORS 白名单统一以该域名配置。
 
-| 类型         | 含义           |
-| ---------- | ------------ |
-| `feat`     | 新增功能         |
-| `fix`      | 修复 bug       |
-| `refactor` | 代码重构，不改变功能   |
-| `docs`     | 文档、注释更新      |
-| `style`    | 格式调整，无逻辑改动   |
-| `test`     | 新增测试代码       |
-| `chore`    | 构建、部署脚本、配置修改 |
+## 4. 部署与安全
 
-**示例：**
+1. 合并 `main` → 打 tag → 服务器 `git pull` → 编译 → 重启
+2. 上线前备份数据库
+3. 只允许 `git pull`，禁止 AI 直接在服务器写源码
+4. 宝塔 MCP / SSH MCP 操作须经主智能体审批：安全评估 → 应急预案 → 确认执行。高危操作（删除/重启/数据库变更）必须人工确认
+5. 回滚：切换到历史 tag → 恢复上一版 Jar 包
 
-```text
-feat: 员工管理新增账号启用禁用功能
-fix: 员工登录token过期异常
-refactor: 统一返回结果封装
-docs: 更新数据库表设计文档
-chore: 新增部署脚本
-```
+## 5. 数据库规范
 
-**禁止**提交 `更新代码`、`改bug`、`fix bug` 等模糊信息。
+- 建表脚本存 `hrm-dev/sql/schema/{mysql,postgresql}/`，Flyway 迁移存 `hrm-server/src/main/resources/db/migration/`
+- 只存 DDL，不放业务数据
+- 禁止直接改线上表结构，变更先写 SQL 脚本版本化管理
+- 命名：snake_case，主键 `id`，时间 `create_time`/`update_time`，索引 `idx_表名_字段`
 
-***
+## 6. 安全红线
 
-## 4. 环境区分与配置管理
+1. ❌ 服务器 IP、MCP 密钥、数据库密码、JWT 密钥提交 Git
+2. ❌ 直接向 `main` 提交
+3. ❌ 生产服务器直接编辑源码
+4. ❌ 提交真实业务数据（包裹/员工档案/数据库备份）
 
-| 环境   | 代码分支          | 数据库   | 用途        |
-| ---- | ------------- | ----- | --------- |
-| 本地开发 | 本地 feature 分支 | 本地测试库 | Trae 本地运行 |
-| 测试环境 | 服务器 `dev`     | 测试库   | 联调        |
-| 生产环境 | 服务器 `main`    | 正式业务库 | 对外服务      |
+## 7. 提交前自检
 
-**核心红线：配置文件绝不进 Git。**
-
-- `.env`、数据库账号密码、服务器密钥、JWT 密钥等，一律存放在宝塔服务器磁盘。
-
-- 仓库只提交 `env.example` 模板，**只写参数名与占位符，不写真实密码**。
-
-- 服务器通过本地配置文件 / 环境变量读取真实密码，同一套代码在各环境无缝切换。
-
-**敏感文件清单（禁止提交）：** `.env*`、`application-*.yml/properties`、`*.pem`、`*.key`、`*.jks`、数据库备份等。
-
-***
-
-## 5. 部署与发布流程
-
-1. 开发完成合并到 `main`，打版本 tag。
-2. 云服务器执行 `git pull origin main` 获取最新代码。
-3. 编译 Java 项目，重启服务。
-4. 每次上线前，先备份数据库，再执行数据库变更脚本。
-5. 回滚方案：出问题时切换到历史 tag 版本，恢复上一版 Jar 包。
-
-**AI（Trae / 宝塔 MCP）部署约束：**
-
-- 只允许 `git pull` 拉取仓库代码。
-
-- **禁止** AI 直接在服务器上写业务源码，服务器代码全部来源于 Git。
-
-- 宝塔 MCP 操作由主智能体统一发起，执行前必须完成三步：① 安全评估 → ② 应急预案（回滚方案）→ ③ 确认执行。高危操作（删除、重启、数据库变更）必须人工确认后再执行。
-
-***
-
-## 6. 数据库规范
-
-1. 建表 SQL 脚本存到 `hrm-dev/sql/schema/{mysql,postgresql}/`，只存建表、新增字段脚本，**不放真实业务数据**。
-2. Flyway 迁移脚本存到 `hrm-dev/hrm-server/src/main/resources/db/migration/`。
-3. 禁止直接手动改线上数据库表结构；表结构变更必须先写 SQL 脚本，版本化管理。
-4. 20 万包裹数据、员工档案等真实数据，严禁硬编码进代码仓库。
-
-> 说明：仓库中建表脚本必须正常提交，因此 `.gitignore` **不能全局忽略** **`*.sql`**，只忽略备份/导出数据文件（详见根目录 `.gitignore` 文件）。
-
-***
-
-## 7. AI 辅助开发约束（Trae）
-
-1. Trae 生成代码后，**人必须 Review** 再提交 Git，禁止 AI 输出无脑直接提交。
-2. AI 生成的密钥、密码，**必须全部替换**为自建的真实密钥，严禁沿用 AI 给出的默认值。
-3. 大功能先在 feature 分支跑通、自测，再合并。
-4. AI 生成内容涉及数据库表结构、接口变更时，同步更新 `docs/` 下对应文档。
-5. 相似业务场景优先查阅 GitHub 开源项目实现，借鉴设计思路与工程结构，取其精华不照搬代码，引用时注明来源。
-
-***
-
-## 8. 分支合并规则
-
-1. `feature → dev`：自测完成后合并。
-2. `dev → main`：必须经过功能验证，代表可上线。
-3. `main` 合并出错时：用 `git` 回滚到历史 tag，不要强行覆盖提交历史。
-
-***
-
-## 9. 文档规范（仓库内存放位置）
-
-| 文档             | 路径                           |
-| -------------- | ---------------------------- |
-| 数据库设计文档        | `hrm-dev/docs/db.md`         |
-| API 接口文档       | `hrm-dev/docs/api.md`        |
-| 迭代规划（一期/二期/三期） | `hrm-dev/docs/plan.md`       |
-| 部署操作手册         | `hrm-dev/docs/deploy.md`     |
-| 变更日志           | `hrm-dev/docs/update-log.md` |
-
-每次代码/结构变更后同步更新上述文档。
-
-***
-
-## 10. 安全红线（绝对禁止）
-
-1. ❌ 严禁把服务器 IP、MCP 密钥、数据库账号密码、JWT 密钥提交到 Git 仓库。
-2. ❌ 严禁直接向 `main` 分支提交，所有改动走 `feature → dev → main` 流程。
-3. ❌ 生产服务器禁止直接编辑源码，全部代码来源于 Git。
-4. ❌ 严禁提交真实业务数据（包裹数据、员工档案、数据库导出备份）。
-
-***
-
-## 11. 提交前自检清单
-
-- [ ] 代码经过人工 Review，无调试输出、无硬编码密钥
-
-- [ ] Commit 信息符合「类型: 描述」规范
-
-- [ ] 未提交敏感文件（`.env`、密钥、证书、备份）
-
+- [ ] 人工 Review，无调试输出、无硬编码密钥
+- [ ] Commit 符合「类型: 描述」规范
+- [ ] 未提交敏感文件
 - [ ] 表结构变更已写入 `sql/schema/` 脚本
-
 - [ ] 相关 `docs/` 文档已同步更新
+- [ ] 合并目标分支正确
 
-- [ ] 合并目标分支正确（feature → dev，上线走 dev → main）
+## 8. 智能体调用规范
 
-***
+> 遇到对应任务必须通过 Agent 调用对应子智能体，禁止主对话直接产出。
 
-## 12. 智能体调用规范（任务分流）
+| 任务 | 智能体 | Agent 标识 |
+|------|--------|-----------|
+| 架构设计/技术选型/方案评审 | 架构师 | `express-station-architect` |
+| 后端接口/业务逻辑/数据同步 | 后端工程师 | `express-station-backend-engineer` |
+| UI/UX 设计/设计系统/视觉规范 | UI/UX 设计师 | `express-station-ui-ux-designer` |
+| 前端/Vue/H5/UI 实现 | 前端工程师 | `express-station-frontend-engineer` |
+| 算法/调度/路径优化/预测 | 算法工程师 | `express-station-algorithm-engineer` |
+| 建表/SQL/Flyway/索引 | 数据库工程师 | `express-station-database-engineer` |
+| 测试/用例/Bug 复现 | 测试工程师 | `express-station-test-engineer` |
+| 部署/CI/CD/宝塔/Nginx/监控 | 运维工程师 | `express-station-ops-engineer` |
 
-> **硬性要求：遇到对应类型的任务，必须通过 Agent 工具调用对应的自定义智能体执行，禁止主对话直接产出结果。** 先匹配智能体，再开工。
+**权限：** 主智能体 = 最高权限，负责需求拆解、编排调度、安全审查、代码 Review。MCP 工具由主智能体独占调用。子智能体产出须经主智能体 Review 后提交。上下文 > 80% 自动压缩。
 
-| 任务类型                     | 对应智能体  | Agent 标识                             |
-| ------------------------ | ------ | ------------------------------------ |
-| 系统架构设计、技术选型、方案评审         | 架构师    | `express-station-architect`          |
-| 后端接口、业务逻辑、数据同步、外部对接      | 后端工程师  | `express-station-backend-engineer`   |
-| 前端开发、Vue 页面、H5 壳、UI 实现   | 前端工程师  | `express-station-frontend-engineer`  |
-| 算法、调度/路径优化、预测统计          | 算法工程师  | `express-station-algorithm-engineer` |
-| 建表、SQL 脚本、Flyway 迁移、索引优化 | 数据库工程师 | `express-station-database-engineer`  |
-| 用例设计、单元/接口测试、Bug 复现验证    | 测试工程师  | `express-station-test-engineer`      |
-| 部署、CI/CD、宝塔/Nginx、监控、回滚  | 运维工程师  | `express-station-ops-engineer`       |
+### 8.1 设计 → 前端 协作链路
 
-1. TRAE solo 主智能体 = 最高权限，负责需求拆解、编排调度、最终安全审查与代码 Review 把关。
-2. **MCP 权限管控（主智能体独占）：** 所有 MCP 工具调用由主智能体统一发起，角色智能体不得直接调用 MCP。涉及云服务器/宝塔 MCP 操作前，必须先完成三步：① 安全评估 → ② 应急预案 → ③ 确认执行。高危操作必须人工确认。
-3. 简单代码检索、跨模块探索等通用任务，使用内置 `Explore` 智能体。
-4. 复杂需求先由主智能体拆解，再按上表分流到对应角色智能体。
-5. 智能体产出的代码 / 文档，须经主智能体 Review 后再提交（见第 7 节）。
-6. **上下文压缩：** 上下文使用量达 80% 时自动压缩，保留任务目标/规则约束/待办/改动记录/用户偏好，丢弃冗余探索与已完成工具调用详情。
+> **硬性要求：** 涉及界面视觉/交互的任务，必须"先设计后实现"，禁止前端跳过设计直接写样式。
+
+```
+需求 → UI/UX 设计师（出设计系统/规范/视觉稿）→ 主智能体 Review → 前端工程师（实现 Vue 组件）→ 测试
+```
+
+| 阶段 | 负责 | 产出 |
+|------|------|------|
+| 设计 | UI/UX 设计师 | 设计方向、Design Tokens、组件规范、视觉稿 |
+| 审核 | 主智能体 | 设计评审通过 |
+| 实现 | 前端工程师 | Vue 组件（严格按 Tokens 落地） |
+| 验证 | 测试工程师 | 视觉/交互/响应式验收 |
+
+**必须派 UI/UX 设计师的场景：** 新增页面或组件、设计系统与 Design Tokens、配色/字体/布局规范、H5 移动端适配、动效与微交互、无障碍与对比度、视觉走查与还原度评审。
+
+**可直接由前端工程师处理的场景：** 按既有设计系统改文案/间距等微调、纯逻辑修复、已有组件复用装配。
+
+## 9. AI 技能强制启用
+
+### 9.1 通用强制技能（主智能体 + 子智能体）
+
+| 技能 | 时机 | 行为 |
+|------|------|------|
+| `token-optimizer` | **每次任务第一轮**（最高优先级） | L1 去废话 → L2 结论先行 → L3 极简 |
+| `engineering-discipline` | 开发/重构/修复类请求 | spec→plan→build→test→review→ship |
+| `tdd-development` | 后端接口/Service/Mapper 编码前 | red→green→refactor |
+| `code-review` | 提交前/合并前/上线前 | 安全/正确性/性能/可维护性四维审查 |
+| `long-task-optimizer` | 任务 > 5 步/跨会话/多期迭代 | 任务拆分→检查点→压缩→失败恢复→进度追踪 |
+
+### 9.2 领域专业技能（子智能体按角色加载）
+
+| 技能 | 角色 | 来源 |
+|------|------|------|
+| `system-architecture` | 架构师 | Licensed-Orphan/agentic-pipeline + elihuvillaraus/skills/architect |
+| `spring-boot-expert` | 后端工程师 | rrezartprebreza/spring-boot-skills + zander-zyx/java-development-skill |
+| `vue-expert` | 前端工程师 | vuejs-ai/skills + KIMJINWOO4/vue-skills |
+| `ui-ux-design` | UI/UX 设计师 | nextlevelbuilder/ui-ux-pro-max-skill(62.6K Stars) + plugin87/ux-ui-agent-skills + superdesigndev/superdesign-skill |
+| `algorithm-optimization` | 算法工程师 | Salesforce/agentforce-adlc + TimefoldAI/timefold-solver |
+| `database-design` | 数据库工程师 | docfork/db-skills + sanjay3290/ai-skills |
+| `qa-lifecycle` | 测试工程师 | kao273183/qa-claude-skill + petrkindlmann/qa-skills |
+| `devops-pipeline` | 运维工程师 | abdullahkhawer/devops-skills + pfangueiro/claude-code-agents |
+
+### 9.3 执行纪律
+
+1. 第一轮工具调用必须加载匹配技能，不得先动手再补加载
+2. 严格按技能内定义流程执行，不得跳过步骤
+3. 多技能同时匹配时全部加载
+4. 宁可多加载不可漏加载
+5. 子智能体按各自 SKILL.md 完整工作流执行，每阶段有明确产出

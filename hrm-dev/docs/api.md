@@ -642,3 +642,73 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | 12 | 备注 | remark | |
 
 导出范围：当前筛选条件命中的全量数据（不分页）；一期员工量级（数千行内）全量导出无压力，超过 5 万行需改分片导出时二期评估。文件流式写出（EasyExcel），不整体载入内存。
+
+## 7. M11 请假模块与前端运行日志（Demo 增量）
+
+> 来源：`docs/demo-leave-design.md` 附录 A / B。本段是 Demo（Mock 适配器）已落地的契约，
+> 后端实现时按此表建接口；`roles` 缺省 = 不限角色（仅需登录）。三端前端封装见 `hrm-demo/src/{pc,mobile}/api/`。
+
+### 7.1 端点清单（16 个）
+
+| # | 方法 | 路径 | roles | 入参 | 出参 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | POST | `/leave` | — | `{ leaveType, startDate, startPeriod, endDate, endPeriod, reason }` | `LeaveVO` |
+| 2 | POST | `/leave/preview` | — | 同上（只算不落库，reason 可省） | `{ naturalDays, countedDays, hasRestDayExcluded }` |
+| 3 | GET | `/leave/my` | — | `{ status?, leaveType?, startDate?, endDate?, pageNum, pageSize }` | 分页 `LeaveVO[]` |
+| 4 | GET | `/leave/list` | ADMIN / STATION_ADMIN | 同 #3 + `stationId?`（非 ADMIN 强制覆盖为本人驿站） | 分页 `LeaveVO[]` |
+| 5 | GET | `/leave/settings` | — | — | `{ leaveDeductEnabled }` |
+| 6 | PUT | `/leave/settings` | ADMIN | `{ leaveDeductEnabled }` | `{ leaveDeductEnabled }` |
+| 7 | GET | `/leave/:id` | — | — | `LeaveVO`（含 `handleLog[]` 与 `canEdit/canCancel/canRevoke`） |
+| 8 | PUT | `/leave/:id` | — | 同 #1 | `LeaveVO` |
+| 9 | POST | `/leave/:id/cancel` | — | `{}` | `LeaveVO` |
+| 10 | POST | `/leave/:id/resubmit` | — | 同 #1 | `LeaveVO`（新单，带 `originId`） |
+| 11 | POST | `/leave/:id/station-approve` | STATION_ADMIN | `{ approved, remark? }` | `LeaveVO` |
+| 12 | POST | `/leave/:id/final-approve` | ADMIN | `{ approved, remark? }` | `LeaveVO` |
+| 13 | POST | `/leave/:id/revoke` | ADMIN | `{ reason }` | `LeaveVO` |
+| 14 | POST | `/system/client-logs` | — | `{ logs: ClientLogItem[] }` | `{ accepted }` |
+| 15 | GET | `/system/client-logs` | ADMIN | `{ level?, source?, keyword?, startTime?, endTime?, employeeId?, pageNum, pageSize }` | 分页 + `counts` |
+| 16 | POST | `/system/client-logs/clear` | ADMIN | `{}` | `{ cleared }` |
+
+**约定**：`status=PENDING` 是服务端展开的聚合虚拟值（= `PENDING_STATION` + `PENDING_BOSS`）；
+审批意见「通过时选填 0–100 字、驳回时必填 2–100 字」，撤回原因必填 2–100 字；
+撤回过账期的硬约束见 9606。
+
+### 7.2 错误码增量（96xx）
+
+| 码 | 常量名 | 含义 | 默认文案 |
+| --- | --- | --- | --- |
+| 9601 | `LEAVE_NOT_EXISTS` | 请假申请不存在 | 请假申请不存在 |
+| 9602 | `LEAVE_STATUS_INVALID` | 状态不允许该操作 | 该申请当前状态不支持此操作 |
+| 9603 | `LEAVE_OVERLAP` | 时间段与已有申请重叠 | 该时间段与已有申请重叠 |
+| 9604 | `LEAVE_DATE_INVALID` | 日期非法（早于今天 / 结束早于开始 / 超单次上限） | 请假日期不合法 |
+| 9605 | `LEAVE_NO_PERMISSION` | 无权操作（跨站 / 审自己 / ADMIN 提交） | 无权操作该请假申请 |
+| 9606 | `LEAVE_PAYROLL_LOCKED` | 账期工资单已生成，不可撤回 | 该账期工资单已生成，不可撤回 |
+| 9607 | `LEAVE_EDIT_FORBIDDEN` | 当前状态不允许修改 | 该申请当前状态不允许修改 |
+
+单次请假上限 30 个自然日（超限回 9604）；请假只能选**今天或未来**（与补卡「只能过去或当天」方向相反）。
+
+### 7.3 通知类型增量
+
+`notification.type`：**5 = 请假申请**、**6 = 请假结果**（原 1–4 不变）。发布接口的类型校验数组已同步放行 5/6。
+请假通知的 `biz_type` 统一为 `leave`，`biz_id` 为请假单 id。
+
+### 7.4 `LeaveVO` 字段
+
+```
+id, employeeId, employeeName, stationId, stationName,
+leaveType, startDate, startPeriod, endDate, endPeriod, reason,
+naturalDays, countedDays, countedDaysSnapshot,        // 快照 { naturalDays, countedDays, scheduleDigest }
+status, rejectStage,                                  // rejectStage: null | 'STATION' | 'BOSS'
+approverId, approverName, approveTime, approveRemark,  // 终审
+stationApproverId, stationApproverName, stationApproveTime, stationApproveRemark,  // 初审（两级分槽）
+cancelById, cancelTime, revokerId, revokerName, revokeTime, revokeReason,
+originId, applyTime, updateTime, handleLog[]
+```
+
+### 7.5 前端运行日志 `ClientLogItem`
+
+入库字段（白名单复制，未列出的一律丢弃）：`time / level(INFO|WARN|ERROR) / source(PC|H5|SHELL) / employeeId /
+route / message / stack / method / path(去 query) / status / code / duration / ua`，另附 `count / firstTime / lastTime`。
+**明确不得记录**：token、密码、身份证、手机号全量、银行卡、请求/响应体原文。
+Mock 侧环形缓冲上限 200 条（FIFO），同 `(message + route + code)` 在 10 秒内重复只累加 `count`。
+

@@ -1,0 +1,4 @@
+# 仓库根目录还含一期资产与后端工程，pre-commit 只处理本 Demo 工程范围内的暂存文件
+if git diff --cached --name-only | grep -q '^hrm-dev/hrm-demo/'; then
+  cd "$(git rev-parse --show-toplevel)/hrm-dev/hrm-demo" && npx lint-staged
+fi

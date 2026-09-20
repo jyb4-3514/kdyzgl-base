@@ -407,3 +407,46 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 ### 6.3 三期预告
 
 工单表（类型/流转状态机/SLA）、通知记录表；`employee.role` 届时正式启用 STATION_ADMIN 分权。
+
+## 7. M11 请假与运行日志表（Demo 增量）
+
+> 来源：`docs/demo-leave-design.md`。Demo 阶段这三张表只存在于 Mock 持久化桶
+> （`hrm-demo/src/shared/mock/{leaveStore,clientLogStore}.js`，localStorage 整表快照）；
+> 下表为后端建表口径提案，命名与一期规范一致（snake_case、主键 `id`、`create_time/update_time`、索引 `idx_表名_字段`）。
+
+### 7.1 leave_request（请假申请单）
+
+| 字段 | 类型 | 说明 |
+| ---- | ---- | ---- |
+| id | BIGINT PK | 自增 |
+| employee_id | BIGINT | 申请人（逻辑外键 → employee.id） |
+| station_id | BIGINT | 申请时归属驿站（初审站长判定依据，见设计规范 Q9） |
+| leave_type | VARCHAR(20) | 假别枚举（`LEAVE_TYPE` 键） |
+| start_date / end_date | DATE | 起止日期 |
+| start_period / end_period | VARCHAR(2) | 半天粒度 AM / PM |
+| reason | VARCHAR(200) | 请假事由 2–200 字 |
+| natural_days | DECIMAL(4,1) | 自然天数（半天粒度 0.5） |
+| counted_days | DECIMAL(4,1) | 申请时预估的计薪天数（逐日查排班） |
+| counted_days_snapshot | JSON | 终审通过时的计薪天数快照 `{naturalDays, countedDays, scheduleDigest}` |
+| status | VARCHAR(20) | 6 态：PENDING_STATION / PENDING_BOSS / APPROVED / REJECTED / CANCELLED / REVOKED |
+| reject_stage | VARCHAR(10) NULL | STATION / BOSS（仅 REJECTED 有值） |
+| origin_id | BIGINT NULL | 驳回后重提指向的原单（T9） |
+| station_approver_id / station_approve_time / station_approve_remark | — | 初审（与终审分列，避免相互覆盖） |
+| approver_id / approve_time / approve_remark | — | 终审 |
+| cancel_by_id / cancel_time | — | 申请人撤销 |
+| revoker_id / revoke_time / revoke_reason | — | 审批人撤回 |
+| apply_time / update_time | DATETIME | |
+
+索引：`idx_leave_request_employee_status (employee_id, status)`、`idx_leave_request_station_status (station_id, status)`、`idx_leave_request_date (start_date, end_date)`。
+
+### 7.2 leave_log（请假操作留痕，D6 审计）
+
+`id / leave_id / action / operator_id / operator_name / operator_role / time / from_status / to_status / before(JSON) / after(JSON) / remark`；
+索引 `idx_leave_log_leave (leave_id, time)`。`action` 取值见 `dict.LEAVE_LOG_ACTION`（含 `NOTIFY_SKIP` 排障留痕）。
+
+### 7.3 client_log（前端运行日志，D6）
+
+`id / time / level / source / employee_id NULL / route / message / stack / method / path / status / code / duration / ua / count / first_time / last_time`；
+索引 `idx_client_log_time (time)`、`idx_client_log_level (level)`。
+**写入前必须白名单脱敏**：token / 密码 / 身份证 / 手机号全量 / 银行卡 / 请求响应体原文一律不入库（见 api.md 7.5）。
+

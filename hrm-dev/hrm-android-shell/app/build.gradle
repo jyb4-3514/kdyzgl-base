@@ -1,0 +1,48 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.example.hrmwebview'
+    // SDK 版本占位：须与本机已安装的 SDK Platform 一致，本机无 SDK 未验证
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.example.hrmwebview'
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0'
+    }
+
+    buildFeatures {
+        // AGP 8 起 BuildConfig 默认不生成，H5_URL / VERSION_NAME 依赖它，必须显式开启
+        buildConfig = true
+    }
+
+    buildTypes {
+        debug {
+            // 10.0.2.2 是安卓模拟器访问宿主机的约定地址，非真实 IP；
+            // 真机调试改为局域网地址时，需同步放行 network_security_config.xml
+            buildConfigField 'String', 'H5_URL', '"http://10.0.2.2:5188/mobile.html"'
+        }
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // TODO(扩展): 生产 H5 地址改为构建参数注入（如 -Ph5Url=...），真实域名禁止写进仓库
+            buildConfigField 'String', 'H5_URL', '"https://example.invalid/mobile.html"'
+        }
+    }
+
+    compileOptions {
+        // 与 AGP 8.x 要求的 JDK 17 对齐
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // 版本占位：以下坐标以 AndroidX 发布说明为准，本机未做依赖解析验证
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.activity:activity:1.9.3'
+}

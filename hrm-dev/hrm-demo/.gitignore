@@ -1,0 +1,9 @@
+# 仓库根 .gitignore 的 `.env.*` 会连带吞掉本演示参数文件（其中不含任何真实密钥），此处显式放行
+!.env.demo
+!.env.production
+
+# Playwright 在 CWD 根留下的「上次运行状态」标记（e2e/ 下的截图与报告由 e2e/.gitignore 兜住）
+test-results/
+
+# 单测覆盖率报告属构建产物，不入库
+coverage/

@@ -1,0 +1,22 @@
+# Android 本地环境（含本机 SDK 绝对路径）
+local.properties
+
+# 构建产物
+build/
+.gradle/
+*.apk
+*.aab
+captures/
+
+# 签名文件与密钥库
+*.jks
+*.keystore
+
+# H5 离线包：构建时从 hrm-demo 产物拷贝进来，不入库
+app/src/main/assets/h5/*
+!app/src/main/assets/h5/.gitkeep
+
+# IDE
+.idea/
+*.iml
+.DS_Store

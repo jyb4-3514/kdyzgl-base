@@ -1,0 +1,4 @@
+// 顶层脚本只声明插件版本，不下发任何依赖给子模块
+plugins {
+    id 'com.android.application' version "$agpVersion" apply false
+}

@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- 内联 SVG data-URI favicon（品牌色 700 档 #0958D9 的包裹标识）：不引入二进制资源，同时消除三端入口对 /favicon.ico 的 404 请求 -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%230958D9'/%3E%3Cpath%20d='M9%2013l7-3.5%207%203.5v7L16%2023.5%209%2020z'%20fill='%23fff'/%3E%3Cpath%20d='M16%209.5v14'%20stroke='%230958D9'%20stroke-width='1.6'/%3E%3C/svg%3E"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>快递驿站智汇系统 · 三端演示 Demo</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        background: #f0f2f5;
+        color: #1f2329;
+      }
+      .portal {
+        width: 100%;
+        max-width: 960px;
+      }
+      .portal__title {
+        font-size: 24px;
+        font-weight: 600;
+        text-align: center;
+      }
+      .portal__desc {
+        margin-top: 8px;
+        font-size: 13px;
+        color: #8c8c8c;
+        text-align: center;
+      }
+      .portal__env {
+        margin: 20px auto 0;
+        max-width: 720px;
+        padding: 10px 14px;
+        font-size: 12px;
+        line-height: 1.8;
+        color: #595959;
+        background: #fffbe6;
+        border: 1px solid #ffe58f;
+        border-radius: 6px;
+      }
+      .portal__cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-top: 20px;
+      }
+      .card {
+        display: block;
+        padding: 22px 18px;
+        text-decoration: none;
+        color: inherit;
+        background: #fff;
+        border: 1px solid #e8e8e8;
+        border-radius: 10px;
+        transition:
+          transform 0.15s,
+          box-shadow 0.15s,
+          border-color 0.15s;
+      }
+      .card:hover {
+        transform: translateY(-2px);
+        border-color: #1677ff;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+      }
+      .card__tag {
+        font-size: 12px;
+        color: #1677ff;
+      }
+      .card__name {
+        margin-top: 6px;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      .card__role {
+        margin-top: 10px;
+        font-size: 12px;
+        color: #8c8c8c;
+        line-height: 1.7;
+      }
+      .card__link {
+        margin-top: 14px;
+        font-size: 12px;
+        color: #1677ff;
+      }
+      .card--off .card__link {
+        color: #bfbfbf;
+      }
+
+      .portal__section {
+        margin-top: 26px;
+      }
+      .portal__section-title {
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .panel {
+        margin-top: 10px;
+        padding: 16px 18px;
+        background: #fff;
+        border: 1px solid #e8e8e8;
+        border-radius: 10px;
+      }
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 0;
+        font-size: 13px;
+      }
+      .check__label {
+        flex: 1;
+        color: #595959;
+      }
+      .check__value {
+        font-weight: 600;
+      }
+      .check__ok {
+        color: #52c41a;
+      }
+      .check__bad {
+        color: #ff4d4f;
+      }
+      .btn {
+        padding: 8px 18px;
+        font-size: 13px;
+        color: #fff;
+        background: #1677ff;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .btn:disabled {
+        background: #bfbfbf;
+        cursor: default;
+      }
+      .btn--ghost {
+        color: #1677ff;
+        background: #fff;
+        border: 1px solid #1677ff;
+      }
+      .portal__actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 14px;
+      }
+      .portal__hint {
+        font-size: 12px;
+        color: #8c8c8c;
+      }
+      .portal__script {
+        margin-top: 10px;
+        padding-left: 20px;
+        font-size: 12px;
+        line-height: 2;
+        color: #595959;
+      }
+      code {
+        padding: 1px 5px;
+        font-size: 12px;
+        background: #f0f2f5;
+        border-radius: 4px;
+      }
+
+      @media (max-width: 720px) {
+        .portal__cards {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 端选择入口页：三张卡片跳转三个独立 HTML 入口；下方为演示剧本自检与「重置演示数据」 -->
+    <main class="portal" id="portal">
+      <h1 class="portal__title" id="portal-title">加载中…</h1>
+      <p class="portal__desc">三端演示 Demo · 纯前端 + Mock 假数据，不依赖后端与数据库</p>
+      <div class="portal__env" id="portal-env"></div>
+      <div class="portal__cards" id="portal-cards"></div>
+
+      <section class="portal__section">
+        <h2 class="portal__section-title">演示剧本数据自检</h2>
+        <div class="panel" id="portal-scenario">校验中…</div>
+        <div class="portal__actions">
+          <button class="btn" type="button" id="portal-reset">重置演示数据</button>
+          <button class="btn btn--ghost" type="button" id="portal-recheck">重新自检</button>
+          <span class="portal__hint" id="portal-reset-hint"></span>
+        </div>
+      </section>
+
+      <section class="portal__section">
+        <h2 class="portal__section-title">演示顺序（demo-design.md 7.6，约 8-10 分钟）</h2>
+        <ol class="portal__script" id="portal-script">
+          <li>网页端：<code>admin</code> 一键登录 → 看板（一期 4 指标 + 二期扩展）</li>
+          <li>包裹管理：城东驿站 + 在库待取 + 近 7 天 → 翻页 / 详情抽屉（脱敏收件人）</li>
+          <li>同步任务：找到失败批次 → 看日志 → 重试（失败 → 待领取 → 成功）</li>
+          <li>工单管理：切「超时未处理」Tab → 打开工单 → 指派站长 → 转「处理中」</li>
+          <li>通知中心：看到上一步自动生成的「工单指派」通知（跨页联动）</li>
+          <li>移动端（DevTools 切 iPhone 14 Pro）：老板端总览 → 趋势切 30 天 → 排行切换排序 → 异常预警</li>
+          <li>「我的」切换为城东驿站站长：数据范围收敛为本站</li>
+          <li>工作台 → 本站包裹 → 取件核销 → 填入演示运单号 → 确认取件</li>
+          <li>工单列表 → 处理工单 → 填处理记录 → 标记已解决 → 通知页二次联动</li>
+          <li>回网页端刷新看板与工单页：今日取件 +1、工单已解决（三端数据一致性）</li>
+        </ol>
+      </section>
+    </main>
+    <script type="module" src="/src/portal/main.js"></script>
+  </body>
+</html>
