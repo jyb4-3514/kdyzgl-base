@@ -89,12 +89,13 @@ onMounted(load)
           <p class="tip">暂无离职结算单</p>
         </div>
 
-        <!-- 无权限降级：说明清晰、无不可用按钮 -->
+        <!-- 流程进度：接口仅对 ADMIN 开放，走 PageState 的 denied 变体做只读降级（不收手写卡片，状态组件全域唯一） -->
         <div class="section-title">流程进度</div>
-        <div class="card">
-          <p class="tip">入职与离职流程的步骤进度、资料审核与交接确认由人事端办理，员工端暂不展示流程实例。</p>
-          <p class="tip">如需查询进度或提交资料，请联系所在驿站站长或人事。</p>
-        </div>
+        <PageState
+          variant="denied"
+          denied-text="入职与离职流程的步骤进度、资料审核与交接确认由人事端办理，员工端暂不展示流程实例。"
+          denied-hint="如需查询进度或提交资料，请联系所在驿站站长或人事。"
+        />
       </PageState>
     </div>
   </div>

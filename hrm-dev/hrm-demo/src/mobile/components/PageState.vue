@@ -2,9 +2,10 @@
 import { onUnmounted, ref, watch } from 'vue'
 
 /**
- * 列表/详情页三态包装（C-M6：加载中 / 失败可重试 / 空）
+ * 列表/详情页状态包装（C-M6：加载中 / 失败可重试 / 空）
  * 错误态与空态必须文案不同且错误态必给重试 —— 现状 4 个页面 catch 后列表为空，
  * 用户看到「没有数据」会误判为业务为空而不是系统异常（修 P14 移动端版本）。
+ * 四态之外的「无权限」用 variant="denied"：只读降级 + 说明，不渲染不可用按钮（UI 规范 4.3）。
  */
 const props = defineProps({
   loading: { type: Boolean, default: false },
@@ -13,6 +14,11 @@ const props = defineProps({
   emptyText: { type: String, default: '暂无数据' },
   /** 错误态的次级说明，默认给出可操作建议 */
   errorHint: { type: String, default: '请检查网络后重试，若持续失败请联系管理员' },
+  /** 'denied' = 只读降级（无权限）：只给说明，不渲染任何不可用按钮；空串 = 三个数据态照旧 */
+  variant: { type: String, default: '' },
+  deniedText: { type: String, default: '暂无查看权限' },
+  /** 降级说明必须写清「谁能办、去哪办」，否则用户只会反复点空白页 */
+  deniedHint: { type: String, default: '该内容由其他角色办理，如需查询请联系所在驿站站长或人事' },
   rows: { type: Number, default: 4 }
 })
 
@@ -48,6 +54,12 @@ onUnmounted(() => clearTimeout(skeletonTimer))
       <div v-if="showSkeleton" class="page-state__skeleton">
         <van-skeleton :row="rows" row-width="100%" />
       </div>
+    </div>
+
+    <div v-else-if="variant === 'denied'" class="page-state__block" role="status">
+      <van-icon name="lock" class="page-state__icon" aria-hidden="true" />
+      <p class="page-state__text">{{ deniedText }}</p>
+      <p class="page-state__hint">{{ deniedHint }}</p>
     </div>
 
     <div v-else-if="error" class="page-state__block" role="alert">
@@ -111,7 +123,7 @@ onUnmounted(() => clearTimeout(skeletonTimer))
 /* 重试为次要控件，用描边式避免空态区出现强主色块；高度 44 满足触控要求。
  * 描边取 500 档 --color-primary-icon，与 .chip--active 等既有描边控件同口径（P2-3） */
 .page-state__action {
-  min-height: 44px;
+  min-height: var(--touch-min);
   padding: 0 var(--sp-5);
   margin-top: var(--sp-4);
   font-size: var(--fs-body);

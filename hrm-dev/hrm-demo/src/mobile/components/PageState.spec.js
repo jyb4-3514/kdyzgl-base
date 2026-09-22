@@ -46,6 +46,44 @@ describe('PageState · 状态优先级', () => {
   })
 })
 
+describe('PageState · 无权限降级（variant=denied）', () => {
+  it('denied 只给说明，不渲染插槽、也不渲染重试按钮', () => {
+    const wrapper = mountState({ variant: 'denied' }, { default: '<p class="content">数据</p>' })
+    expect(wrapper.find('[role="status"]').exists()).toBe(true)
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('暂无查看权限')
+    expect(wrapper.text()).toContain('该内容由其他角色办理')
+    expect(wrapper.find('.page-state__action').exists()).toBe(false)
+    expect(wrapper.find('.content').exists()).toBe(false)
+  })
+
+  it('denied 文案可覆盖，用于写清「谁能办、去哪办」', () => {
+    const wrapper = mountState({ variant: 'denied', deniedText: '流程进度仅人事端可见', deniedHint: '请联系驿站站长' })
+    expect(wrapper.text()).toContain('流程进度仅人事端可见')
+    expect(wrapper.text()).toContain('请联系驿站站长')
+  })
+
+  it('denied 优先于 error：无权限不是系统异常，给重试只会让用户反复点', () => {
+    const wrapper = mountState({ variant: 'denied', error: '网络异常' })
+    expect(wrapper.find('[role="status"]').exists()).toBe(true)
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it('variant 传未知值时按普通三态处理，不静默吞掉数据', () => {
+    const wrapper = mountState({ variant: 'unknown' }, { default: '<p class="content">数据</p>' })
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.find('.content').exists()).toBe(true)
+  })
+
+  it('向后兼容：不传 variant 时错误态仍是 alert + 重试，行为与改造前一致', async () => {
+    const wrapper = mountState({ error: '网络异常', empty: true })
+    expect(wrapper.find('[role="alert"]').exists()).toBe(true)
+    expect(wrapper.find('.page-state__action').exists()).toBe(true)
+    await wrapper.find('.page-state__action').trigger('click')
+    expect(wrapper.emitted('retry')).toHaveLength(1)
+  })
+})
+
 describe('PageState · 骨架延迟', () => {
   it('加载 200ms 后才出现骨架，快请求不闪骨架', async () => {
     vi.useFakeTimers()
