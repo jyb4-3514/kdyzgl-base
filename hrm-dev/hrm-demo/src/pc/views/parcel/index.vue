@@ -145,10 +145,11 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
-import { getStations } from '@admin/api/station'
 import { useAuthStore } from '@admin/stores/auth'
+import { useOrgStore } from '../../stores/org.js'
 import { PARCEL_STATUS } from '@/shared/constants/dict'
 import { getParcelDetail, getParcels, getParcelSummary } from '../../api/parcel.js'
 import { downloadCsv } from '../../utils/csv.js'
@@ -170,6 +171,9 @@ const PAGE_SIZE = 100
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+// 驿站名册跨页共享，取数收口到 org store；本页筛选用的 stationId 仍属页面状态
+const orgStore = useOrgStore()
+const { stations } = storeToRefs(orgStore)
 
 const isAdmin = computed(() => !!authStore.user && authStore.user.role === 'ADMIN')
 
@@ -180,7 +184,6 @@ const exporting = ref(false)
 const list = ref([])
 const total = ref(0)
 const summary = ref(null)
-const stations = ref([])
 const dateRange = ref([])
 const detailVisible = ref(false)
 const detail = ref(null)
@@ -296,7 +299,7 @@ async function fetchSummary() {
 
 async function loadStations() {
   try {
-    stations.value = await getStations()
+    await orgStore.loadStations()
   } catch (e) {
     /* 拦截器已统一提示：站点下拉失败不阻塞列表，用户仍可按其他条件筛选 */
   }

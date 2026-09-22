@@ -1,6 +1,7 @@
 import { computed, reactive, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getStations } from '@admin/api/station'
+import { useOrgStore } from '../../../stores/org.js'
 import { getSyncTasks, retrySyncTask, triggerSyncTask } from '../../../api/syncTask.js'
 
 /**
@@ -14,12 +15,15 @@ import { getSyncTasks, retrySyncTask, triggerSyncTask } from '../../../api/syncT
  * @param onChanged   触发/重试成功后的联动回调（编排层用它刷新已打开的日志抽屉）
  */
 export function useSyncBatchList({ markUpdated = () => {}, onChanged } = {}) {
+  // 驿站名册跨页共享，取数收口到 org store；本页筛选用的 stationId 仍是页面状态
+  const orgStore = useOrgStore()
+  const { stations } = storeToRefs(orgStore)
+
   const query = reactive({ stationId: undefined, status: undefined, keyword: '', pageNum: 1, pageSize: 20 })
   const loading = ref(false)
   const list = ref([])
   const total = ref(0)
   const listError = ref(false)
-  const stations = ref([])
   // 触发 / 重试各自独立的 loading：改前共用一个 actingId，点触发时重试也跟着转圈（A6-2）
   const triggeringId = ref(null)
   const retryingId = ref(null)
@@ -57,7 +61,7 @@ export function useSyncBatchList({ markUpdated = () => {}, onChanged } = {}) {
 
   async function loadStations() {
     try {
-      stations.value = await getStations()
+      await orgStore.loadStations()
     } catch (e) {
       /* 站点下拉失败不阻塞列表筛选 */
     }

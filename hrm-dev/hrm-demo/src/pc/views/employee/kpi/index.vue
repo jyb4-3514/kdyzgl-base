@@ -146,11 +146,12 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { EditPen, MagicStick, Refresh } from '@element-plus/icons-vue'
-import { getStations } from '@admin/api/station'
 import { getEmployees } from '@admin/api/employee'
 import { useAuthStore } from '@admin/stores/auth'
+import { useOrgStore } from '../../../stores/org.js'
 import { calculateKpiScores, getKpiMetrics, getKpiRanking, getKpiScores } from '../../../api/kpi.js'
 import { KPI_ROLE_SCOPE } from '@/shared/constants/dict.js'
 import PageHeader from '../../../components/PageHeader.vue'
@@ -184,10 +185,12 @@ const ENABLED_DICT = {
 
 const router = useRouter()
 const authStore = useAuthStore()
+// 驿站名册跨页共享，取数收口到 org store；员工名册带本站/在职语义，仍由本页按参取数
+const orgStore = useOrgStore()
+const { stations } = storeToRefs(orgStore)
 const isAdmin = computed(() => !!authStore.user && authStore.user.role === 'ADMIN')
 
 const activeTab = ref('result')
-const stations = ref([])
 const employees = ref([])
 
 const query = reactive({ month: currentMonth(), stationId: undefined, employeeId: undefined, pageNum: 1, pageSize: 20 })
@@ -364,8 +367,8 @@ function reloadAll() {
 }
 
 async function loadBaseData() {
-  const [stationList, employeePage] = await Promise.all([getStations(), getEmployees({ pageNum: 1, pageSize: 100 })])
-  stations.value = stationList || []
+  // 驿站走共享 store（已取过即命中缓存），员工名册带在职语义仍需本页按参取
+  const [, employeePage] = await Promise.all([orgStore.loadStations(), getEmployees({ pageNum: 1, pageSize: 100 })])
   employees.value = (employeePage.list || []).map((item) => ({
     id: item.id,
     realName: item.realName,

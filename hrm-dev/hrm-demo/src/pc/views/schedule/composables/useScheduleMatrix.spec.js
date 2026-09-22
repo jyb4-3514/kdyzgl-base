@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 
 /**
  * 排班矩阵 composable 的回归网
@@ -14,6 +15,8 @@ vi.mock('element-plus', () => ({
 vi.mock('@admin/api/station', () => ({
   getStations: vi.fn().mockResolvedValue([{ id: 1, stationName: '城东驿站' }])
 }))
+// 驿站经 org store 取数，部门接口同模块引入，必须一并桩掉（否则会拉起一期 request）
+vi.mock('@admin/api/department', () => ({ getDepartmentTree: vi.fn() }))
 vi.mock('@admin/stores/auth', () => ({ useAuthStore: () => ({ user: { id: 9, role: 'ADMIN', stationId: 1 } }) }))
 vi.mock('../../../api/attendance.js', () => ({
   getSchedules: mocks.getSchedules,
@@ -27,6 +30,8 @@ const matrixOf = (dates, employees) => ({ dates, shifts: [], employees, weekStar
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // composable 内消费 pinia store，测试需先激活一个干净实例
+  setActivePinia(createPinia())
 })
 
 describe('useScheduleMatrix · 竞态守卫', () => {

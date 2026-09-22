@@ -108,10 +108,11 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import { ElMessage } from 'element-plus'
 import { Promotion, Refresh } from '@element-plus/icons-vue'
-import { getStations } from '@admin/api/station'
 import { useAuthStore } from '@admin/stores/auth'
+import { useOrgStore } from '../../stores/org.js'
 import { NOTIFICATION_TYPE, PUBLISH_SCOPE, dictLabel } from '@/shared/constants/dict'
 import {
   getNotifications,
@@ -143,6 +144,9 @@ const BIZ_ROUTE = {
 
 const router = useRouter()
 const authStore = useAuthStore()
+// 驿站名册跨页共享，取数收口到 org store（发布抽屉的范围选择用）
+const orgStore = useOrgStore()
+const { stations } = storeToRefs(orgStore)
 
 const isAdmin = computed(() => !!authStore.user && authStore.user.role === 'ADMIN')
 
@@ -150,7 +154,6 @@ const isAdmin = computed(() => !!authStore.user && authStore.user.role === 'ADMI
 const ANNOUNCEMENT = { ANNOUNCEMENT: { label: '公告', type: 'info' } }
 
 const publishVisible = ref(false)
-const stations = ref([])
 
 const activeTab = ref('all')
 const loading = ref(false)
@@ -256,7 +259,7 @@ function handleSizeChange() {
 
 async function loadStations() {
   try {
-    stations.value = await getStations()
+    await orgStore.loadStations()
   } catch (e) {
     /* 驿站下拉失败不阻塞发布（发布抽屉会给出可操作提示） */
   }

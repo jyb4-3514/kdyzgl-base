@@ -1,5 +1,6 @@
 import { computed, reactive, ref } from 'vue'
-import { getStations } from '@admin/api/station'
+import { storeToRefs } from 'pinia'
+import { useOrgStore } from '../../../stores/org.js'
 import { getWorkOrders } from '../../../api/workOrder.js'
 
 /**
@@ -10,6 +11,10 @@ import { getWorkOrders } from '../../../api/workOrder.js'
  * TODO(扩展): 同类竞态在考勤/包裹/员工列表页同样存在且实现相同，等抽出公共 useLatestRequest 后统一替换，不要逐页复制这段序号逻辑。
  */
 export function useWorkOrderList(isAdmin) {
+  // 驿站名册跨页共享，取数收口到 org store；本页筛选用的 stationId 仍是页面状态
+  const orgStore = useOrgStore()
+  const { stations } = storeToRefs(orgStore)
+
   // TODO(扩展): 筛选条件写回 URL（A5-2 的 useQuerySync）
   const query = reactive({
     stationId: undefined,
@@ -26,7 +31,6 @@ export function useWorkOrderList(isAdmin) {
   const total = ref(0)
   const listError = ref(false)
   const updatedAt = ref('')
-  const stations = ref([])
   // Tab 计数与列表分开维护：列表只查当前 Tab，计数需要各状态各查一次（pageSize=1 取 total）
   const tabCounts = ref({ all: 0 })
 
@@ -126,7 +130,7 @@ export function useWorkOrderList(isAdmin) {
 
   async function loadStations() {
     try {
-      stations.value = await getStations()
+      await orgStore.loadStations()
     } catch (e) {
       /* 站点下拉失败不阻塞列表筛选 */
     }

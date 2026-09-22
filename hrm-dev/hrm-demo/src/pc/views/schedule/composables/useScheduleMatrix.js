@@ -1,7 +1,8 @@
 import { computed, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getStations } from '@admin/api/station'
 import { useAuthStore } from '@admin/stores/auth'
+import { useOrgStore } from '../../../stores/org.js'
 import { ATTENDANCE_CODE } from '@/shared/constants/errorCode'
 import { addDays, formatDate, mondayOf } from '@/shared/domain/time.js'
 import { getSchedules, getShifts, saveSchedulesBatch } from '../../../api/attendance.js'
@@ -20,6 +21,9 @@ import { buildOriginal, buildRows, cellKey, filledCellsOf, localDate, stamp } fr
  */
 export function useScheduleMatrix() {
   const authStore = useAuthStore()
+  // 驿站名册跨页共享，取数收口到 org store；本页的「选中驿站」仍是页面状态
+  const orgStore = useOrgStore()
+  const { stations } = storeToRefs(orgStore)
 
   const isAdmin = computed(() => !!authStore.user && authStore.user.role === 'ADMIN')
   const currentUser = computed(() => authStore.user || {})
@@ -31,7 +35,6 @@ export function useScheduleMatrix() {
   const matrixError = ref(false)
   const updatedAt = ref('')
 
-  const stations = ref([])
   const stationId = ref(null)
   const weekStart = ref(formatDate(mondayOf(new Date())))
   const dates = ref([])
@@ -69,7 +72,7 @@ export function useScheduleMatrix() {
 
   async function loadStations() {
     try {
-      stations.value = await getStations()
+      await orgStore.loadStations()
       // 默认选中第一个驿站：演示的排班种子数据只投给城东驿站
       if (!stationId.value && stations.value.length) stationId.value = stations.value[0].id
     } catch (e) {

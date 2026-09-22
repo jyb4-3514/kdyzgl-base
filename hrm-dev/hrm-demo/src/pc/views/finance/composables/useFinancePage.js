@@ -1,11 +1,10 @@
 import { computed, reactive, ref } from 'vue'
-import { getStations } from '@admin/api/station'
-import { getDepartmentTree } from '@admin/api/department'
+import { storeToRefs } from 'pinia'
+import { useOrgStore } from '../../../stores/org.js'
 import { usePayrollList } from './usePayrollList.js'
 import { usePayrollRules } from './usePayrollRules.js'
 import { usePayrollObjections } from './usePayrollObjections.js'
 import { usePayrollActions } from './usePayrollActions.js'
-import { flattenDeptTree } from '../model/financeMeta.js'
 
 /**
  * 财务管理页编排：把工资单 / 计薪规则 / 异议处理 + 审核动作串成一份页面级状态
@@ -17,9 +16,11 @@ import { flattenDeptTree } from '../model/financeMeta.js'
  * 老板端的完整闭环：配计算规则 → 生成草稿 → 批量调整人工项 → 提交审核 → 审核通过并发布 → 处理员工异议。
  */
 export function useFinancePage() {
+  // 驿站与部门都是跨页基础数据，取数收口到 org store；部门下拉由 store 统一拍平
+  const orgStore = useOrgStore()
+  const { stations, departmentOptions } = storeToRefs(orgStore)
+
   const activeTab = ref('payroll')
-  const stations = ref([])
-  const departmentOptions = ref([])
 
   // 详情抽屉与生成弹窗仅是页面级开合状态，故留在编排层
   const detailVisible = ref(false)
@@ -78,9 +79,8 @@ export function useFinancePage() {
   }
 
   async function loadBaseData() {
-    const [stationList, deptTree] = await Promise.all([getStations(), getDepartmentTree().catch(() => [])])
-    stations.value = stationList || []
-    departmentOptions.value = flattenDeptTree(deptTree)
+    // 部门树失败降级为空下拉；驿站失败仍向上抛（生成工资单的归属驿站依赖它）
+    await Promise.all([orgStore.loadStations(), orgStore.loadDepartments().catch(() => [])])
   }
 
   async function init() {

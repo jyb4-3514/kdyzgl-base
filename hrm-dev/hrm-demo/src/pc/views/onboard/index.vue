@@ -146,9 +146,9 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { Minus, Plus, Refresh } from '@element-plus/icons-vue'
-import { getStations } from '@admin/api/station'
-import { getDepartmentTree } from '@admin/api/department'
+import { useOrgStore } from '../../stores/org.js'
 import { getOffboardings, getOnboardings } from '../../api/hr.js'
 import { FLOW_STATUS, FLOW_TYPE } from '@/shared/constants/dict.js'
 import PageHeader from '../../components/PageHeader.vue'
@@ -166,9 +166,11 @@ import FlowDetailDrawer from './components/FlowDetailDrawer.vue'
  * 入口与权限：侧边栏「组织人事 → 入离职」，契约的流程读写全部是 ADMIN；
  * TODO(扩展): 契约无流程模板接口（/flows/templates 未实现）与撤销接口，对应 Tab 与操作保留占位说明。
  */
+// 驿站与部门都是跨页基础数据，取数收口到 org store
+const orgStore = useOrgStore()
+const { stations, departmentOptions } = storeToRefs(orgStore)
+
 const activeTab = ref('instance')
-const stations = ref([])
-const departmentOptions = ref([])
 
 const list = ref([])
 const total = ref(0)
@@ -230,17 +232,8 @@ function openDetail(row) {
 const headerSub = computed(() => `当前筛选共 ${total.value} 个流程 · 每步显示责任方与状态，驳回不回滚已产生的数据`)
 
 async function loadBaseData() {
-  const [stationList, deptTree] = await Promise.all([getStations(), getDepartmentTree().catch(() => [])])
-  stations.value = stationList || []
-  const flat = []
-  const walk = (nodes) => {
-    ;(nodes || []).forEach((node) => {
-      flat.push({ id: node.id, deptName: node.deptName })
-      walk(node.children)
-    })
-  }
-  walk(deptTree)
-  departmentOptions.value = flat
+  // 部门树失败降级为空下拉；驿站失败仍向上抛（发起流程时的归属驿站依赖它）
+  await Promise.all([orgStore.loadStations(), orgStore.loadDepartments().catch(() => [])])
 }
 
 onMounted(async () => {

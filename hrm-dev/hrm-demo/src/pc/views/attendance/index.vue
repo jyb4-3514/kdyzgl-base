@@ -197,10 +197,11 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { ElMessage } from 'element-plus'
 import { Download, Refresh } from '@element-plus/icons-vue'
-import { getStations } from '@admin/api/station'
 import { useAuthStore } from '@admin/stores/auth'
+import { useOrgStore } from '../../stores/org.js'
 import { formatDateCompact, saveResponseFile } from '@admin/utils/download'
 import { ATTENDANCE_CODE } from '@/shared/constants/errorCode'
 import { ATTENDANCE_STATUS, CHECK_MODE, CHECK_TYPE, dictLabel } from '@/shared/constants/dict'
@@ -235,6 +236,9 @@ import ExportConfirmDialog from './components/ExportConfirmDialog.vue'
 const RECENT_DAYS = 30
 
 const authStore = useAuthStore()
+// 驿站名册跨页共享，取数收口到 org store；本页自己的「选中驿站」仍由 stationId 持有（默认全域）
+const orgStore = useOrgStore()
+const { stations } = storeToRefs(orgStore)
 
 const isAdmin = computed(() => !!authStore.user && authStore.user.role === 'ADMIN')
 const currentUser = computed(() => authStore.user || {})
@@ -257,7 +261,6 @@ const ruleMissing = ref(false)
 const savingRule = ref(false)
 const listError = ref(false)
 
-const stations = ref([])
 const stationId = ref(null)
 const summary = ref(null)
 const rule = ref(null)
@@ -329,8 +332,8 @@ function stationNameOf(id) {
 
 async function loadStations() {
   try {
-    stations.value = await getStations()
-    // ADMIN 默认「全部驿站」而非第一个驿站：数据范围是全域，页面必须让这一点可见（A9-3）
+    // ADMIN 不把驿站默认成第一个：数据范围是全域，页面必须让这一点可见（A9-3）
+    await orgStore.loadStations()
   } catch (e) {
     /* 拦截器已统一提示；此处不阻塞，规则/记录区会各自进入错误态 */
   }

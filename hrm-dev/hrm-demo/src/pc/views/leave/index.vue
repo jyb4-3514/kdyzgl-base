@@ -184,11 +184,12 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { useAuthStore } from '@admin/stores/auth'
 import { getEmployees } from '@admin/api/employee'
-import { getStations } from '@admin/api/station'
+import { useOrgStore } from '../../stores/org.js'
 import { LEAVE_FILTERS, LEAVE_STATUS, LEAVE_TYPE } from '@/shared/constants/dict'
 import { LEAVE_CODE } from '@/shared/constants/errorCode'
 import {
@@ -221,6 +222,9 @@ import { rangeText, rejectStageText, typeText } from './utils/leave.js'
  */
 
 const authStore = useAuthStore()
+// 驿站名册跨页共享，取数收口到 org store（仅 ADMIN 渲染驿站筛选时使用）
+const orgStore = useOrgStore()
+const { stations } = storeToRefs(orgStore)
 const isAdmin = computed(() => !!authStore.user && authStore.user.role === 'ADMIN')
 const isStationAdmin = computed(() => !!authStore.user && authStore.user.role === 'STATION_ADMIN')
 
@@ -243,7 +247,6 @@ const listError = ref(false)
 const list = ref([])
 const total = ref(0)
 const pendingTotal = ref(0)
-const stations = ref([])
 const employees = ref([])
 
 const query = reactive({
@@ -342,9 +345,9 @@ function handleSizeChange() {
 async function loadStations() {
   if (!isAdmin.value) return
   try {
-    stations.value = (await getStations()) || []
+    await orgStore.loadStations()
   } catch (e) {
-    stations.value = []
+    /* 驿站筛选失败不阻塞审批列表：本页仍可按状态与日期办理 */
   }
 }
 

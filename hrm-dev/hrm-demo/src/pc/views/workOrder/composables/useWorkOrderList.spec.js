@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
 
 /**
  * 工单列表 composable 的回归网
@@ -8,6 +9,10 @@ import { ref } from 'vue'
 const mocks = vi.hoisted(() => ({ getWorkOrders: vi.fn(), getStations: vi.fn() }))
 
 vi.mock('@admin/api/station', () => ({ getStations: mocks.getStations }))
+// 驿站经 org store 取数，部门接口同模块引入，必须一并桩掉（否则会拉起一期 request 与 element-plus）
+vi.mock('@admin/api/department', () => ({ getDepartmentTree: vi.fn() }))
+// vitest 未配 resolve.dedupe，一期 auth store 走的是 hrm-admin 自带的 pinia 副本，会读到另一个 activePinia；与本文件无关故直接桩掉
+vi.mock('@admin/stores/auth', () => ({ useAuthStore: () => ({ user: { id: 9, role: 'ADMIN' } }) }))
 vi.mock('../../../api/workOrder.js', () => ({ getWorkOrders: mocks.getWorkOrders }))
 
 const { useWorkOrderList } = await import('./useWorkOrderList.js')
@@ -16,6 +21,8 @@ const isAdmin = ref(true)
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // composable 内消费 pinia store，测试需先激活一个干净实例
+  setActivePinia(createPinia())
   mocks.getStations.mockResolvedValue([])
 })
 

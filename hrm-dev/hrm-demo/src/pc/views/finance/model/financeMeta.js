@@ -1,8 +1,9 @@
 /**
  * 财务域展示元数据与纯函数
  *
- * 为什么收口：账期默认值与部门树拍平原本写在页面 setup 里，属可离线验证的纯逻辑；
+ * 为什么收口：账期默认值原本写在页面 setup 里，属可离线验证的纯逻辑；
  * 收进 model 后既能被单测覆盖，也避免「生成工资单」等复用方各写一份账期口径。
+ * 部门树拍平已迁到 utils/department.js —— 人事/入离职/财务三域共用，不再属财务私有逻辑。
  */
 
 export const RULE_STATUS = {
@@ -16,15 +17,6 @@ export function currentMonth() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
-/** 部门树拍平为下拉选项：只保留 id 与名称，递归展开 children */
-export function flattenDeptTree(nodes) {
-  const flat = []
-  const walk = (list) => {
-    ;(list || []).forEach((node) => {
-      flat.push({ id: node.id, deptName: node.deptName })
-      walk(node.children)
-    })
-  }
-  walk(nodes)
-  return flat
-}
+// 部门树拍平已迁到跨域 utils；此处仅再导出以兼容既有 financeMeta.spec 回归网，新代码请直接引 utils/department.js
+// TODO(扩展): 待 financeMeta.spec 的 flattenDeptTree 用例正式迁到 department.spec 后删除本行
+export { flattenDeptTree } from '../../../utils/department.js'

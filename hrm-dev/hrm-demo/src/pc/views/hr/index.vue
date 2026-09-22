@@ -258,10 +258,10 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { ElMessage } from 'element-plus'
 import { Refresh, WarningFilled } from '@element-plus/icons-vue'
-import { getStations } from '@admin/api/station'
-import { getDepartmentTree } from '@admin/api/department'
+import { useOrgStore } from '../../stores/org.js'
 import { getHrProfiles, getHrSalaries, getHrSalary } from '../../api/hr.js'
 import { CONTRACT_WARN } from '@/shared/constants/dict.js'
 import PageHeader from '../../components/PageHeader.vue'
@@ -288,9 +288,11 @@ const CONTRACT_WARN_DAYS = 30
 const HISTORY_EMPLOYEE_LIMIT = 20
 const CONTRACT_SAMPLE = 100
 
+// 驿站与部门都是跨页基础数据，取数收口到 org store（部门下拉沿用页面既有变量名 deptOptions）
+const orgStore = useOrgStore()
+const { stations, departmentOptions: deptOptions } = storeToRefs(orgStore)
+
 const activeTab = ref('profile')
-const stations = ref([])
-const deptOptions = ref([])
 
 const profileVisible = ref(false)
 const salaryVisible = ref(false)
@@ -472,18 +474,8 @@ function reloadAll() {
 }
 
 async function loadBaseData() {
-  const [stationList, deptTree] = await Promise.all([getStations(), getDepartmentTree().catch(() => [])])
-  stations.value = stationList || []
-  // 部门树拍平为下拉项：人事筛选只需要「按某个部门过滤」，不需要层级选择器
-  const flat = []
-  const walk = (nodes) => {
-    ;(nodes || []).forEach((node) => {
-      flat.push({ id: node.id, deptName: node.deptName })
-      walk(node.children)
-    })
-  }
-  walk(deptTree)
-  deptOptions.value = flat
+  // 部门树失败降级为空下拉；驿站失败仍向上抛（档案筛选依赖它，异常交给拦截器提示）
+  await Promise.all([orgStore.loadStations(), orgStore.loadDepartments().catch(() => [])])
 }
 
 onMounted(async () => {

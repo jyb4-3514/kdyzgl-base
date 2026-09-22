@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 
 /**
  * 批次流水列表 composable 的回归网
@@ -12,6 +13,10 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@admin/api/station', () => ({ getStations: mocks.getStations }))
+// 驿站经 org store 取数，部门接口同模块引入，必须一并桩掉（否则会拉起一期 request 与 element-plus）
+vi.mock('@admin/api/department', () => ({ getDepartmentTree: vi.fn() }))
+// vitest 未配 resolve.dedupe，一期 auth store 走的是 hrm-admin 自带的 pinia 副本，会读到另一个 activePinia；与本文件无关故直接桩掉
+vi.mock('@admin/stores/auth', () => ({ useAuthStore: () => ({ user: { id: 9, role: 'ADMIN' } }) }))
 vi.mock('../../../api/syncTask.js', () => ({
   getSyncTasks: mocks.getSyncTasks,
   triggerSyncTask: mocks.triggerSyncTask,
@@ -22,6 +27,8 @@ const { useSyncBatchList } = await import('./useSyncBatchList.js')
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // composable 内消费 pinia store，测试需先激活一个干净实例
+  setActivePinia(createPinia())
   mocks.getStations.mockResolvedValue([])
 })
 
