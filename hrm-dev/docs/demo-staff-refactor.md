@@ -603,7 +603,7 @@ export function useLatestRequest() {
 
 | 批次 | 范围 | 依赖 | 状态 |
 | --- | --- | --- | --- |
-| B0 | api 分域 + http 收敛 + 竞态 composable + store + ESLint + todoGroups 下沉 | — | 待办 |
+| B0 | api 分域 + http 收敛 + 竞态 composable + store + ESLint + todoGroups 下沉 | — | **已完成**（commit `638fccb`；门禁 verify:mock 878/878、verify:mobile 48/0、test 209/0、lint 0 error、build+build:prod EXIT=0、e2e 37/0） |
 | B1 | 考勤域（含打卡页 972 行拆分） | B0 | 待办 |
 | B2 | 工单域 | B0 | 待办 |
 | B3 | 包裹域 | B0 | 待办 |

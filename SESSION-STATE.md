@@ -479,9 +479,20 @@
 # 会话状态 — 员工端模块化拆分与精细化
 
 > 最后更新: 2026-09-22
-> 状态：**两份规范已定稿并经主智能体 Review；B0 基建批次待开工**
-> 分支：`feature/员工端拆分与精细化`（从 `feature/PC端拆分与精细化` HEAD 切出）
+> 状态：**B0 基建批次已完成并提交（`638fccb`）；B1 考勤域待开工**
+> 分支：**`feature/前端演示项目拆分与精细化`** ⚠️ 见下「并发冲突」——原建分支名 `feature/员工端拆分与精细化` 已被另一会话改名
 > 改造深度（用户拍板）：**拆分 + UI/UX 精细化重设计**；**允许扩展 Mock 端点/字段并同步断言**
+
+## ⚠️ 并发冲突记录（2026-09-22，必读）
+
+同一工作区**有另一会话并发作业**，本任务的分支与工作区均被其占用：
+
+1. `21:50` 主智能体建 `feature/员工端拆分与精细化`；`22:29:25` **另一会话将分支改名为 `feature/前端演示项目拆分与精细化`**（reflog 可证），随后提交 `2dc680d`（拆分 PC 工单/排班页）、`93f8abd`（采集端脚本）。
+2. 另一会话正在做**老板端模块化**：`src/mobile/views/boss/**` 21 文件删除 → `src/mobile/modules/boss/**`（**至今未提交**），并新增 `docs/demo-boss-module-plan.md`、`docs/demo-boss-ui-spec.md`；另改了 `components/{ActionBar,MonthPicker,StationPicker}.vue`（加 `loading/error/retry` 四态）与 `router/index(.spec).js`（老板端路由抽离，`import { bossRoutes } from '../modules/boss/router.js'`）。
+3. **处置（用户拍板）**：接受并发，主智能体严格控制提交范围。B0 提交 `638fccb` **只含员工端文件（57 项）**，上述并发改动一律未纳入。
+4. **后续每次提交前必须**：`git branch --show-current` + `git status --short`，并逐个核对候选文件的 `--numstat` 与 diff 归属，**只 add 员工端路径**。
+5. **门禁可信度提示**：`lint` 的 warn 数与 `e2e` 的页面覆盖受老板端半成品状态影响；B0 门禁是在该状态下实跑通过的（结论偏保守，非偏乐观）。
+6. **e2e 前置**：`npm run e2e` **必须先 `npm run dev`**（`e2e/global-setup.js` 要连 `localhost:5188`），否则立即 `TypeError: fetch failed` 退出——这是环境前置，不是代码缺陷。
 
 ## 交付物
 
@@ -499,8 +510,11 @@
 - [x] UI/UX 规范产出（UI/UX 设计师 `express-station-ui-designer`）
 - [x] 主智能体 Review：独立核实 8 项关键论断全部为真（`reqSeq` 在 `src/mobile` **0 命中**；`api/index.js` 88 导出；`PARCEL_STATUS[1]` 字典「在库待取」vs `parcel.vue:19`「待取件」；`sync.vue:74-75` 错误吞成空态；`sync.vue:101,142` 32px 按钮；`sync.vue:179` 整页 loading；`payroll.vue:71` 加载期显「共 0 张」；`verify:mobile` 脚本名 `verify-mobile-t13-t16.mjs`）
 - [x] §14 四项待拍板已裁定：**R1** 留 B8 实测后定 / **R2** 保持 ≤150 KB 不动 `clientLog` 静态依赖 / **R5 完整收口**（用户拍板）/ **R9 保留复用 + `view` prop**（用户拍板）
-- [ ] **B0 基建批次**（api 分域 13 文件 + http 收敛 + `useLatestRequest`/`useListPager` + `stores/attendance.js` + todoGroups 下沉 + ESLint 6 项）
-- [ ] B1 考勤域 / B2 工单域 / B3 包裹域 / B4 我的域 / B5 请假域 / B6 首页与消息域 / B7 同步域
+- [x] **B0 基建批次已完成并提交 `638fccb`**（api 分域 13 文件 + 删 barrel + `useLatestRequest`/`useListPager` + `stores/attendance.js` + todoGroups 下沉 + http 收敛 + ESLint 6 项）
+  - 门禁实测：`verify:mock` **878/878**、`verify:mobile` **48/0**、`test` **209/0**（基线 150，只增不减；新增 `useLatestRequest` 7 + `useListPager` 7 + `attendance` 6）、`lint` **0 error**（41 warn）、`build` 与 `build:prod` **EXIT=0**、`e2e` **37/0**、`hrm-admin`+`hrm-server` **零改动**
+- [ ] **R5 数据级权限收口**（用户拍板「完整收口」，独立子任务与独立 commit）：`shared/domain/applyDataScope` + `mock/engine.js` 统一执行 + 删除各 handler 重复 `stationId` 覆盖 + 同步断言
+- [ ] B1 考勤域（`attendance.vue` 972 行拆分 + `attendanceRecords`/`schedule`/`makeupList`）
+- [ ] B2 工单域 / B3 包裹域 / B4 我的域 / B5 请假域 / B6 首页与消息域 / B7 同步域
 - [ ] B8 性能与门禁收口 + 视觉/无障碍走查
 
 ## 批次门禁基线（不得弱化）
