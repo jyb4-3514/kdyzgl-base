@@ -157,6 +157,22 @@ function Download-File {
     Write-Log '所有下载地址均失败' 'ERROR'
     return $false
 }
+function Invoke-Mysqld {
+    # 用 Start-Process 显式捕获 stdout/stderr。
+    # 起因：mysqld 注册服务失败时不往控制台输出，只写 mysql-error.log，
+    # 导致脚本静默失败、只能靠"服务不存在"这种滞后现象反推 —— 必须让失败可见。
+    param([string]$Exe, [string[]]$ArgList, [string]$Stage, [string]$What)
+    $outLog = Join-Path $WorkDir 'mysqld-stdout.log'
+    $errLog = Join-Path $WorkDir 'mysqld-stderr.log'
+    $p = Start-Process -FilePath $Exe -ArgumentList $ArgList -Wait -PassThru -NoNewWindow `
+        -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+    foreach ($l in @(Get-Content $outLog -ErrorAction SilentlyContinue)) { if (("$l").Trim()) { Write-Log ('  [out] {0}' -f $l) } }
+    foreach ($l in @(Get-Content $errLog -ErrorAction SilentlyContinue)) { if (("$l").Trim()) { Write-Log ('  [err] {0}' -f $l) 'WARN' } }
+    if ($p.ExitCode -ne 0) {
+        Write-Log ('{0} 失败（退出码 {1}），详见 C:\mysql\mysql-error.log' -f $What, $p.ExitCode) 'ERROR'
+        Fail-Setup $Stage ('{0} 失败（退出码 {1}）' -f $What, $p.ExitCode)
+    }
+}
 
 Write-Log '========== 采集端环境自检开始 =========='
 Write-Log ('主机：{0} ；用户：{1}' -f $env:COMPUTERNAME, $env:USERNAME)
@@ -208,7 +224,18 @@ $svc = Get-Service -Name $MyService -ErrorAction SilentlyContinue
 $myInstalled = (Test-Path $mysqld) -and ($svc -ne $null)
 
 if ($myInstalled) {
-    Write-Log ('已安装 MySQL 服务 {0}，状态：{1}' -f $MyService, $svc.Status)
+    Write-Log ('已安装 MySQL 服务 {0}，当前状态：{1}' -f $MyService, $svc.Status)
+    # 服务可能已注册但处于停止态（上一次运行中断），不拉起会直接导致后续连库失败
+    if ($svc.Status -ne 'Running') {
+        Write-Log '服务未运行，执行启动'
+        Start-Service -Name $MyService -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 8
+        $svc = Get-Service -Name $MyService -ErrorAction SilentlyContinue
+    }
+    if (-not $svc -or $svc.Status -ne 'Running') {
+        Fail-Setup 'mysql' ('已安装的服务未处于运行状态：' + ($(if($svc){$svc.Status}else{'不存在'})))
+    }
+    Write-Log ('服务运行中：{0}' -f $svc.Status)
     $State.mysql = [ordered]@{ status = 'ALREADY_INSTALLED'; basedir = $MyBasedir; service = $MyService }
 } elseif ($SkipMySQL) {
     Write-Log '按参数跳过 MySQL 安装' 'WARN'
@@ -251,7 +278,7 @@ default-character-set=utf8mb4
         Write-Log '数据目录已存在，跳过 initialize（幂等）'
     } else {
         Write-Log '初始化数据目录（--initialize-insecure，稍后立即设置强密码）'
-        & $mysqld "--defaults-file=$MyIni" '--initialize-insecure' 2>&1 | ForEach-Object { Write-Log $_ }
+        Invoke-Mysqld -Exe $mysqld -ArgList @("--defaults-file=$MyIni", '--initialize-insecure') -Stage 'mysql' -What '数据目录初始化'
         if (-not (Test-Path (Join-Path $MyData 'mysql'))) { Fail-Setup 'mysql' '数据目录初始化失败' }
     }
 
@@ -259,16 +286,23 @@ default-character-set=utf8mb4
         Write-Log ('服务 {0} 已存在，跳过注册' -f $MyService)
     } else {
         Write-Log ('注册 Windows 服务：{0}' -f $MyService)
-        & $mysqld "--defaults-file=$MyIni" '--install' $MyService 2>&1 | ForEach-Object { Write-Log $_ }
+        # 参数顺序是硬要求：--install 必须排在 --defaults-file 之前。
+        # 反了会被 mysqld 当成服务器选项，报 "unknown option '--install'"，且该错误只写进
+        # mysql-error.log 不落控制台（已实测踩坑，故同时接入 Invoke-Mysqld 的输出捕获）。
+        Invoke-Mysqld -Exe $mysqld -ArgList @('--install', $MyService, "--defaults-file=$MyIni") -Stage 'mysql' -What '注册 Windows 服务'
     }
-    Write-Log ('启动服务 {0}' -f $MyService)
-    Start-Service -Name $MyService -ErrorAction SilentlyContinue
+    # 服务可能已注册但停止（上一次运行中断或刚被外部注册）
+    $svc = Get-Service -Name $MyService -ErrorAction SilentlyContinue
+    if ($svc -and $svc.Status -ne 'Running') {
+        Write-Log ('服务 {0} 当前为 {1}，执行启动' -f $MyService, $svc.Status)
+        Start-Service -Name $MyService -ErrorAction SilentlyContinue
+    }
     Start-Sleep -Seconds 8
     $svc = Get-Service -Name $MyService -ErrorAction SilentlyContinue
     if (-not $svc -or $svc.Status -ne 'Running') {
         Fail-Setup 'mysql' ('服务未处于运行状态：' + ($(if($svc){$svc.Status}else{'不存在'})))
     }
-    Write-Log ('服务运行中：{0}' -f $svc.Status)
+    Write-Log ('服务运行中：{0}（监听 127.0.0.1:3306）' -f $svc.Status)
     $State.mysql = [ordered]@{ status = 'INSTALLED'; basedir = $MyBasedir; service = $MyService; port = 3306; bindAddress = '127.0.0.1' }
 }
 
