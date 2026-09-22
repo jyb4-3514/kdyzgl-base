@@ -125,6 +125,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="导出目标站登录页结构（只读诊断）")
     parser.add_argument("--headless", action="store_true", help="强制无头（覆盖配置）")
     parser.add_argument("--url", default="", help="覆盖登录地址（不改配置文件，用于试探真实入口）")
+    parser.add_argument("--click-text", action="append", default=[],
+                        help="点击指定可见文本后导出（可多次）。用于切到「密码登录」等页签看真实 DOM")
     parser.add_argument("--settle-ms", type=int, default=5000, help="页面加载后额外等待毫秒（默认 5000）")
     parser.add_argument("--out", default="", help="输出文件路径（默认 runtime/diagnostics/login-page-<时间>.json）")
     args = parser.parse_args()
@@ -158,6 +160,16 @@ def main() -> int:
         page.goto(settings.site.login_url, wait_until="domcontentloaded")
         page.wait_for_timeout(args.settle_ms)
 
+        # 可选：先点击若干文本（切换登录方式页签等），再导出结构
+        for text in args.click_text:
+            try:
+                page.get_by_text(text, exact=True).first.click(timeout=8000)
+                print(f"[诊断] 已点击：{text}")
+                page.wait_for_timeout(2000)
+            except Exception as exc:
+                print(f"[诊断] 点击失败 {text!r}：{type(exc).__name__}: {exc}")
+
+        report["clickedTexts"] = list(args.click_text)
         report["mainFrame"] = _collect(page.main_frame, "main")
         for idx, frame in enumerate(page.frames):
             if frame == page.main_frame:
