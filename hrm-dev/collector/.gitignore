@@ -1,0 +1,27 @@
+# 采集端本地敏感文件与运行产物 —— 严禁提交
+# 说明：本地凭据（DPAPI 密文）、运行时产物、虚拟环境、日志一律不入库。
+
+# 本地密钥（DPAPI 加密的多多账号密码、MySQL 账号密码）
+config/local/*
+!config/local/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 运行时产物
+*.log
+runtime/
+artifacts/
+downloads/
+.cache/
+
+# 浏览器持久化上下文（含登录态，绝对禁止入库）
+browser-profile/
+.playwright/
