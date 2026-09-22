@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
 from datetime import datetime
@@ -129,10 +130,11 @@ def main() -> int:
     args = parser.parse_args()
 
     settings = load_settings()
+    # 配置 dataclass 是 frozen 的：只读不可变是刻意设计，覆盖需走 replace 生成新实例
     if args.headless:
-        settings.browser.headless = True
+        settings = dataclasses.replace(settings, browser=dataclasses.replace(settings.browser, headless=True))
     if args.url:
-        settings.site.login_url = args.url
+        settings = dataclasses.replace(settings, site=dataclasses.replace(settings.site, login_url=args.url))
 
     out_path = (
         Path(args.out)
