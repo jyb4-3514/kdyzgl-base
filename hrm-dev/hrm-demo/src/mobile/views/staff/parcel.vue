@@ -5,7 +5,7 @@ import { showFailToast } from 'vant'
 import PageNav from '../../components/PageNav.vue'
 import PageState from '../../components/PageState.vue'
 import StatusTag from '../../components/StatusTag.vue'
-import { getParcels } from '../../api/index.js'
+import { getParcels } from '../../api/parcel.js'
 import { PARCEL_STATUS } from '@/shared/constants/dict.js'
 import { numberText, olderThanHours, relativeTime } from '../../utils/format.js'
 

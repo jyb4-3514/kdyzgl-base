@@ -7,7 +7,7 @@ import MyPayrollCard from '../../components/MyPayrollCard.vue'
 import PageNav from '../../components/PageNav.vue'
 import PageState from '../../components/PageState.vue'
 import PayrollStatusSteps from '../../components/PayrollStatusSteps.vue'
-import { confirmPayroll, getPayroll, objectPayroll } from '../../api/index.js'
+import { confirmPayroll, getPayroll, objectPayroll } from '../../api/finance.js'
 import { moneyText } from '../../utils/format.js'
 import { FINANCE_CODE } from '@/shared/constants/errorCode.js'
 

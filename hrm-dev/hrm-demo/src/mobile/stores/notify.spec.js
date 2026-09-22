@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('../utils/authStorage.js', () => ({ readToken: mocks.readToken }))
-vi.mock('../api/index.js', () => ({
+vi.mock('../api/notification.js', () => ({
   getUnreadCount: mocks.getUnreadCount,
   getNotifications: mocks.getNotifications,
   markNotificationRead: mocks.markNotificationRead,

@@ -473,3 +473,52 @@
 - 两个远端并存：`origin` = Gitee `git@gitee.com:jia-yongbin/yizhan.git`（**采集机同步走这个**）；`github` = `github.com/jyb4-3514/kdyzgl-base.git`
 - **可先行的范围**（不依赖未验证能力）：服务端编排 / 留痕 / 一键停用 / 群机器人 Webhook 通道骨架（对应 S3/S5/S6）—— 但开发机**无 JDK/Maven**，其可编译验证性同样受限，不宜盲写
 - 开发机 Python 为 **3.13.12**，与 ADR / 二期采集端假设的 **3.12** 不一致 → 后续采集端选型需复核（登记为待验证项）
+
+***
+
+# 会话状态 — 员工端模块化拆分与精细化
+
+> 最后更新: 2026-09-22
+> 状态：**两份规范已定稿并经主智能体 Review；B0 基建批次待开工**
+> 分支：`feature/员工端拆分与精细化`（从 `feature/PC端拆分与精细化` HEAD 切出）
+> 改造深度（用户拍板）：**拆分 + UI/UX 精细化重设计**；**允许扩展 Mock 端点/字段并同步断言**
+
+## 交付物
+
+| 交付物 | 路径 | 状态 |
+| ---- | ---- | ---- |
+| 员工端拆分与精细化**架构**规范 | `hrm-dev/docs/demo-staff-refactor.md` | 已产出（v1.0，§1–§14 + 附录 A） |
+| 员工端 UI/UX **精细化设计**规范 | `hrm-dev/docs/demo-staff-ui-redesign.md` | 已产出（≈596 行，9 章 + 3 附录） |
+
+## 进度
+
+- [x] 前置材料通读：`demo-pc-refactor.md`、`demo-design.md`、`demo-mobile-nav-redesign.md`、`demo-leave-design.md`、`demo-ux-improvement.md`、`api.md`
+- [x] 源码实测：`mobile/api/index.js`(88 导出)、`utils/http.js`、`router/index.js`、`stores/*`、`constants/todoGroups.js`、`mock/engine.js`、`eslint.config.js`、`vant.js`
+- [x] 首屏体积实测：`build` / `build:prod` 均 EXIT=0；移动端首屏 gzip ≈157.6 KB（JS≈113 + CSS≈44.2）；目标 ≤150 KB
+- [x] 架构规范产出（架构师 `parcel-station-architect`）
+- [x] UI/UX 规范产出（UI/UX 设计师 `express-station-ui-designer`）
+- [x] 主智能体 Review：独立核实 8 项关键论断全部为真（`reqSeq` 在 `src/mobile` **0 命中**；`api/index.js` 88 导出；`PARCEL_STATUS[1]` 字典「在库待取」vs `parcel.vue:19`「待取件」；`sync.vue:74-75` 错误吞成空态；`sync.vue:101,142` 32px 按钮；`sync.vue:179` 整页 loading；`payroll.vue:71` 加载期显「共 0 张」；`verify:mobile` 脚本名 `verify-mobile-t13-t16.mjs`）
+- [x] §14 四项待拍板已裁定：**R1** 留 B8 实测后定 / **R2** 保持 ≤150 KB 不动 `clientLog` 静态依赖 / **R5 完整收口**（用户拍板）/ **R9 保留复用 + `view` prop**（用户拍板）
+- [ ] **B0 基建批次**（api 分域 13 文件 + http 收敛 + `useLatestRequest`/`useListPager` + `stores/attendance.js` + todoGroups 下沉 + ESLint 6 项）
+- [ ] B1 考勤域 / B2 工单域 / B3 包裹域 / B4 我的域 / B5 请假域 / B6 首页与消息域 / B7 同步域
+- [ ] B8 性能与门禁收口 + 视觉/无障碍走查
+
+## 批次门禁基线（不得弱化）
+
+`verify:mock` 878 / `verify:mobile` 48 / `test` 150 / `e2e` 37 / `lint` 0 error / `build`+`build:prod` EXIT=0 / `hrm-admin`+`hrm-server` 零改动
+
+## 关键结论
+
+- 批次 **9 批**（B0 基建 + B1–B7 七域 + B8 收口），依赖 `B0 → {B1..B5,B7} → B6 → B8`
+- api `index.js`（88 导出）拆为 **13 个域文件**并**删除 barrel**；38 处调用点改 import，导出名一律不改
+- 新增 store **1 个**（`stores/attendance.js`）；新增跨域组件 4 + 域共享组件 1；新增 composable 2
+- ESLint 新增/调整 **6 项**（3 组依赖边界 + 2 条 `max-lines` + 修正 `eslint.config.js:114` 白名单路径）
+- UI 侧：P0 **8** / P1 **15** / P2 **8**；新增 Token **9** 条（全部落 `mobile/styles/tokens.scss`，真源零新增）；新增组件 **9** 个
+- **PC 拆分已部分落地**（`demo-pc-refactor.md` §1 现状表对 workOrder/schedule 已过期）：`src/pc/views/workOrder/{components,composables,model}/`、`src/pc/views/schedule/composables/useScheduleMatrix.js` 均已在库，含 `useWorkOrderList.spec.js` 可作单测样板
+- 本轮三个待修的结构问题：**G2** 移动端无竞态守卫（`busy` 单飞会丢弃在途筛选请求）/**G3** `constants` 反向依赖 `api`/**G8** `eslint.config.js:114` 白名单路径在拆分后失效
+
+## 注意事项
+
+- 任务描述与实测有 3 处出入，文档内已以实测为准：`api/index.js` 88 导出（非 60+）、`router/index.js` 374 行（非 361）、移动端 `components` 25 个（非 26）
+- 本轮**未修改** `hrm-admin` / `hrm-server`；两次构建的 `dist/` 为副产物（已被 `.gitignore` 忽略）
+- 本机无真机 / 内置浏览器固定 810×658 → 触控热区、安全区、横屏 640、键盘弹起等项**只能收敛到「待真机复核」**，不得声称已验证

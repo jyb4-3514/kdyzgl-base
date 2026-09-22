@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import PageNav from '../../components/PageNav.vue'
 import PageState from '../../components/PageState.vue'
 import StatusTag from '../../components/StatusTag.vue'
-import { getSyncLogs, getSyncOverview, getSyncTasks } from '../../api/index.js'
+import { getSyncLogs, getSyncOverview, getSyncTasks } from '../../api/syncTask.js'
 import { COLLECT_STATE, SYNC_LOG_LEVEL, SYNC_STATUS } from '@/shared/constants/dict.js'
 import { durationText, parseTime, relativeTime } from '../../utils/format.js'
 

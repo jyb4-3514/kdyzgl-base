@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { showFailToast } from 'vant'
+import { codeMessage } from '@/shared/constants/errorCode.js'
 import { clearAuth, readToken } from './authStorage.js'
 
 /**
@@ -15,11 +16,19 @@ import { clearAuth, readToken } from './authStorage.js'
  */
 export const UNAUTHORIZED_EVENT = 'hrm:mobile-unauthorized'
 
-const http = axios.create({ baseURL: import.meta.env.VITE_API_BASE || '/api/v1', timeout: 30000 })
+/** 读请求 15s（弱网超时即给页内重试）；写请求 30s（打卡等提交需给足，且不自动重试） */
+const READ_TIMEOUT = 15000
+const WRITE_TIMEOUT = 30000
+/** GET 网络抖动重试一次，退避 500ms，避免把刚恢复的链路再打挂 */
+const RETRY_DELAY = 500
+
+const http = axios.create({ baseURL: import.meta.env.VITE_API_BASE || '/api/v1' })
 
 http.interceptors.request.use((config) => {
   const token = readToken()
   if (token) config.headers.Authorization = `Bearer ${token}`
+  // 超时按方法区分（axios 默认 0 = 不限时，故仅在未显式指定时兜底）
+  if (!config.timeout) config.timeout = config.method === 'get' ? READ_TIMEOUT : WRITE_TIMEOUT
   return config
 })
 
@@ -29,26 +38,60 @@ function rejectWith(error, config) {
   return Promise.reject(error)
 }
 
+/**
+ * 仅 GET 且「无 response 的网络错误」可重试一次：
+ * 有 response 说明服务端已表态 —— 业务码失败、401/403/404 都在其中，重试只会放大问题；
+ * 写操作幂等性未保证，一律不重试。
+ */
+function canRetry(error) {
+  const config = error.config
+  return !!config && config.method === 'get' && !config.__retried && !error.response
+}
+
+/**
+ * 401 幂等：首屏同一批并发请求会同时过期，只广播一次即可。
+ * 复位放在下一宏任务，既覆盖同一批次的并发 401，又保证下次会话过期仍能触发。
+ */
+let unauthorizedNotified = false
+function notifyUnauthorized() {
+  if (unauthorizedNotified) return
+  unauthorizedNotified = true
+  window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+  setTimeout(() => {
+    unauthorizedNotified = false
+  }, 0)
+}
+
 http.interceptors.response.use(
   (response) => {
     const body = response.data
     if (body && typeof body === 'object' && 'code' in body) {
       if (body.code === 200) return body.data
-      const error = new Error(body.message || '请求失败')
+      // body.message 优先；服务端只给码时用码表兜底，不给用户一句无信息量的「请求失败」
+      const error = new Error(body.message || codeMessage(body.code))
       error.code = body.code
       error.data = body.data
       return rejectWith(error, response.config)
     }
     return body
   },
-  (error) => {
+  async (error) => {
+    if (canRetry(error)) {
+      error.config.__retried = true
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY))
+      return http.request(error.config)
+    }
     const body = (error.response && error.response.data) || {}
-    const wrapped = new Error(body.message || error.message || '网络异常，请稍后重试')
-    wrapped.code = body.code || (error.response && error.response.status)
+    const status = error.response && error.response.status
+    const code = body.code || status
+    // 服务端已表态（有码）时用码表兜底；纯网络错误无码，回落到 axios 原始 message
+    const message = body.message || (code ? codeMessage(code) : '') || error.message || '网络异常，请稍后重试'
+    const wrapped = new Error(message)
+    wrapped.code = code
     if (wrapped.code === 401) {
       clearAuth()
       // 401 不弹 Toast：首屏可能并发多个请求，逐个弹窗会刷屏
-      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+      notifyUnauthorized()
       return Promise.reject(wrapped)
     }
     return rejectWith(wrapped, error.config)

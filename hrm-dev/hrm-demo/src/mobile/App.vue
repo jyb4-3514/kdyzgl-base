@@ -19,6 +19,8 @@ const todo = useTodoStore()
 
 /** 401 统一出口（http.js 广播）：清理本地登录态并回登录页，避免在拦截器里 import router 形成循环引用 */
 function handleUnauthorized() {
+  // 幂等兜底：已在登录页说明清理与跳转都做过了，再 replace 一次只会重复触发导航
+  if (route.path === '/login') return
   auth.clearSession()
   notify.clear()
   todo.clear()

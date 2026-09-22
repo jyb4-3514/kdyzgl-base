@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { showSuccessToast, showToast } from 'vant'
 import ActionBar from '../../components/ActionBar.vue'
 import PageNav from '../../components/PageNav.vue'
-import { createWorkOrder } from '../../api/index.js'
+import { createWorkOrder } from '../../api/workOrder.js'
 import { WORK_ORDER_PRIORITY, WORK_ORDER_SLA_HOURS, WORK_ORDER_TYPE } from '@/shared/constants/dict.js'
 import { useAuthStore } from '../../stores/auth.js'
 

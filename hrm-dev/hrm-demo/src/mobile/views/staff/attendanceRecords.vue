@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import PageNav from '../../components/PageNav.vue'
 import PageState from '../../components/PageState.vue'
 import StatusTag from '../../components/StatusTag.vue'
-import { getMyAttendance, getMySchedules } from '../../api/index.js'
+import { getMyAttendance, getMySchedules } from '../../api/attendance.js'
 import { ATTENDANCE_STATUS, CHECK_MODE, dictLabel } from '@/shared/constants/dict.js'
 import { clockOf, dayStatusOf, dayText, formatDate, monthShiftMap } from '../../utils/attendance.js'
 

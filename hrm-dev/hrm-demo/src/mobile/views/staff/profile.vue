@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageNav from '../../components/PageNav.vue'
 import PageState from '../../components/PageState.vue'
-import { getHrProfile, getHrSalary } from '../../api/index.js'
+import { getHrProfile, getHrSalary } from '../../api/hr.js'
 import { useAuthStore } from '../../stores/auth.js'
 import { moneyText } from '../../utils/format.js'
 

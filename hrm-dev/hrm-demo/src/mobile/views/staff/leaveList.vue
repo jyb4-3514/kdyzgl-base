@@ -7,7 +7,7 @@ import LeaveAudit from '../../components/LeaveAudit.vue'
 import PageNav from '../../components/PageNav.vue'
 import PageState from '../../components/PageState.vue'
 import StatusTag from '../../components/StatusTag.vue'
-import { cancelLeave, getMyLeaves } from '../../api/index.js'
+import { cancelLeave, getMyLeaves } from '../../api/leave.js'
 import { LEAVE_FILTERS, LEAVE_LOG_ACTION, LEAVE_STATUS, dictLabel } from '@/shared/constants/dict.js'
 import {
   leaveDaysText,

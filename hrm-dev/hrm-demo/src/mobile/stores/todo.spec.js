@@ -5,38 +5,52 @@ import { createPinia, setActivePinia } from 'pinia'
  * 待办 store 的硬规则断言（B4-2）：
  * 1. 逐组独立降级 —— 一组接口挂掉不影响其他组取到数；
  * 2. `null` = 未知、`0` = 确实没有，两者绝不可互相顶替（绝不用 0 冒充未知）。
- * 分组配置本身在 constants/todoGroups.js 里是「接口 → 文案」的映射，这里替换为可控桩，
- * 把断言聚焦在 store 的聚合与降级逻辑上（真实链路由 verify:mock 的 754 项契约断言兜底）。
+ *
+ * 分组取数已从 constants/todoGroups.js 迁入 store，配置层只剩静态描述、没有可插桩的 `load`，
+ * 故这里改为桩住 api 层；真实链路由 verify:mock 的契约断言兜底。
  */
 const mocks = vi.hoisted(() => ({
   readToken: vi.fn(),
-  loadOk: vi.fn(),
-  loadFail: vi.fn(),
-  loadZero: vi.fn()
+  getWorkOrders: vi.fn(),
+  getMakeupList: vi.fn(),
+  getPayrolls: vi.fn(),
+  getOnboardingFlows: vi.fn(),
+  getOffboardingFlows: vi.fn(),
+  getLeaveList: vi.fn(),
+  getSyncOverview: vi.fn()
 }))
 
 vi.mock('../utils/authStorage.js', () => ({ readToken: mocks.readToken }))
 vi.mock('./auth.js', () => ({ useAuthStore: () => ({ isAdmin: true }) }))
-vi.mock('../constants/todoGroups.js', () => ({
-  BOSS_TODO_GROUPS: [
-    { key: 'ok', title: '正常组', to: '/ok', load: mocks.loadOk },
-    { key: 'fail', title: '失败组', to: '/fail', load: mocks.loadFail },
-    { key: 'zero', title: '零值组', to: '/zero', load: mocks.loadZero }
-  ],
-  STAFF_TODO_GROUPS: []
+vi.mock('../api/workOrder.js', () => ({ getWorkOrders: mocks.getWorkOrders }))
+vi.mock('../api/attendance.js', () => ({ getMakeupList: mocks.getMakeupList, getMyMakeups: vi.fn() }))
+vi.mock('../api/finance.js', () => ({ getPayrolls: mocks.getPayrolls, getMyPayrolls: vi.fn() }))
+vi.mock('../api/hr.js', () => ({
+  getOnboardingFlows: mocks.getOnboardingFlows,
+  getOffboardingFlows: mocks.getOffboardingFlows
 }))
+vi.mock('../api/leave.js', () => ({ getLeaveList: mocks.getLeaveList, getMyLeaves: vi.fn() }))
+vi.mock('../api/syncTask.js', () => ({ getSyncOverview: mocks.getSyncOverview }))
 
 const { useTodoStore } = await import('./todo.js')
 
 const byKey = (store) => Object.fromEntries(store.groups.map((item) => [item.key, item]))
+const emptyPage = { list: [], total: 0 }
 
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
   mocks.readToken.mockReturnValue('demo-token')
-  mocks.loadOk.mockResolvedValue({ total: 2, rows: [{ key: 1, title: '待处理' }] })
-  mocks.loadFail.mockRejectedValue(new Error('接口挂了'))
-  mocks.loadZero.mockResolvedValue({ total: 0, rows: [] })
+  mocks.getWorkOrders.mockResolvedValue({
+    list: [{ id: 1, orderNo: 'W1', title: '包裹破损', stationName: 'A站', priority: 1 }],
+    total: 2
+  })
+  mocks.getMakeupList.mockRejectedValue(new Error('接口挂了'))
+  mocks.getPayrolls.mockResolvedValue(emptyPage)
+  mocks.getOnboardingFlows.mockResolvedValue(emptyPage)
+  mocks.getOffboardingFlows.mockResolvedValue(emptyPage)
+  mocks.getLeaveList.mockResolvedValue(emptyPage)
+  mocks.getSyncOverview.mockResolvedValue({ counts: { abnormal: 0, unconfigured: 0 } })
 })
 
 describe('useTodoStore · 逐组独立降级', () => {
@@ -44,20 +58,32 @@ describe('useTodoStore · 逐组独立降级', () => {
     const store = useTodoStore()
     await store.refresh()
     const groups = byKey(store)
-    expect(groups.ok.total).toBe(2)
-    expect(groups.ok.error).toBe('')
-    expect(groups.fail.total).toBeNull()
-    expect(groups.fail.error).toBe('接口挂了')
-    expect(groups.fail.rows).toEqual([])
-    expect(groups.zero.total).toBe(0)
-    expect(groups.zero.error).toBe('')
+
+    expect(groups.orders.total).toBe(2)
+    expect(groups.orders.error).toBe('')
+    expect(groups.makeups.total).toBeNull()
+    expect(groups.makeups.error).toBe('接口挂了')
+    expect(groups.makeups.rows).toEqual([])
+    expect(groups.collect.total).toBe(0)
+    expect(groups.collect.error).toBe('')
   })
 
   it('reject 无 message 时兜底为「加载失败」，不把 undefined 透到界面', async () => {
-    mocks.loadFail.mockRejectedValue({})
+    mocks.getMakeupList.mockRejectedValue({})
     const store = useTodoStore()
     await store.refresh()
-    expect(byKey(store).fail.error).toBe('加载失败')
+
+    expect(byKey(store).makeups.error).toBe('加载失败')
+  })
+
+  it('行文案与接口字段绑定：工单行标题、驿站与优先级 tag 均按契约拼出', async () => {
+    const store = useTodoStore()
+    await store.refresh()
+
+    const row = byKey(store).orders.rows[0]
+    expect(row.title).toBe('#W1 包裹破损')
+    expect(row.meta).toBe('A站')
+    expect(row.tag.value).toBe(1)
   })
 })
 
@@ -65,9 +91,10 @@ describe('useTodoStore · null 与 0 语义不可互换', () => {
   it('失败组是 null，零值组是 0，二者必须可区分', async () => {
     const store = useTodoStore()
     await store.refresh()
-    expect(store.counts.fail).toBeNull()
-    expect(store.counts.zero).toBe(0)
-    expect(store.counts.fail).not.toBe(store.counts.zero)
+
+    expect(store.counts.makeups).toBeNull()
+    expect(store.counts.collect).toBe(0)
+    expect(store.counts.makeups).not.toBe(store.counts.collect)
   })
 
   it('只要有一组成功，known 即为 true（消费方可放行渲染）', async () => {
@@ -77,10 +104,17 @@ describe('useTodoStore · null 与 0 语义不可互换', () => {
   })
 
   it('全部失败时 known=false，消费方显示 ··· 而不是 0', async () => {
-    mocks.loadOk.mockRejectedValue(new Error('x'))
-    mocks.loadZero.mockRejectedValue(new Error('y'))
+    mocks.getWorkOrders.mockRejectedValue(new Error('x'))
+    mocks.getMakeupList.mockRejectedValue(new Error('x'))
+    mocks.getPayrolls.mockRejectedValue(new Error('x'))
+    mocks.getOnboardingFlows.mockRejectedValue(new Error('x'))
+    mocks.getOffboardingFlows.mockRejectedValue(new Error('x'))
+    mocks.getLeaveList.mockRejectedValue(new Error('x'))
+    mocks.getSyncOverview.mockRejectedValue(new Error('x'))
+
     const store = useTodoStore()
     await store.refresh()
+
     expect(store.groups.every((item) => item.total === null)).toBe(true)
     expect(store.known).toBe(false)
   })
@@ -96,15 +130,16 @@ describe('useTodoStore · 会话与加载态', () => {
   it('counts 按分组 key 收敛，供首页宫格按 key 取角标', async () => {
     const store = useTodoStore()
     await store.refresh()
-    expect(store.counts).toEqual({ ok: 2, fail: null, zero: 0 })
+    expect(store.counts).toEqual({ orders: 2, makeups: null, payrolls: 0, flows: 0, leaves: 0, collect: 0 })
   })
 
   it('未登录时不发请求并清空快照', async () => {
     mocks.readToken.mockReturnValue('')
     const store = useTodoStore()
     await store.refresh()
+
     expect(store.groups).toEqual([])
-    expect(mocks.loadOk).not.toHaveBeenCalled()
+    expect(mocks.getWorkOrders).not.toHaveBeenCalled()
   })
 
   it('refresh 期间 loading 为真，结束后复位', async () => {

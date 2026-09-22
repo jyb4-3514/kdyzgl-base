@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import MyPayrollCard from '../../components/MyPayrollCard.vue'
 import PageNav from '../../components/PageNav.vue'
 import PageState from '../../components/PageState.vue'
-import { getMyPayrolls } from '../../api/index.js'
+import { getMyPayrolls } from '../../api/finance.js'
 
 /**
  * B9 员工端 · 我的工资单

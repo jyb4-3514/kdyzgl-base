@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { getNotifications, getUnreadCount, markAllNotificationsRead, markNotificationRead } from '../api/index.js'
+import { getNotifications, getUnreadCount, markAllNotificationsRead, markNotificationRead } from '../api/notification.js'
 import { readToken } from '../utils/authStorage.js'
 
 /**

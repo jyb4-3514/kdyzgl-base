@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import PageNav from '../../components/PageNav.vue'
 import PageState from '../../components/PageState.vue'
-import { getMySchedules } from '../../api/index.js'
+import { getMySchedules } from '../../api/attendance.js'
 import { addDays, dayText, formatDate, mondayOf } from '../../utils/attendance.js'
 
 /**

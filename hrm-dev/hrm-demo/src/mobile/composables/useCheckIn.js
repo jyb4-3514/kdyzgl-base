@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { showSuccessToast } from 'vant'
 import { ATTENDANCE_CODE } from '@/shared/constants/errorCode.js'
 import { ATTENDANCE_STATUS, CHECK_TYPE, dictLabel } from '@/shared/constants/dict.js'
-import { checkIn } from '../api/index.js'
+import { checkIn } from '../api/attendance.js'
 import { getWifiInfo } from '../utils/bridge.js'
 import { checkErrorHint, distanceText, haversine, periodWindowText } from '../utils/attendance.js'
 

@@ -4,7 +4,7 @@ import { showSuccessToast, showToast } from 'vant'
 import ActionBar from '../../components/ActionBar.vue'
 import PageNav from '../../components/PageNav.vue'
 import StatusTag from '../../components/StatusTag.vue'
-import { getParcels, pickupParcel } from '../../api/index.js'
+import { getParcels, pickupParcel } from '../../api/parcel.js'
 import { PARCEL_STATUS } from '@/shared/constants/dict.js'
 import { relativeTime } from '../../utils/format.js'
 

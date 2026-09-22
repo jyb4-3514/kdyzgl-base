@@ -1,4 +1,5 @@
-import { getEmployees, getStationRoster } from '../api/index.js'
+import { getStationRoster } from '../api/attendance.js'
+import { getEmployees } from '../api/org.js'
 import { DEMO_CODE } from '@/shared/constants/errorCode.js'
 
 /**

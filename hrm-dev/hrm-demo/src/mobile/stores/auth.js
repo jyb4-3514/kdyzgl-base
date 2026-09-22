@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { getMe, login as loginApi, logout as logoutApi, updatePassword as updatePasswordApi } from '../api/index.js'
+import { getMe, login as loginApi, logout as logoutApi, updatePassword as updatePasswordApi } from '../api/auth.js'
 import { clearAuth, readToken, readUser, writeAuth } from '../utils/authStorage.js'
 import { HOME_BY_ROLE } from '../constants/accounts.js'
 

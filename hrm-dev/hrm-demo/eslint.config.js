@@ -22,6 +22,8 @@ const CORE_FILES = ['src/shared/**', 'src/pc/utils/**', 'src/mobile/utils/**']
 const VIEW_FILES = [
   'src/pc/views/**',
   'src/mobile/views/**',
+  // 按域拆模块后，模块内页面同样属展示层；不补这条会让「展示层降 warn」口径在 modules 下失效
+  'src/mobile/modules/**',
   'src/**/components/**',
   'src/pc/layout/**',
   'src/mobile/layout/**'
@@ -35,6 +37,31 @@ const VIEW_FILES = [
 const noUnusedVars = (severity) => [
   severity,
   { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none' }
+]
+
+// 展示组件边界（L1 + L2）：不得直连接口、不得直接 useStore；
+// 必须复述 mock 禁令与「老板端模块是叶子域」两条既有红线 —— flat config 中同一 rule 后者整体覆盖前者。
+const COMPONENT_BOUNDARY_PATTERNS = [
+  {
+    group: ['**/shared/mock/**', '@/shared/mock/**'],
+    message: '展示层禁止直连假后端；装配点仅限 pc/main.js 与 mobile/main.js'
+  },
+  { group: ['**/modules/boss/**'], message: '老板端模块是叶子域，禁止被员工端反向依赖' },
+  { group: ['**/api/**', '@/mobile/api/**'], message: '展示组件不得直连接口，数据由容器/composable 注入' },
+  {
+    group: ['**/stores/**', '@/mobile/stores/**', '@/pc/stores/**'],
+    message: '展示组件不得直接 useStore，状态由容器/composable 注入'
+  }
+]
+
+// constants 边界（L3）：只放静态配置，取数归 stores/composables（消 G3）
+const CONSTANTS_BOUNDARY_PATTERNS = [
+  {
+    group: ['**/shared/mock/**', '@/shared/mock/**'],
+    message: '展示层禁止直连假后端；装配点仅限 pc/main.js 与 mobile/main.js'
+  },
+  { group: ['**/api/**', '@/mobile/api/**'], message: 'constants 只放静态配置，取数放到 stores/composables' },
+  { group: ['**/stores/**', '@/mobile/stores/**', '@/pc/stores/**'], message: 'constants 只放静态配置，不得依赖 store' }
 ]
 
 export default [
@@ -108,10 +135,16 @@ export default [
 
   // ---- 依赖边界机器化（本批次核心产出）----
   // 规则 1：展示层禁止直连假后端；装配点白名单仅 pc/main.js 与 mobile/main.js，
-  //         外加 mobile/utils/workorder.js —— Mock 关闭时的动态 import 兜底属设计允许。
+  //         外加 mobile/utils/workorder.js —— Mock 关闭时的动态 import 兜底属设计允许；
+  //         useTransferTargets.js 是该文件拆分后的落点（B2），一并放行，避免拆分时白名单失效（§8.2 L6）。
   {
     files: ['src/pc/**', 'src/mobile/**'],
-    ignores: ['src/pc/main.js', 'src/mobile/main.js', 'src/mobile/utils/workorder.js'],
+    ignores: [
+      'src/pc/main.js',
+      'src/mobile/main.js',
+      'src/mobile/utils/workorder.js',
+      'src/mobile/views/staff/workorder/composables/useTransferTargets.js'
+    ],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -156,6 +189,131 @@ export default [
         }
       ]
     }
+  },
+
+  // ==========================================================================
+  // 规则 4-6：按域拆模块后的域边界（结构与依赖方案 §5.3）
+  // --------------------------------------------------------------------------
+  // 必须放在规则 1-3 之后：flat config 中同一 rule 名「后者整体覆盖前者」、不做选项合并，
+  // 故每条新规则都要把它所覆盖文件原本生效的 patterns 复述一遍 —— 尤其是规则 1 的
+  // `shared/mock/**` 封禁，漏掉即被静默抹掉「展示层不得直连假后端」这条架构红线。
+  // 依据：ESLint《Configuration Files · Cascading Configuration Objects》。
+  // ==========================================================================
+
+  // 规则 4：老板端模块内部 —— 禁止跨域 / 禁止触达 PC 端与一期只读资产 / 复述 mock 禁令
+  {
+    files: ['src/mobile/modules/boss/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/shared/mock/**', '@/shared/mock/**'],
+              message: '展示层禁止直连假后端；装配点仅限 pc/main.js 与 mobile/main.js'
+            },
+            {
+              group: ['**/views/staff/**', '**/modules/staff/**'],
+              message:
+                '老板端模块禁止直引其他业务域；跨端复用请走内核或中立共享页（路由层例外只写在聚合点 router/index.js）'
+            },
+            {
+              group: ['@admin/**', '@/pc/**', '**/src/pc/**'],
+              message: '老板端模块禁止依赖 PC 端与一期只读资产 @admin'
+            }
+          ]
+        }
+      ]
+    }
+  },
+  // 规则 5：员工端域 —— 禁止反向依赖老板端模块（复述 mock 禁令）
+  {
+    files: ['src/mobile/views/staff/**', 'src/mobile/modules/staff/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/shared/mock/**', '@/shared/mock/**'],
+              message: '展示层禁止直连假后端；装配点仅限 pc/main.js 与 mobile/main.js'
+            },
+            {
+              group: ['**/modules/boss/**'],
+              message: '老板端模块是叶子域，禁止被员工端反向依赖'
+            }
+          ]
+        }
+      ]
+    }
+  },
+  // 规则 6：PC 端 —— 禁止反向依赖移动端老板模块（复述 mock 禁令）
+  {
+    files: ['src/pc/**'],
+    ignores: ['src/pc/main.js'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/shared/mock/**', '@/shared/mock/**'],
+              message: '展示层禁止直连假后端；装配点仅限 pc/main.js 与 mobile/main.js'
+            },
+            {
+              group: ['**/modules/boss/**'],
+              message: '老板端模块属移动端叶子域，PC 端禁止反向依赖'
+            }
+          ]
+        }
+      ]
+    }
+  },
+
+  // ==========================================================================
+  // 规则 7-13：员工端拆分新增（结构与依赖方案 §5.3 / §8.2 的 6 项约束）
+  // --------------------------------------------------------------------------
+  // 渐进落地方式（§8.2 未规定严重级别，按「拆分产物从严、存量从宽」执行）：
+  //   error —— 拆分产物：views/**/components/**（L1/L2）、views/staff/**/index.vue（L5 页面壳）
+  //   warn  —— 尚未拆分的存量：mobile/components/**（5 处既有越界）、各整页与 login/index.vue
+  //            存量若直接设 error，`npm run lint` 不可能 0 error，规范会被绕过；随 B1–B8 逐批收敛后再升 error。
+  // 每条规则同样复述上一版生效的 patterns（flat config 后者整体覆盖前者）。
+  // ==========================================================================
+
+  // L1 + L2（error）：域内展示组件不得直连接口、不得直接 useStore
+  {
+    files: ['src/mobile/views/**/components/**'],
+    rules: { 'no-restricted-imports': ['error', { patterns: COMPONENT_BOUNDARY_PATTERNS }] }
+  },
+  // L1 + L2（warn）：既有跨域组件层的存量越界，待 B5/B6 把取数与 store 上提后升 error（消 G7）
+  {
+    files: ['src/mobile/components/**'],
+    rules: { 'no-restricted-imports': ['warn', { patterns: COMPONENT_BOUNDARY_PATTERNS }] }
+  },
+  // L3（error）：constants 只放静态配置（消 G3）
+  {
+    files: ['src/mobile/constants/**'],
+    rules: { 'no-restricted-imports': ['error', { patterns: CONSTANTS_BOUNDARY_PATTERNS }] }
+  },
+  // L4（warn）：普通组件 ≤300 行；存量整页尚未拆分，先 warn
+  {
+    files: ['src/mobile/**/*.vue'],
+    rules: { 'max-lines': ['warn', { max: 300, skipBlankLines: true, skipComments: true }] }
+  },
+  // L4（error）：已拆出的域内组件 ≤300 行
+  {
+    files: ['src/mobile/views/**/components/**/*.vue'],
+    rules: { 'max-lines': ['error', { max: 300, skipBlankLines: true, skipComments: true }] }
+  },
+  // L5（warn）：页面壳 ≤150 行；login/index.vue 是既有整页（非壳），先 warn
+  {
+    files: ['src/mobile/views/**/index.vue'],
+    rules: { 'max-lines': ['warn', { max: 150, skipBlankLines: true, skipComments: true }] }
+  },
+  // L5（error）：员工端拆分后的页面壳 ≤150 行
+  {
+    files: ['src/mobile/views/staff/**/index.vue'],
+    rules: { 'max-lines': ['error', { max: 150, skipBlankLines: true, skipComments: true }] }
   },
 
   // a11y 插件：全量 error 会瞬间爆数百条（现有 321 处自绘 aria/role），

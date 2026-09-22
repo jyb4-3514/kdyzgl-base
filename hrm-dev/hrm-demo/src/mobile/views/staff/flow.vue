@@ -3,7 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 import PageNav from '../../components/PageNav.vue'
 import PageState from '../../components/PageState.vue'
 import MyPayrollCard from '../../components/MyPayrollCard.vue'
-import { getHrProfile, getMyPayrolls } from '../../api/index.js'
+import { getMyPayrolls } from '../../api/finance.js'
+import { getHrProfile } from '../../api/hr.js'
 import { useAuthStore } from '../../stores/auth.js'
 
 /**

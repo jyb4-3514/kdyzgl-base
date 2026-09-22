@@ -5,7 +5,7 @@ import PageState from '../../components/PageState.vue'
 import SlaTag from '../../components/SlaTag.vue'
 import StatusTag from '../../components/StatusTag.vue'
 import WorkOrderCopyButton from '../../components/WorkOrderCopyButton.vue'
-import { getWorkOrders } from '../../api/index.js'
+import { getWorkOrders } from '../../api/workOrder.js'
 import { WORK_ORDER_PRIORITY, WORK_ORDER_TYPE } from '@/shared/constants/dict.js'
 import { numberText, relativeTime } from '../../utils/format.js'
 
