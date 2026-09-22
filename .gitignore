@@ -10,6 +10,10 @@ application-*.yml
 application-*.yaml
 application-*.properties
 
+# ==================== 本地凭据目录（主智能体托管，绝不入库） ====================
+.secrets/
+.secrets/**
+
 # ==================== 密钥 / 证书 / 私钥 ====================
 *.pem
 *.key
@@ -35,6 +39,20 @@ dist/
 build/
 *.local
 .history/
+
+# ==================== 测试与本地运行残留（不入库） ====================
+# 说明：hrm-demo 的测试证据/覆盖率、安卓壳的 Gradle 缓存均为本地运行产物，
+# 真实源码在 dev 分支，此处忽略避免污染 main 工作区与远端仓库
+# 注意：含斜杠的路径会锚定到仓库根，故 e2e 证据目录须用 **/ 前缀
+coverage/
+test-results/
+playwright-report/
+**/e2e/evidence/
+.gradle/
+
+# ==================== 安卓（H5 壳）本地配置 ====================
+# local.properties 含本机 SDK 绝对路径，绝不入库
+local.properties
 
 # ==================== IDE / Trae / 本地缓存 ====================
 .idea/
