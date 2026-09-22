@@ -1,5 +1,6 @@
 import { findDepartmentById, findEmployeeById, findStationById } from '../db.js'
 import { CODE } from '../../constants/errorCode.js'
+import { ALL_ROLES } from '../../constants/role.js'
 import { fail, formatDate, ok } from '../util.js'
 import { isBlank, isDate, isPhone, pageSizeInvalid, textLen } from '../validate.js'
 import {
@@ -279,10 +280,10 @@ function offboardingReject({ pathParams, body, user }) {
  */
 export const hrRoutes = [
   { method: 'get', path: '/hr/profiles', roles: ['ADMIN'], handler: profileList },
-  { method: 'get', path: '/hr/profiles/:employeeId', handler: profileDetail },
+  { method: 'get', path: '/hr/profiles/:employeeId', roles: ALL_ROLES, handler: profileDetail },
   { method: 'put', path: '/hr/profiles/:employeeId', roles: ['ADMIN'], handler: profileUpdate },
   { method: 'get', path: '/hr/salary-structures', roles: ['ADMIN'], handler: salaryList },
-  { method: 'get', path: '/hr/salary-structures/:employeeId', handler: salaryDetail },
+  { method: 'get', path: '/hr/salary-structures/:employeeId', roles: ALL_ROLES, handler: salaryDetail },
   { method: 'put', path: '/hr/salary-structures/:employeeId', roles: ['ADMIN'], handler: salaryUpdate },
   { method: 'get', path: '/hr/onboarding', roles: ['ADMIN'], handler: onboardingList },
   { method: 'post', path: '/hr/onboarding', roles: ['ADMIN'], handler: onboardingCreate },

@@ -1,4 +1,5 @@
 import { AUTH_CODE, CODE } from '../../constants/errorCode.js'
+import { ALL_ROLES } from '../../constants/role.js'
 import { db, toEmployeeVO } from '../db.js'
 import { fail, formatDateTime, ok } from '../util.js'
 import { isBlank, isStrongPassword } from '../validate.js'
@@ -86,7 +87,7 @@ function updatePassword({ db: database, body, user }) {
 
 export const authRoutes = [
   { method: 'post', path: '/auth/login', auth: false, handler: login },
-  { method: 'post', path: '/auth/logout', handler: logout },
-  { method: 'get', path: '/auth/me', handler: me },
-  { method: 'put', path: '/auth/password', handler: updatePassword }
+  { method: 'post', path: '/auth/logout', roles: ALL_ROLES, handler: logout },
+  { method: 'get', path: '/auth/me', roles: ALL_ROLES, handler: me },
+  { method: 'put', path: '/auth/password', roles: ALL_ROLES, handler: updatePassword }
 ]

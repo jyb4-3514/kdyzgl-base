@@ -424,6 +424,8 @@ export function useLatestRequest() {
 
 > 依据：`router/index.js` 各路由 `meta.roles`；`/boss/kpi/:employeeId` 见 `:110-114`，`/staff/sync` 见 `:240-246`。
 
+> **本次实际收口结果（R5 子任务，2026-09-22，独立 commit）**：① **数据级（P1）已收口** —— 新增纯函数 `shared/domain/applyDataScope.js`，由 `engine.js` 在调 handler 前对查询参数统一执行，非 ADMIN 的 `stationId` 一律收敛为本人归属驿站；已删除 `parcel` / `workOrder` / `syncTask` / `attendance` / `kpi` / `leave` 六个路由文件中重复的**查询参数**覆盖逻辑（`employeeId` 不收敛：审计确认现存唯一被归属覆盖的参数就是 `stationId`，「只看本人」端点直接读 `user.id`，不臆造；body 的 `stationId` 覆盖保留在工单新建与打卡，属写操作防代提交，不属查询参数收敛）。② **路由级显式化（P2）已收口** —— `role.js` 新增 `ALL_ROLES`，engine 加载期对「鉴权但未声明 roles」直接判为配置错误抛错，`verify-mock.mjs` 新增 1 条静态断言（878 → 879）。③ **派生标志（P3）保留 `TODO(扩展)`、本轮不做** —— 工单/工资单详情补派生标志当前无消费方，且口径需按「状态机 × 角色」逐条定稿；补卡更无独立详情端点，Mock 单方面下发会与前端既有本地判定形成双口径，故留 TODO 于 `routes/workOrder.js`、`routes/finance.js`、`routes/attendance.js`，待契约定稿后补并同步断言与前端。④ **分档表（P4）以上矩阵即验收依据**，B1–B7 按本表逐条核对。
+
 ---
 
 ## 7. 性能策略

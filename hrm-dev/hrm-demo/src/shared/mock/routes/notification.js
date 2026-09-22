@@ -1,5 +1,6 @@
 import { activeEmployees, db, findStationById, pushNotification } from '../db.js'
 import { CODE, DEMO_CODE } from '../../constants/errorCode.js'
+import { ALL_ROLES } from '../../constants/role.js'
 import { fail, formatDateTime, ok, paginate } from '../util.js'
 import { isBlank, pageSizeInvalid, textLen } from '../validate.js'
 
@@ -119,9 +120,9 @@ function publish({ body, user }) {
 }
 
 export const notificationRoutes = [
-  { method: 'get', path: '/notifications', handler: list },
-  { method: 'get', path: '/notifications/unread-count', handler: unreadCount },
-  { method: 'put', path: '/notifications/read-all', handler: readAll },
+  { method: 'get', path: '/notifications', roles: ALL_ROLES, handler: list },
+  { method: 'get', path: '/notifications/unread-count', roles: ALL_ROLES, handler: unreadCount },
+  { method: 'put', path: '/notifications/read-all', roles: ALL_ROLES, handler: readAll },
   { method: 'post', path: '/notifications/publish', roles: ['ADMIN'], handler: publish },
-  { method: 'put', path: '/notifications/:id/read', handler: markRead }
+  { method: 'put', path: '/notifications/:id/read', roles: ALL_ROLES, handler: markRead }
 ]

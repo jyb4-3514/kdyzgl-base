@@ -1,4 +1,5 @@
 import { CODE } from '../../constants/errorCode.js'
+import { ALL_ROLES } from '../../constants/role.js'
 import { currentMonth, fail, ok } from '../util.js'
 import { isBlank, isMonth, pageSizeInvalid, textLen } from '../validate.js'
 import {
@@ -20,7 +21,7 @@ import {
 /**
  * KPI 考核接口（需求7）
  * 指标配置与算分只有老板（ADMIN）可操作；得分与排名站长可见（按驿站收敛），员工只能看本人明细。
- * 越权口径与考勤/工单一致：非 ADMIN 的 stationId 一律用其归属驿站覆盖，传别的驿站不报错也不生效。
+ * 数据范围：非 ADMIN 的 stationId 由 engine 统一收敛为本人归属驿站（见 domain/applyDataScope.js），传别的驿站不报错也不生效。
  */
 
 const METRIC_TYPES = Object.keys(KPI_METRIC_TYPE_LABEL)
@@ -28,8 +29,8 @@ const SCORE_MODES = Object.keys(KPI_SCORE_MODE_LABEL)
 const DIRECTIONS = Object.keys(KPI_DIRECTION_LABEL)
 const ROLE_SCOPES = ['ADMIN', 'STATION_ADMIN', 'STAFF']
 
-/** 非 ADMIN 的数据范围：本人归属驿站 */
-const scopedStationId = (user, raw) => (user.role === 'ADMIN' ? (isBlank(raw) ? null : Number(raw)) : user.station_id)
+/** 查询参数 stationId 归一：空视为全量（数据级收敛已由 engine 统一执行） */
+const stationIdOf = (raw) => (isBlank(raw) ? null : Number(raw))
 
 const monthOf = (value) => (isBlank(value) ? currentMonth() : String(value))
 
@@ -114,13 +115,13 @@ function calculate({ body }) {
   return result.code === 200 ? ok(result.data) : fail(result.code, result.message)
 }
 
-function scoreList({ params, user }) {
+function scoreList({ params }) {
   if (pageSizeInvalid(params.pageSize)) return fail(CODE.BAD_REQUEST, '每页条数须为 1-100')
   if (!isMonth(params.month)) return fail(CODE.BAD_REQUEST, 'month 格式须为 YYYY-MM')
   return ok(
     queryScores({
       month: monthOf(params.month),
-      stationId: scopedStationId(user, params.stationId),
+      stationId: stationIdOf(params.stationId),
       employeeId: params.employeeId,
       pageNum: params.pageNum,
       pageSize: params.pageSize
@@ -128,13 +129,13 @@ function scoreList({ params, user }) {
   )
 }
 
-function ranking({ params, user }) {
+function ranking({ params }) {
   if (pageSizeInvalid(params.pageSize)) return fail(CODE.BAD_REQUEST, '每页条数须为 1-100')
   if (!isMonth(params.month)) return fail(CODE.BAD_REQUEST, 'month 格式须为 YYYY-MM')
   return ok(
     queryRanking({
       month: monthOf(params.month),
-      stationId: scopedStationId(user, params.stationId),
+      stationId: stationIdOf(params.stationId),
       pageNum: params.pageNum,
       pageSize: params.pageSize
     })
@@ -167,5 +168,5 @@ export const kpiRoutes = [
   { method: 'post', path: '/kpi/scores/calculate', roles: ['ADMIN'], handler: calculate },
   { method: 'get', path: '/kpi/scores/ranking', roles: ['ADMIN', 'STATION_ADMIN'], handler: ranking },
   { method: 'get', path: '/kpi/scores', roles: ['ADMIN', 'STATION_ADMIN'], handler: scoreList },
-  { method: 'get', path: '/kpi/scores/:employeeId', handler: detail }
+  { method: 'get', path: '/kpi/scores/:employeeId', roles: ALL_ROLES, handler: detail }
 ]

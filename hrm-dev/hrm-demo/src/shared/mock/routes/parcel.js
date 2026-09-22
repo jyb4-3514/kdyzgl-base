@@ -1,20 +1,22 @@
 import { getParcelById, parcelRanking, parcelSummary, parcelTrend, pickupParcel, queryParcels } from '../parcelStore.js'
 import { CODE, DEMO_CODE } from '../../constants/errorCode.js'
+import { ALL_ROLES } from '../../constants/role.js'
 import { fail, ok } from '../util.js'
 import { pageSizeInvalid } from '../validate.js'
 
 /**
  * 包裹接口（T06，demo-design.md 7.4.2 契约草案）
- * 数据范围：非 ADMIN 的 station_id 一律强制覆盖为本人归属驿站（前端传别的驿站也无效）；
- * 取件写操作走 parcelStore 的覆盖层，统计口径随覆盖层实时变化。
+ * 数据范围：非 ADMIN 的 station_id 由 engine 统一收敛为本人归属驿站（见 domain/applyDataScope.js），
+ * 前端传别的驿站也不生效；取件写操作走 parcelStore 的覆盖层，统计口径随覆盖层实时变化。
  */
 
 /** 非 ADMIN 的数据范围：本人驿站；ADMIN 返回 null 表示全量 */
 const scopedStation = (user) => (user.role === 'ADMIN' ? null : user.station_id)
 
-function list({ params, user }) {
+function list({ params }) {
   if (pageSizeInvalid(params.pageSize)) return fail(CODE.BAD_REQUEST, '每页条数须为 1-100')
-  const stationId = user.role === 'ADMIN' ? params.stationId : user.station_id // 非 ADMIN 强制覆盖
+  // stationId 已在 engine 按角色收敛，这里只做空值归一
+  const stationId = params.stationId
   return ok(
     queryParcels({
       stationId: stationId == null || stationId === '' ? null : stationId,
@@ -65,10 +67,10 @@ function ranking({ params, user }) {
 }
 
 export const parcelRoutes = [
-  { method: 'get', path: '/parcels', handler: list },
-  { method: 'get', path: '/parcels/summary', handler: summary },
-  { method: 'get', path: '/parcels/trend', handler: trend },
-  { method: 'get', path: '/parcels/ranking', handler: ranking },
-  { method: 'get', path: '/parcels/:id', handler: detail },
-  { method: 'put', path: '/parcels/:id/pickup', handler: pickup }
+  { method: 'get', path: '/parcels', roles: ALL_ROLES, handler: list },
+  { method: 'get', path: '/parcels/summary', roles: ALL_ROLES, handler: summary },
+  { method: 'get', path: '/parcels/trend', roles: ALL_ROLES, handler: trend },
+  { method: 'get', path: '/parcels/ranking', roles: ALL_ROLES, handler: ranking },
+  { method: 'get', path: '/parcels/:id', roles: ALL_ROLES, handler: detail },
+  { method: 'put', path: '/parcels/:id/pickup', roles: ALL_ROLES, handler: pickup }
 ]

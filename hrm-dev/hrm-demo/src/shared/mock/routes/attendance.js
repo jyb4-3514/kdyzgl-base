@@ -1,5 +1,6 @@
 import { db, findStationById, stationName } from '../db.js'
 import { ATTENDANCE_CODE, CODE, STATION_CODE } from '../../constants/errorCode.js'
+import { ALL_ROLES } from '../../constants/role.js'
 import { CSV_TYPE, csvDisposition, fail, formatDate, ok, toCsvBlob } from '../util.js'
 import { isBlank, isDate, pageSizeInvalid, textLen } from '../validate.js'
 import {
@@ -28,7 +29,7 @@ import {
 
 /**
  * 考勤与排班接口（T17，demo-design.md 7.4 契约风格）
- * 越权防护与二期 parcel 同口径：非 ADMIN 的 stationId 一律用其 employee.station_id 覆盖，
+ * 查询参数的数据范围：非 ADMIN 的 stationId 由 engine 统一收敛为本人归属驿站（见 domain/applyDataScope.js），
  * 前端传别的驿站不报错也不生效（不暴露「参数被忽略」的实现细节，避免试探出其他驿站是否存在数据）。
  */
 
@@ -41,7 +42,10 @@ const toNumberOrNull = (value) => {
   return Number.isFinite(num) ? num : null
 }
 
-/** 非 ADMIN 的数据范围：本人归属驿站；ADMIN 未传时返回 null 表示全量 */
+/**
+ * 写操作入参 body.stationId 的归属收敛（打卡）：body 不参与 engine 的查询参数收敛，
+ * 故此处保留与 applyDataScope 同口径的覆盖，防止代他人向别的驿站打卡。
+ */
 const scopedStationId = (user, raw) => (user.role === 'ADMIN' ? toIdOrNull(raw) : user.station_id)
 
 const isClock = (value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value))
@@ -51,8 +55,8 @@ const isHexColor = (value) => /^#[0-9A-Fa-f]{6}$/.test(String(value))
 
 /* ==================== 打卡规则 ==================== */
 
-function getRule({ params, user }) {
-  const stationId = scopedStationId(user, params.stationId)
+function getRule({ params }) {
+  const stationId = toIdOrNull(params.stationId)
   if (stationId == null) return fail(CODE.BAD_REQUEST, '缺少 stationId')
   const rule = findRule(stationId)
   if (!rule) return fail(ATTENDANCE_CODE.RULE_NOT_CONFIGURED)
@@ -206,8 +210,8 @@ function saveRuleHandler({ body }) {
 
 /* ==================== 班次 ==================== */
 
-function shiftList({ params, user }) {
-  const stationId = scopedStationId(user, params.stationId)
+function shiftList({ params }) {
+  const stationId = toIdOrNull(params.stationId)
   if (stationId == null) return fail(CODE.BAD_REQUEST, '缺少 stationId')
   return ok(listShifts(stationId))
 }
@@ -263,8 +267,8 @@ function deleteShiftHandler({ pathParams }) {
 
 /* ==================== 排班 ==================== */
 
-function scheduleMatrix({ params, user }) {
-  const stationId = scopedStationId(user, params.stationId)
+function scheduleMatrix({ params }) {
+  const stationId = toIdOrNull(params.stationId)
   if (stationId == null) return fail(CODE.BAD_REQUEST, '缺少 stationId')
   if (!isBlank(params.weekStart) && !isDate(params.weekStart))
     return fail(CODE.BAD_REQUEST, 'weekStart 格式须为 YYYY-MM-DD')
@@ -330,7 +334,7 @@ function saveScheduleByStation({ body }) {
 
 const RECORD_STATUS = ['NORMAL', 'LATE', 'EARLY_LEAVE', 'ABNORMAL']
 
-function records({ params, user }) {
+function records({ params }) {
   if (pageSizeInvalid(params.pageSize)) return fail(CODE.BAD_REQUEST, '每页条数须为 1-100')
   if (!isBlank(params.status) && !RECORD_STATUS.includes(params.status))
     return fail(CODE.BAD_REQUEST, 'status 取值非法')
@@ -339,7 +343,7 @@ function records({ params, user }) {
   if (!isBlank(params.endDate) && !isDate(params.endDate)) return fail(CODE.BAD_REQUEST, 'endDate 格式须为 YYYY-MM-DD')
   return ok(
     queryRecords({
-      stationId: scopedStationId(user, params.stationId),
+      stationId: toIdOrNull(params.stationId),
       employeeId: params.employeeId,
       status: params.status,
       startDate: params.startDate,
@@ -361,14 +365,14 @@ const EXPORT_SOURCE = { NORMAL: '正常打卡', MAKEUP: '补卡' }
  * 为什么不复用 records 的响应：records 走分页（pageSize 上限 100），导出必须全量，
  * 因此 store 侧抽出同一套 filterRecords，两边只共享筛选逻辑、各自决定「分页 or 全量」。
  */
-function exportCsv({ params, user }) {
+function exportCsv({ params }) {
   if (!isBlank(params.status) && !RECORD_STATUS.includes(params.status))
     return fail(CODE.BAD_REQUEST, 'status 取值非法')
   if (!isBlank(params.startDate) && !isDate(params.startDate))
     return fail(CODE.BAD_REQUEST, 'startDate 格式须为 YYYY-MM-DD')
   if (!isBlank(params.endDate) && !isDate(params.endDate)) return fail(CODE.BAD_REQUEST, 'endDate 格式须为 YYYY-MM-DD')
   const rows = exportRecords({
-    stationId: scopedStationId(user, params.stationId),
+    stationId: toIdOrNull(params.stationId),
     employeeId: params.employeeId,
     status: params.status,
     startDate: params.startDate,
@@ -418,9 +422,9 @@ function exportCsv({ params, user }) {
   }
 }
 
-function summary({ params, user }) {
+function summary({ params }) {
   if (!isBlank(params.date) && !isDate(params.date)) return fail(CODE.BAD_REQUEST, 'date 格式须为 YYYY-MM-DD')
-  return ok(attendanceSummary(scopedStationId(user, params.stationId), params.date))
+  return ok(attendanceSummary(toIdOrNull(params.stationId), params.date))
 }
 
 function my({ params, user }) {
@@ -459,6 +463,8 @@ function checkInHandler({ body, user }) {
 /* ==================== 补卡申请与审批（T19） ==================== */
 
 const MAKEUP_STATUS = ['PENDING', 'APPROVED', 'REJECTED']
+// TODO(扩展): 补卡没有独立详情端点，操作级派生标志（如 canApprove）待契约定义后再由服务端下发，
+//   当前由前端按状态+角色本地判定；不在 Mock 单方面臆造标志，避免与前端判定形成双口径
 
 /** 列表与「我的」共用的筛选校验：状态取值与日期格式两处都要用，抽一次避免文案分叉 */
 function makeupQueryError(params) {
@@ -546,25 +552,25 @@ function makeupApproveHandler({ body, pathParams, user }) {
  * （/attendance/rule 与 /attendance/rule/list 为不同路径，互不遮蔽）
  */
 export const attendanceRoutes = [
-  { method: 'get', path: '/attendance/rule', handler: getRule },
+  { method: 'get', path: '/attendance/rule', roles: ALL_ROLES, handler: getRule },
   { method: 'get', path: '/attendance/rule/list', roles: ['ADMIN'], handler: ruleList },
   { method: 'put', path: '/attendance/rule', roles: ['ADMIN'], handler: saveRuleHandler },
-  { method: 'get', path: '/attendance/status', handler: status },
+  { method: 'get', path: '/attendance/status', roles: ALL_ROLES, handler: status },
   { method: 'get', path: '/attendance/records', roles: ['ADMIN', 'STATION_ADMIN'], handler: records },
   { method: 'get', path: '/attendance/export', roles: ['ADMIN', 'STATION_ADMIN'], handler: exportCsv },
   { method: 'get', path: '/attendance/summary', roles: ['ADMIN', 'STATION_ADMIN'], handler: summary },
-  { method: 'get', path: '/attendance/my', handler: my },
+  { method: 'get', path: '/attendance/my', roles: ALL_ROLES, handler: my },
   // 补卡：提交与「我的」不限角色（员工本人），列表与审批只有老板（ADMIN）可用，角色不符由 engine 统一回 403
-  { method: 'get', path: '/attendance/makeup/my', handler: makeupMine },
+  { method: 'get', path: '/attendance/makeup/my', roles: ALL_ROLES, handler: makeupMine },
   { method: 'get', path: '/attendance/makeup/list', roles: ['ADMIN'], handler: makeupList },
-  { method: 'post', path: '/attendance/makeup', handler: makeupApplyHandler },
+  { method: 'post', path: '/attendance/makeup', roles: ALL_ROLES, handler: makeupApplyHandler },
   { method: 'post', path: '/attendance/makeup/:id/approve', roles: ['ADMIN'], handler: makeupApproveHandler },
-  { method: 'post', path: '/attendance/check-in', handler: checkInHandler },
+  { method: 'post', path: '/attendance/check-in', roles: ALL_ROLES, handler: checkInHandler },
   { method: 'get', path: '/schedules', roles: ['ADMIN', 'STATION_ADMIN'], handler: scheduleMatrix },
-  { method: 'get', path: '/schedules/my', handler: mySchedule },
+  { method: 'get', path: '/schedules/my', roles: ALL_ROLES, handler: mySchedule },
   { method: 'post', path: '/schedules/batch', roles: ['ADMIN'], handler: saveScheduleBatch },
   { method: 'post', path: '/schedules/batch-by-station', roles: ['ADMIN'], handler: saveScheduleByStation },
-  { method: 'get', path: '/shifts', handler: shiftList },
+  { method: 'get', path: '/shifts', roles: ALL_ROLES, handler: shiftList },
   { method: 'post', path: '/shifts', roles: ['ADMIN'], handler: createShiftHandler },
   { method: 'put', path: '/shifts/:id', roles: ['ADMIN'], handler: updateShiftHandler },
   { method: 'delete', path: '/shifts/:id', roles: ['ADMIN'], handler: deleteShiftHandler }

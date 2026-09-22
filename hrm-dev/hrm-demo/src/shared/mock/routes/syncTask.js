@@ -29,10 +29,11 @@ function toSyncTaskVO(task) {
   }
 }
 
-function list({ params, user }) {
+function list({ params }) {
   if (pageSizeInvalid(params.pageSize)) return fail(CODE.BAD_REQUEST, '每页条数须为 1-100')
   let rows = db.syncTasks
-  const stationId = user.role === 'ADMIN' ? params.stationId : user.station_id
+  // stationId 已在 engine 按角色收敛（非 ADMIN 强制本站），这里只做空值归一
+  const stationId = params.stationId
   if (stationId != null && stationId !== '') rows = rows.filter((t) => t.station_id === Number(stationId))
   if (params.status !== undefined && params.status !== '') rows = rows.filter((t) => t.status === Number(params.status))
   const keyword = String(params.keyword || '').trim()

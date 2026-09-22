@@ -1,4 +1,5 @@
 import { CODE, FINANCE_CODE } from '../../constants/errorCode.js'
+import { ALL_ROLES } from '../../constants/role.js'
 import { fail, ok } from '../util.js'
 import { isBlank, isMonth, pageSizeInvalid, textLen } from '../validate.js'
 import {
@@ -155,6 +156,8 @@ function myList({ params, user }) {
   )
 }
 
+// TODO(扩展): 与请假详情对齐，由服务端补下发派生操作标志（如 canConfirm/canObject/canEdit），
+//   当前由前端按「状态 + 角色」本地判定；口径定稿后再补，避免与前端判定并存形成双口径
 function payrollDetail({ pathParams, user }) {
   const result = findPayrollForUser(pathParams.id, user)
   return result.code === 200 ? ok(result.data) : fail(result.code, result.message)
@@ -220,14 +223,14 @@ export const financeRoutes = [
   { method: 'get', path: '/finance/payroll-rules/:id', roles: ['ADMIN'], handler: ruleDetail },
   { method: 'put', path: '/finance/payroll-rules/:id', roles: ['ADMIN'], handler: ruleUpdate },
   { method: 'delete', path: '/finance/payroll-rules/:id', roles: ['ADMIN'], handler: ruleDelete },
-  { method: 'get', path: '/finance/payrolls/my', handler: myList },
+  { method: 'get', path: '/finance/payrolls/my', roles: ALL_ROLES, handler: myList },
   { method: 'post', path: '/finance/payrolls/generate', roles: ['ADMIN'], handler: generate },
   { method: 'post', path: '/finance/payrolls/submit', roles: ['ADMIN'], handler: submit },
   { method: 'post', path: '/finance/payrolls/publish', roles: ['ADMIN'], handler: publish },
   { method: 'get', path: '/finance/payrolls', roles: ['ADMIN'], handler: payrollList },
-  { method: 'get', path: '/finance/payrolls/:id', handler: payrollDetail },
+  { method: 'get', path: '/finance/payrolls/:id', roles: ALL_ROLES, handler: payrollDetail },
   { method: 'put', path: '/finance/payrolls/:id/items', roles: ['ADMIN'], handler: updateItems },
   { method: 'post', path: '/finance/payrolls/:id/approve', roles: ['ADMIN'], handler: approve },
-  { method: 'post', path: '/finance/payrolls/:id/confirm', handler: confirm },
-  { method: 'post', path: '/finance/payrolls/:id/objection', handler: objection }
+  { method: 'post', path: '/finance/payrolls/:id/confirm', roles: ALL_ROLES, handler: confirm },
+  { method: 'post', path: '/finance/payrolls/:id/objection', roles: ALL_ROLES, handler: objection }
 ]

@@ -1,6 +1,8 @@
 import axios from 'axios'
 import { routes } from './routes/index.js'
 import { CODE, codeMessage } from '../constants/errorCode.js'
+import { ALL_ROLES } from '../constants/role.js'
+import { applyDataScope } from '../domain/applyDataScope.js'
 import { db, findEmployeeById } from './db.js'
 
 /**
@@ -39,6 +41,17 @@ const compiledRoutes = routes.map((route) => {
     })
     .replace(/\//g, '\\/')
   return { ...route, keys, regex: new RegExp(`^${pattern}$`) }
+})
+
+/** 鉴权路由必须显式声明 roles：漏声明即「默认放行且无提示」，越权会静默通过，故加载期直接判为配置错误 */
+routes.forEach((route) => {
+  if (route.auth === false) return
+  if (!Array.isArray(route.roles) || route.roles.length === 0) {
+    throw new Error(
+      `Mock 路由缺少 roles 声明（配置错误）：${route.method.toUpperCase()} ${route.path}；` +
+        `公开端点请显式写 roles: ALL_ROLES = [${ALL_ROLES.join(', ')}]`
+    )
+  }
 })
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -155,7 +168,7 @@ export function createMockAdapter(options = {}) {
     if (matched.auth === false) {
       result = await matched.handler({
         db,
-        params: config.params || {},
+        params: applyDataScope(config.params, null),
         body: normalizeBody(config),
         pathParams,
         user: null
@@ -167,14 +180,15 @@ export function createMockAdapter(options = {}) {
         await sleep(delayRange[0])
         return Promise.reject(buildHttpError(response))
       }
-      if (matched.roles && !matched.roles.includes(employee.role)) {
+      if (!matched.roles.includes(employee.role)) {
         const response = buildResponse(config, { code: CODE.FORBIDDEN })
         await sleep(delayRange[0])
         return Promise.reject(buildHttpError(response))
       }
       result = await matched.handler({
         db,
-        params: config.params || {},
+        // 数据级权限收口：非 ADMIN 的 stationId 在此统一收敛，handler 只做业务校验
+        params: applyDataScope(config.params, employee),
         body: normalizeBody(config),
         pathParams,
         user: employee

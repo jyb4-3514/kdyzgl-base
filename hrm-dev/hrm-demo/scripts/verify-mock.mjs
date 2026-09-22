@@ -5,6 +5,7 @@
  */
 import axios from 'axios'
 import { createMockAdapter } from '../src/shared/mock/engine.js'
+import { routes } from '../src/shared/mock/routes/index.js'
 import { resetDb, activeEmployees, db } from '../src/shared/mock/db.js'
 import { resetParcelStore, parcelPerf, parcelTotalCount } from '../src/shared/mock/parcelStore.js'
 import { employeeAttendanceStat, resetAttendanceStore } from '../src/shared/mock/attendanceStore.js'
@@ -183,6 +184,16 @@ async function findStationEmptySlot(token, stationId, excludeIds = []) {
 
 async function main() {
   resetDb()
+
+  /* ========== 静态断言：鉴权路由必须显式声明 roles（P2 收口；未声明即配置错误，含 auth:false 公开端点豁免） ========== */
+  const routesWithoutRoles = routes.filter(
+    (route) => route.auth !== false && !(Array.isArray(route.roles) && route.roles.length)
+  )
+  check(
+    'P2. 全部鉴权路由均已显式声明 roles（未声明视为配置错误）',
+    routesWithoutRoles.length === 0,
+    routesWithoutRoles.map((route) => `${route.method.toUpperCase()} ${route.path}`).join('；')
+  )
 
   /* ========== V1 / V2 实测（打印真实观测值，结论回写 engine.js 注释） ========== */
   probes.length = 0

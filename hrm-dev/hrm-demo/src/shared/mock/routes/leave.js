@@ -1,4 +1,5 @@
 import { CODE, LEAVE_CODE } from '../../constants/errorCode.js'
+import { ALL_ROLES } from '../../constants/role.js'
 import { HALF_DAY, LEAVE_FILTERS, LEAVE_TYPE } from '../../constants/dict.js'
 import { fail, ok } from '../util.js'
 import { isBlank, isDate, pageSizeInvalid, textLen } from '../validate.js'
@@ -19,7 +20,7 @@ import {
 
 /**
  * 请假接口（M11，设计规范附录 A 的 16 个端点中的请假段）
- * 越权防护与 parcel / attendance 同口径：非 ADMIN 的 stationId 一律用其 employee.station_id 覆盖，
+ * 数据范围：非 ADMIN 的 stationId 由 engine 统一收敛为本人归属驿站（见 domain/applyDataScope.js），
  * 前端传别的驿站不报错也不生效；此外还要拦「不能审自己的单」（审核类端点在 store 内二次校验）。
  */
 
@@ -27,8 +28,8 @@ import {
 const LEAVE_STATUS_KEYS = LEAVE_FILTERS.map((item) => item.value).filter((value) => value && value !== 'PENDING')
 const PENDING_AGGREGATE = ['PENDING_STATION', 'PENDING_BOSS']
 
-/** 非 ADMIN 的数据范围：本人归属驿站；ADMIN 未传时返回 null 表示全量 */
-const scopedStationId = (user, raw) => (user.role === 'ADMIN' ? (isBlank(raw) ? null : Number(raw)) : user.station_id)
+/** 查询参数 stationId 归一：空视为全量（数据级收敛已由 engine 统一执行） */
+const stationIdOf = (raw) => (isBlank(raw) ? null : Number(raw))
 
 /** 'PENDING' 聚合虚拟值由服务端展开，前端只传一个值，不必自己发两次请求求和 */
 const expandStatus = (raw) => (isBlank(raw) ? null : raw === 'PENDING' ? PENDING_AGGREGATE : raw)
@@ -117,13 +118,13 @@ function mine({ params, user }) {
   )
 }
 
-/** 管理端列表（ADMIN 全域 / STATION_ADMIN 仅本站）：stationId 对非 ADMIN 强制覆盖，跨站不可见 */
+/** 管理端列表（ADMIN 全域 / STATION_ADMIN 仅本站）：stationId 由 engine 按角色收敛，跨站不可见 */
 function list({ params, user }) {
   const error = queryError(params)
   if (error) return fail(error.code, error.message)
   return ok(
     queryLeaves({
-      stationId: scopedStationId(user, params.stationId),
+      stationId: stationIdOf(params.stationId),
       employeeId: isBlank(params.employeeId) ? null : Number(params.employeeId),
       status: expandStatus(params.status),
       leaveType: params.leaveType,
@@ -225,16 +226,16 @@ function saveSettings({ body }) {
  * （/leave/preview、/leave/my、/leave/list、/leave/settings 都会被 /leave/:id 的正则命中）
  */
 export const leaveRoutes = [
-  { method: 'post', path: '/leave', handler: create },
-  { method: 'post', path: '/leave/preview', handler: preview },
-  { method: 'get', path: '/leave/my', handler: mine },
+  { method: 'post', path: '/leave', roles: ALL_ROLES, handler: create },
+  { method: 'post', path: '/leave/preview', roles: ALL_ROLES, handler: preview },
+  { method: 'get', path: '/leave/my', roles: ALL_ROLES, handler: mine },
   { method: 'get', path: '/leave/list', roles: ['ADMIN', 'STATION_ADMIN'], handler: list },
   { method: 'get', path: '/leave/settings', roles: ['ADMIN'], handler: getSettings },
   { method: 'put', path: '/leave/settings', roles: ['ADMIN'], handler: saveSettings },
-  { method: 'get', path: '/leave/:id', handler: detail },
-  { method: 'put', path: '/leave/:id', handler: update },
-  { method: 'post', path: '/leave/:id/cancel', handler: cancel },
-  { method: 'post', path: '/leave/:id/resubmit', handler: resubmit },
+  { method: 'get', path: '/leave/:id', roles: ALL_ROLES, handler: detail },
+  { method: 'put', path: '/leave/:id', roles: ALL_ROLES, handler: update },
+  { method: 'post', path: '/leave/:id/cancel', roles: ALL_ROLES, handler: cancel },
+  { method: 'post', path: '/leave/:id/resubmit', roles: ALL_ROLES, handler: resubmit },
   { method: 'post', path: '/leave/:id/station-approve', roles: ['STATION_ADMIN'], handler: stationApproveHandler },
   { method: 'post', path: '/leave/:id/final-approve', roles: ['ADMIN'], handler: finalApproveHandler },
   { method: 'post', path: '/leave/:id/revoke', roles: ['ADMIN'], handler: revokeHandler }

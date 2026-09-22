@@ -12,6 +12,7 @@ import {
   stationName
 } from '../db.js'
 import { CODE, DEMO_CODE, STATION_CODE } from '../../constants/errorCode.js'
+import { ALL_ROLES } from '../../constants/role.js'
 import { fail, formatDate, formatDateTime, ok, paginate, parseTime } from '../util.js'
 import { WORK_ORDER_SLA_HOURS } from '../../constants/dict.js'
 import { isBlank, pageSizeInvalid, textLen } from '../validate.js'
@@ -70,6 +71,8 @@ function toWorkOrderVO(order) {
 
 /** 详情 VO：在列表 VO 之上补转单留痕（列表不带，免得 120 条列表平白多一份嵌套数据） */
 function toWorkOrderDetailVO(order) {
+  // TODO(扩展): 与请假详情对齐，由服务端补下发派生操作标志（如 canAccept/canResolve/canClose/canAssign/canTransfer），
+  //   口径需按「状态机 × 角色」逐条定稿并同步前端；当前前端按状态+角色本地判定，不在 Mock 单方面臆造标志
   return { ...toWorkOrderVO(order), transfers: listWorkOrderTransfers(order.id) }
 }
 
@@ -86,10 +89,11 @@ const canAssign = (user, order) => {
   return user.role === 'STATION_ADMIN' && order.station_id === user.station_id
 }
 
-function list({ params, user }) {
+function list({ params }) {
   if (pageSizeInvalid(params.pageSize)) return fail(CODE.BAD_REQUEST, '每页条数须为 1-100')
   let rows = db.workOrders.filter((o) => o.is_deleted === 0)
-  const stationId = user.role === 'ADMIN' ? params.stationId : user.station_id
+  // stationId 已在 engine 按角色收敛（非 ADMIN 强制本站），这里只做空值归一
+  const stationId = params.stationId
   if (stationId != null && stationId !== '') rows = rows.filter((o) => o.station_id === Number(stationId))
   if (params.status !== undefined && params.status !== '') rows = rows.filter((o) => o.status === Number(params.status))
   if (params.type !== undefined && params.type !== '') rows = rows.filter((o) => o.type === Number(params.type))
@@ -439,15 +443,15 @@ function autoDispatch({ body }) {
  * 否则 GET /work-orders/dispatch-rules 会被 :id 抢先匹配成「工单不存在」。
  */
 export const workOrderRoutes = [
-  { method: 'get', path: '/work-orders', handler: list },
-  { method: 'post', path: '/work-orders', handler: create },
+  { method: 'get', path: '/work-orders', roles: ALL_ROLES, handler: list },
+  { method: 'post', path: '/work-orders', roles: ALL_ROLES, handler: create },
   // 规则读写口径统一为 ADMIN：规则含关键词 / 类型 / 优先级 / 默认处理人，属「企微接入配置」，
   // 站长与员工既不需要看也改不了；原先只读放行会让越权者拿到规则全貌（U6 已修正）
   { method: 'get', path: '/work-orders/dispatch-rules', roles: ['ADMIN'], handler: dispatchRuleList },
   { method: 'put', path: '/work-orders/dispatch-rules/:id', roles: ['ADMIN'], handler: updateDispatchRule },
   { method: 'post', path: '/work-orders/auto-dispatch', auth: false, handler: autoDispatch },
-  { method: 'get', path: '/work-orders/:id', handler: detail },
-  { method: 'put', path: '/work-orders/:id/assign', handler: assign },
-  { method: 'put', path: '/work-orders/:id/status', handler: changeStatus },
-  { method: 'post', path: '/work-orders/:id/transfer', handler: transfer }
+  { method: 'get', path: '/work-orders/:id', roles: ALL_ROLES, handler: detail },
+  { method: 'put', path: '/work-orders/:id/assign', roles: ALL_ROLES, handler: assign },
+  { method: 'put', path: '/work-orders/:id/status', roles: ALL_ROLES, handler: changeStatus },
+  { method: 'post', path: '/work-orders/:id/transfer', roles: ALL_ROLES, handler: transfer }
 ]

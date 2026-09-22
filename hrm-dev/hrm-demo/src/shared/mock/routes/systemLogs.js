@@ -1,4 +1,5 @@
 import { CODE } from '../../constants/errorCode.js'
+import { ALL_ROLES } from '../../constants/role.js'
 import { CLIENT_LOG_SOURCE } from '../../constants/dict.js'
 import { clearClientLogs, pushClientLogs, queryClientLogs } from '../clientLogStore.js'
 import { fail, ok } from '../util.js'
@@ -45,7 +46,7 @@ function list({ params }) {
 const clear = () => ok({ cleared: clearClientLogs() })
 
 export const systemLogRoutes = [
-  { method: 'post', path: '/system/client-logs', handler: ingest },
+  { method: 'post', path: '/system/client-logs', roles: ALL_ROLES, handler: ingest },
   { method: 'get', path: '/system/client-logs', roles: ['ADMIN'], handler: list },
   { method: 'post', path: '/system/client-logs/clear', roles: ['ADMIN'], handler: clear }
 ]
