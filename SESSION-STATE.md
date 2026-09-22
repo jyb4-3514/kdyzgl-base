@@ -512,10 +512,23 @@
 - [x] §14 四项待拍板已裁定：**R1** 留 B8 实测后定 / **R2** 保持 ≤150 KB 不动 `clientLog` 静态依赖 / **R5 完整收口**（用户拍板）/ **R9 保留复用 + `view` prop**（用户拍板）
 - [x] **B0 基建批次已完成并提交 `638fccb`**（api 分域 13 文件 + 删 barrel + `useLatestRequest`/`useListPager` + `stores/attendance.js` + todoGroups 下沉 + http 收敛 + ESLint 6 项）
   - 门禁实测：`verify:mock` **878/878**、`verify:mobile` **48/0**、`test` **209/0**（基线 150，只增不减；新增 `useLatestRequest` 7 + `useListPager` 7 + `attendance` 6）、`lint` **0 error**（41 warn）、`build` 与 `build:prod` **EXIT=0**、`e2e` **37/0**、`hrm-admin`+`hrm-server` **零改动**
-- [ ] **R5 数据级权限收口**（用户拍板「完整收口」，独立子任务与独立 commit）：`shared/domain/applyDataScope` + `mock/engine.js` 统一执行 + 删除各 handler 重复 `stationId` 覆盖 + 同步断言
-- [ ] B1 考勤域（`attendance.vue` 972 行拆分 + `attendanceRecords`/`schedule`/`makeupList`）
+- [x] **R5 数据级权限收口已完成并提交 `5800521`**（用户拍板「完整收口」，独立 commit）
+  - 新增纯函数 `shared/domain/applyDataScope(params,user)`（8 条单测）；`mock/engine.js` 统一执行；删除 6 个路由文件共 **12 处**重复 `stationId` 覆盖；保留写操作 body 收敛与资源级/本人级判定
+  - `role.js` 新增 `ALL_ROLES`；engine 对「鉴权但未声明 roles」的路由**加载期抛配置错误**（消除隐性放行），**42 条**受保护路由补显式声明；`verify-mock.mjs` 新增 1 条静态断言
+  - 门禁（主智能体独立复跑）：`verify:mock` **878→879/0**（既有语义一字未改）、`verify:mobile` 48/0、`test` **248/0**、`lint` **0 error**、`build` EXIT=0
+  - 未做：派生标志补齐（P3）——无消费方且补卡无详情端点，留 `TODO(扩展)` 待 B2/B4 契约定稿
+- [ ] B1 考勤域（`attendance.vue` 972 行拆分 + `attendanceRecords`/`schedule`/`makeupList`）⚠️ **受阻**：见「B1–B7 阻塞项」
 - [ ] B2 工单域 / B3 包裹域 / B4 我的域 / B5 请假域 / B6 首页与消息域 / B7 同步域
 - [ ] B8 性能与门禁收口 + 视觉/无障碍走查
+
+## ⚠️ B1–B7 阻塞项：`router/index.js` 被并发会话占用
+
+B1–B7 的每一批都要把页面改为 `views/staff/<域>/index.vue` 并**同步改 `src/mobile/router/index.js` 的组件 import 路径**。而该文件当前**脏着并发会话的老板端路由抽离改动**（`import { bossRoutes } from '../modules/boss/router.js'` + 删除 139 行 boss 路由），`router/index.spec.js` 同样脏。
+
+三条出路（待用户裁决）：
+1. **等并发会话提交 `router/index.js` 后再开 B1**（最干净，符合「一分支一事」与范围严格隔离）
+2. **B1–B7 不改目录、不改 router**：页面壳留在 `views/staff/<域>.vue`，组件/composable 放同名子目录 `views/staff/<域>/`（Vue 允许二者并存）；代价是与 `demo-staff-refactor.md` §2 的 `views/staff/<域>/index.vue` 约定不符，需同步改规范
+3. **B1 起连同 `router/index.js` 一起提交**（会把并发会话的老板端路由改动一并带入，**违反范围隔离，不推荐**）
 
 ## 批次门禁基线（不得弱化）
 
