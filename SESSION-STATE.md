@@ -476,6 +476,80 @@
 
 ***
 
+# 会话状态 — 二期采集端 · 登录模块实装（Windows 10 采集机）
+
+> 最后更新: 2026-09-22
+> 状态：**登录链路已全线打通至「人工介入点」；唯一剩余阻塞 = 需人在采集机桌面完成滑块验证**
+> 分支：`feature/二期采集端`（远端 Gitee `origin`）；作业隔离在 git worktree `C:\Users\16626\AppData\Local\Temp\yz-wt`
+
+## 交付物
+
+| 交付物 | 路径 |
+| ---- | ---- |
+| 采集端 Python 工程 | `hrm-dev/collector/`（`src/collector/` + `scripts/` + `tests/` + `config/`） |
+| 环境自检与安装（幂等） | `hrm-dev/collector/scripts/env-setup.ps1` |
+| 多多账号密码写入（DPAPI） | `hrm-dev/collector/scripts/init-local-secrets.ps1` |
+| 登录页结构只读诊断 | `hrm-dev/collector/scripts/dump-login-page.py` |
+| 使用与故障处理 | `hrm-dev/collector/README.md` |
+
+## 采集机环境（实测，均为本次安装）
+
+| 项 | 值 |
+| ---- | ---- |
+| 主机 | `PC-20260112CXLA`，Windows 10 19045.4291 |
+| SSH 通道 | `mcp_ssh-collector` → `jyb4351469@192.168.112.192`（**管理员，High Mandatory Level**） |
+| 仓库 | `D:\yizhan` |
+| Python | **3.13.15** → `C:\Program Files\Python313`（**非 3.12**：3.12 自 3.12.11 起为「仅源码」安全发布，**无 Windows 安装器**；最后一个带安装器的 3.12.10 停在 2025-04） |
+| MySQL | **8.0.46** 本地服务 `MySQL80`，**仅监听 127.0.0.1**；库 `yizhan_collector`，应用账号 `yizhan@127.0.0.1`（最小权限） |
+| 依赖 | playwright 1.63.0 / PyMySQL 1.2.3（含 rsa）/ pywin32 312；pytest **234 单测** |
+| 浏览器 | Chrome for Testing 经 **npmmirror** 安装成功 |
+
+## 关键实测事实（含踩坑，均已闭环）
+
+1. **站点地址之前给错**：`mcmd.pinduoduo.com/home` 是**营销落地页**（`input 数=0`，标题「快递代收官网」）；真实登录页为 **`https://mdkd.pinduoduo.com/login`**（`/` 会 302 过去），标题「代收点」。**印证二期 ADR 早已核实的结论**。
+2. 登录页三种方式（短信/密码/微信），**默认停在短信登录**，必须点「密码登录」页签；其 DOM 中 `#mobile` 与 `button.login-btn` **各存在两份**（两个 tabpane 同时挂载），靠可见性与作用域区分。活动面板锚点：`div[role="tabpanel"][aria-hidden="false"]`。
+3. **下载源实测**：python.org **655 B/s**（等同不可用）→ npmmirror **2640 KB/s**；MySQL 国内高校/云镜像全 403/404，仅 **cdn.mysql.com** 可用（236MB / 42 秒）。
+4. **分离进程会被回收**：`Start-Process` / `start /b` 拉起的子进程随 SSH 会话结束被杀（实测安装器只下了 12KB 就断）→ 必须用 **WMI `Win32_Process.Create`** 才能存活。
+5. **PowerShell 编码**：`.ps1` 必须 **UTF-8 带 BOM**，否则 PS 5.1 在中文系统按 GBK 解码、中文注释变乱码 →「字符串缺少终止符」。**本项目已因此踩坑两次**。
+6. **`mysqld --install` 参数顺序**：`--install` 必须排在 `--defaults-file` **之前**；反了报 `unknown option '--install'` 且**只写 mysql-error.log、不落控制台**（静默失败，靠服务不存在反推）。
+7. **SSH 进程在 Session 0，交互桌面在 Session 2**（`quser`：`administrator rdp-tcp#0 ID=2`）→ **SSH 拉起的浏览器窗口用户在桌面上看不见**。
+
+## 登录链路实测结果（逐段确认）
+
+| 环节 | 结果 |
+| ---- | ---- |
+| 打开真实登录页 | ✅ |
+| 切到「密码登录」页签 | ✅ |
+| 仿人工逐字符填账号 + 密码 | ✅ 自检日志「账号 11 字符、密码 13 字符（仅记录长度）」 |
+| 提交（四条降级链：回车 → 真实点击 → 强制点击 → 合成点击） | ✅ 回车未生效 → 自动降级 → **真实点击生效** |
+| 识别滑块并立即停止自动化 | ✅ `MANUAL_REQUIRED`，退出码 2（**设计行为，红线 C2/C8 要求**） |
+| MySQL 登录态持久化 | ✅ `session list` 有记录，账号脱敏 `166****9983`，时间 UTC |
+
+## 本次修复的真实缺陷（全部由实跑暴露，非推测）
+
+1. **`获取验证码` 被误判为图形验证码挑战** → 未提交表单即 `MANUAL_REQUIRED`（退出码 2），登录永远走不通。修法：匹配前剔除登录页自身控件文案（**不删通用模式**，避免真挑战漏检）。回归网 `tests/test_challenge_false_positive.py`。
+2. **提交按钮被遮挡**：`button.login-btn` 被活动面板内 `input#mobile` 与 `div.rocket-tabs` 拦截 `pointer events`，30 秒硬等不自愈。修法：四条降级链 + 生效信号判定 + 填表自检（密码只记长度不记值）。
+3. **检出挑战后立即关浏览器**，提示却说"请在浏览器窗口完成验证" → **人工无从介入**。修法：新增 `login --manual`（保持浏览器打开、只读轮询登录态、交人工完成挑战）。
+
+## 阻塞项（当前唯一）
+
+**需人在采集机桌面完成滑块验证**，且**账户必须一致**：
+- DPAPI 密钥由 **`jyb4351469`** 生成（**CurrentUser 作用域**）
+- 交互桌面当前登录的是 **`administrator`**
+- → **在 `administrator` 下运行必然解密失败**（「密文与当前 Windows 用户/机器不匹配」）
+- 建议：**以 `jyb4351469` 做 RDP/桌面登录**，让「运行账户」与「能看见桌面的账户」统一，再执行 `python -m collector login --manual`
+
+## 注意事项
+
+- 本轮全部提交都在 `feature/二期采集端` 并已推 Gitee；**主工作区（同事的前端分支）全程未被触碰** —— 因分支被并发切换，改用 `git worktree` 隔离作业
+- 首笔提交曾误落到 `dev`（`0c4ca85`，该分支跟踪 **GitHub** 而非 Gitee），已 cherry-pick 到 `feature/二期采集端`；**`dev` 上那笔未清理**，待用户裁决
+- `init-local-secrets.ps1` 调用时密码经**命令行**传入（且明文早已在会话中）→ 建议本轮跑通后**轮换多多账号密码**
+- `settings.toml` 为本地文件（未入库）；配置模板变更后需在采集机从 `settings.example.toml` 重新复制
+- 凭据**绝不进 Git**：`config/local/*` 已被 `hrm-dev/collector/.gitignore` 排除，密钥文件为 DPAPI 密文
+- **ADR 待回填**：客户端版本登记（V31）、登录态有效期（V30 对应项）、`WORKBENCH_MARKERS` 仍待登录成功后实测
+
+***
+
 # 会话状态 — 员工端模块化拆分与精细化
 
 > 最后更新: 2026-09-22
@@ -517,22 +591,39 @@
   - `role.js` 新增 `ALL_ROLES`；engine 对「鉴权但未声明 roles」的路由**加载期抛配置错误**（消除隐性放行），**42 条**受保护路由补显式声明；`verify-mock.mjs` 新增 1 条静态断言
   - 门禁（主智能体独立复跑）：`verify:mock` **878→879/0**（既有语义一字未改）、`verify:mobile` 48/0、`test` **248/0**、`lint` **0 error**、`build` EXIT=0
   - 未做：派生标志补齐（P3）——无消费方且补卡无详情端点，留 `TODO(扩展)` 待 B2/B4 契约定稿
-- [ ] B1 考勤域（`attendance.vue` 972 行拆分 + `attendanceRecords`/`schedule`/`makeupList`）⚠️ **受阻**：见「B1–B7 阻塞项」
+- [x] **B1a 子批次已完成并提交 `9d36310`**（B1 考勤域前置：共用组件与 Token 基座）
+  - 新增跨域组件 `Chip(C1)/Badge(C2)/MiniChip(C3)/ListItemCard(C4)` + 员工端域共享组件 `ShiftCard(C9)`（`views/staff/components/`）；`PageState` 新增 `variant="denied"` 并替换 `views/staff/flow.vue` 手写降级块（消 G13）
+  - `tokens.scss` 新增 **9 条** Token（`--touch-min`/`--row-h-1..3`/`--row-h-tile`/`--fs-badge`/`--badge-h`/`--badge-pad-x`/`--shift-bar-w`）；`tokens.base.scss` **零改动**；§3.3 禁项零出现
+  - 单测 **+42 例**（Chip 8 / Badge 7 / MiniChip 6 / ListItemCard 8 / ShiftCard 8 / PageState +5）
+  - 门禁（主智能体独立复跑）：`lint` **0 error**、`verify:mock` **879/879**、`verify:mobile` **48/0**、`verify:tokens` **EXIT=0**、`test` **37 文件/300 用例全过**、`build` **EXIT=0**
+  - ⚠️ **e2e 36/37**：见下方「待复验项」
+- [ ] B1b 考勤域页面拆分（`attendance.vue` 972 行 → 壳 + `ClockHero/PeriodCard/CheckSlotRow/CheckResultPanel/VerifyCard/MakeupPopup` + composables + model；另 3 页）
 - [ ] B2 工单域 / B3 包裹域 / B4 我的域 / B5 请假域 / B6 首页与消息域 / B7 同步域
 - [ ] B8 性能与门禁收口 + 视觉/无障碍走查
 
-## ⚠️ B1–B7 阻塞项：`router/index.js` 被并发会话占用
+## ⚠️ 待复验项：e2e B2-2（PC 登录页 Slow 3G 首屏）
 
-B1–B7 的每一批都要把页面改为 `views/staff/<域>/index.vue` 并**同步改 `src/mobile/router/index.js` 的组件 import 路径**。而该文件当前**脏着并发会话的老板端路由抽离改动**（`import { bossRoutes } from '../modules/boss/router.js'` + 删除 139 行 boss 路由），`router/index.spec.js` 同样脏。
+**结论：非员工端改动引入，归属并发会话的 PC 拆分；但未闭环，不得声称 e2e 全绿。**
 
-三条出路（待用户裁决）：
-1. **等并发会话提交 `router/index.js` 后再开 B1**（最干净，符合「一分支一事」与范围严格隔离）
-2. **B1–B7 不改目录、不改 router**：页面壳留在 `views/staff/<域>.vue`，组件/composable 放同名子目录 `views/staff/<域>/`（Vue 允许二者并存）；代价是与 `demo-staff-refactor.md` §2 的 `views/staff/<域>/index.vue` 约定不符，需同步改规范
-3. **B1 起连同 `router/index.js` 一起提交**（会把并发会话的老板端路由改动一并带入，**违反范围隔离，不推荐**）
+| 项 | 数据 |
+| --- | --- |
+| 本次实测（2026-09-22） | Slow 3G **383,641 ms 仍未渲染**（`locator.waitFor: Test ended`），整测 420s 预算耗尽 → 失败 |
+| 2026-09-20 基线（`e2e/evidence/metrics-full-run.json`） | Fast 3G **34,606 ms** 通过 / Slow 3G **137,647 ms** 通过（预算 240s） |
+| 劣化倍数 | **≈2.8×** |
+| 被测对象 | `http://localhost:5188/pc.html` 的 `.login-card` —— **PC 侧，本任务全程未改动 `src/pc/**`** |
+| 归因依据 | ① B2-1 端选择页在同档限速下 **610ms / 1695ms 通过**，限速链路本身正常；② 09-20 之后 PC 侧发生大拆分：`2dc680d`（工单/排班）、`69aabaa`（看板/同步/财务）、`fd695d8`（org store），dev 模式未打包 → 模块请求数激增，正是 Slow 3G 的瓶颈；③ 期间本机同时跑着并发会话的 dev/build，负载叠加 |
+| 复验条件 | 并发会话提交完毕、本机无其他构建进程时重跑 `npm run e2e`（须先 `npm run dev`） |
+| 附带说明 | 该用例度量的是 **dev（未打包）** 首屏，不代表生产构建表现；如需生产口径应改测 `dist` 产物 |
 
-## 批次门禁基线（不得弱化）
+## ✅ 已解除：`router/index.js` 占用问题（2026-09-22 用户裁定）
 
-`verify:mock` 878 / `verify:mobile` 48 / `test` 150 / `e2e` 37 / `lint` 0 error / `build`+`build:prod` EXIT=0 / `hrm-admin`+`hrm-server` 零改动
+B1–B7 原本都要把页面改为 `views/staff/<域>/index.vue` 并同步改 `src/mobile/router/index.js`，而该文件脏着并发会话的老板端路由抽离改动。
+
+**裁定结果**：采用「**不改目录、不动 router**」方案 —— 页壳**保持原位路径**（`views/staff/<域>.vue`），组件 / composable / model 落**同名兄弟目录** `views/staff/<域>/`；**B1–B7 全程零 router 改动**。已落入 `demo-staff-refactor.md` **§2.1 v1.1 修正** 与 **§3.2 全局约定**（commit `0306078`）。
+
+## 批次门禁基线（随批次上调，不得弱化）
+
+`verify:mock` **879**（R5 后） / `verify:mobile` **48** / `test` **300**（B1a 后） / `e2e` **36 通过 + 1 待复验（B2-2，PC 侧）** / `lint` **0 error** / `verify:tokens` EXIT=0 / `build`+`build:prod` EXIT=0 / `hrm-admin`+`hrm-server` 零改动
 
 ## 关键结论
 
@@ -549,3 +640,67 @@ B1–B7 的每一批都要把页面改为 `views/staff/<域>/index.vue` 并**同
 - 任务描述与实测有 3 处出入，文档内已以实测为准：`api/index.js` 88 导出（非 60+）、`router/index.js` 374 行（非 361）、移动端 `components` 25 个（非 26）
 - 本轮**未修改** `hrm-admin` / `hrm-server`；两次构建的 `dist/` 为副产物（已被 `.gitignore` 忽略）
 - 本机无真机 / 内置浏览器固定 810×658 → 触控热区、安全区、横屏 640、键盘弹起等项**只能收敛到「待真机复核」**，不得声称已验证
+
+***
+
+# 会话状态 — 移动端老板端模块化（单工程内按域拆模块）
+
+> 最后更新: 2026-09-22
+> 状态：**A0–A6 已落地并通过全量门禁；A10 部分落地；N-02 待产品决策**
+> 分支：工作区分支为 `feature/二期采集端`（**非本任务所属的三端 Demo 工作流分支，提交前必须确认**）
+> 方案与规范：`hrm-dev/docs/demo-boss-module-plan.md`（结构与依赖边界）、`hrm-dev/docs/demo-boss-ui-spec.md`（UI/UX 与组件规范）
+
+## 交付物
+
+| 交付物 | 路径 |
+| ---- | ---- |
+| 模块拆分方案（含主智能体裁决 §10） | `hrm-dev/docs/demo-boss-module-plan.md` |
+| 老板端 UI/UX 精细化规范（含主智能体裁决 §12） | `hrm-dev/docs/demo-boss-ui-spec.md` |
+| 老板端模块 | `hrm-dev/hrm-demo/src/mobile/modules/boss/`（`router.js` + `views/` 21 页 + `components/`） |
+
+## 进度
+
+- [x] **A0** 依赖边界 lint（规则 4–6 + `VIEW_FILES` 增补 `'src/mobile/modules/**'`）+ 三条 `--stdin` 负向探针各报 1 error
+- [x] **A1–A6** 21 个页面迁入 `modules/boss/views/`；`src/mobile/views/boss/` 已删除；`bossRoutes` 23 条；`index.spec.js:48` mock 路径已同步
+- [x] **A9** UI 规范路径回写（`components/boss/` → `modules/boss/components/`）
+- [x] **A10（部分）** `BossRankBar` / `BossMetricDelta` / `BossScopeNote` / `BossInlineEmpty` / `bossConfirm` 落地并替换手写实现
+- [x] **D-1** 铜牌徽标对比度 **3.556:1 → 7.090:1**；名次配色单点收口到 `BossRankBar`（取 `--rank-1/2/3-bg`）
+- [x] **D-2** `alerts.vue` 三处可点 `<div>` 补 `role="button"` + `tabindex="0"` + 键盘触发
+- [x] **D-3 / G-01** `StationPicker` 补 `loading`/`error`/`emptyText` + `retry`（默认行为不变，员工端零回归）
+- [x] **G-02** `ActionBar` 按钮级 loading；**G-03** `MonthPicker` 补 `disabled`
+- [ ] **N-02 `BossDonutChart`（待产品决策）** —— `alerts.vue` 现有「采集四态计数按钮」是否承担下钻/筛选能力未定；未决策前已**删除未接线的实现**，避免死代码。决策后再按「是否保留四态按钮」定接入形态
+- [ ] **G-04** `NoticeList` 行级 pending / **G-05** `MeSection` 三态（均需 store 层改造，留待下一轮）
+- [ ] **A7** 负向验证脚本化（未采纳，仍为手工探针）
+
+## 目标结构（供其他域负责人对齐）
+
+`src/mobile/modules/<domain>/` = `router.js`（导出 `<domain>Routes` 数组）+ `views/` + `components/`（组件统一 `<Domain>*` 前缀）。
+
+- 内核 `src/mobile/{components,composables,constants,layout,stores,styles,utils,api}` 与 `src/shared/**` 只增不改语义；
+- 跨层引用一律走既有 `@` 别名（不新增 `@boss`/`@mobile`）；
+- 每模块只导出路由定义，`src/mobile/router/index.js` 单点聚合；**跨域复用路由只允许写在聚合点**（`/boss/kpi/:employeeId` 即此类，指向 `views/staff/kpi.vue`，登记 `TODO(扩展)`）；
+- 依赖方向 `modules/* → 内核 → shared`；禁止 `modules/A ⇄ modules/B`，禁止内核 `→ modules/*`。
+
+## 门禁实测（2026-09-22）
+
+| 项 | 结果 |
+| ---- | ---- |
+| `npm run lint` | **0 error**；老板端模块 0 error / 9 warn（均为随迁页面的既有 a11y warn） |
+| `npm run lint:style` | 0 error |
+| `npm run build` / `npm run build:prod` | EXIT=0（prod 产物 mock 命中 0 处） |
+| `npm run verify:mock` | **879 / 879**（计数因并行改动 +1，非本模块引入） |
+| `npm run verify:mobile` | 48 / 48 |
+| `npm test` | 297 / 298；唯一失败在**员工端** `staff/components/ShiftCard.spec.js`（并行改造员工端的负责人新增，非本模块范围） |
+| `npm run e2e` | **37 passed**（6.4m） |
+| `npm run verify:tokens` | 通过 |
+| 结构断言 | `views/boss` 不存在；`modules/boss/views` 21 个 `.vue`；模块内深层相对路径 **0 条**（改写后别名数 110 与迁移前 109+1 守恒） |
+| URL 冻结核对 | `bossRoutes` 23 条全部 `/boss/*`；`path`/`name`/`meta` 与迁移前**逐字一致**，仅 `component` 路径变更 |
+| 色值自查 | `modules/boss/components/**` 命中十六进制色值 **0**；`--c-orange-600` 在老板端命中 **0** |
+
+## 环境阻塞（不得当作已完成）
+
+1. **`npm run format:check` 全仓红灯（290 文件）**：全仓文件为 CRLF，而 `.prettierrc` 为 `endOfLine: "lf"`；未参与本任务的 `src/shared/constants/dict.js`（实测 418 处 CRLF）同样报错 → **环境级预存在问题**。本轮**未**做全量 `prettier --write`（会覆盖并行负责人的改动），仅保证本次改动文件不新增格式违规。需专项裁决是否补 `.gitattributes` 或调整 `endOfLine`。
+2. **分支未对齐**：工作区当前为 `feature/二期采集端`，本任务属三端 Demo 工作流；**任何提交前必须先确认并切到目标分支**（本轮未擅自切换、未做任何 git 操作）。
+3. **工作区并发**：`src/pc/**`（PC 模块）与员工端模块正由其他负责人并行改造，同一工作区存在未提交改动；`SESSION-STATE.md` 亦被多方写入，本节点为**追加**而非重写。
+4. 本机无 Android SDK / 真机，且 TRAE Chrome 扩展不可用（os error 10061）→ **375px 真机档、≥1280px 宽屏、iOS Safari、企业微信内置浏览器、壳内 `--status-bar-height` 实测值均为「未验证」**，不得在交付中改述为已验证。
+5. 内联 `--stdin --stdin-filename` 探针在本机 ESLint 9.39.5 上**行为正常**（已实测），无需回退临时文件方案。
