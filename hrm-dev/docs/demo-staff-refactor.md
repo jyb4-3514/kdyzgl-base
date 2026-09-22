@@ -70,44 +70,50 @@
 
 ### 2.1 目录演进（增量，不推倒重来）
 
+> **v1.1 修正（2026-09-22，用户拍板）**：**本轮不改页面文件路径、不动 `router/index.js`**。
+> 原因：`src/mobile/router/index.js` 被并发会话占用（老板端路由抽离，脏在工作区），任何改组件 import 路径的拆分都会把他人未完成改动带入提交。
+> 因此页面壳**留在原位** `views/staff/<域>.vue`，域内的组件 / composable / model 放**同名兄弟目录** `views/staff/<域>/`（文件与目录同名可共存，Vue/Vite 解析无冲突）。
+> v1.0 曾写「页面移入 `views/staff/<域>/` 并让壳叫 `index.vue`」——该写法**本轮作废**，`TODO(扩展): 并发占用解除后统一迁移目录并同步 router`。
+
 ```
 src/mobile/
-  api/                 # 按域一文件（13 个）【删除 index.js，不保留 barrel】
+  api/                 # 按域一文件（13 个）【已删除 index.js，不保留 barrel】B0 已完成
   components/          # 移动端跨域原子/分子（既有 25 + 本轮新增跨域 4）
-  composables/         # 跨域逻辑（既有 2 + useLatestRequest + useListPager）
+  composables/         # 跨域逻辑（既有 2 + useLatestRequest + useListPager）B0 已完成
   constants/           # 【约束】只放静态配置，禁止 import api / stores
   layout/              # TabbarLayout（保持）
-  router/              # index.js（保持结构，meta 约定不变）
-  stores/              # auth / notify / todo（保持）+ attendance（新）
+  router/              # 【本轮零改动】index.js 保持；meta 约定不变
+  stores/              # auth / notify / todo（既有）+ attendance（B0 已完成）
   styles/              # tokens.scss / mobile.scss（Token 落地见 UI 规范 §3）
-  utils/               # 跨域纯函数（保持；http.js 职责收敛见 §5.2）
+  utils/               # 跨域纯函数（http.js 职责收敛 B0 已完成）
   views/
     staff/
       components/      # 【新】员工端跨域共享组件（如 ShiftCard）
-      model/           # 【按需新】员工端共享模型（枚举/映射/派生标志）
-      home/            # home.vue
-      attendance/      # attendance.vue / attendanceRecords.vue / schedule.vue / makeupList.vue
-                       # + components/ + composables/ + model/
-      workorder/       # workorder.vue / workorderDetail.vue / workorderCreate.vue
-                       # + components/ + composables/
-      parcel/          # parcel.vue / parcelDetail.vue / pickup.vue
-                       # + components/ + composables/
-      me/              # me.vue / kpi.vue / payroll.vue / payrollDetail.vue / profile.vue / flow.vue / password.vue
-                       # + components/ + composables/
-      leave/           # leaveApply.vue / leaveList.vue / leaveReview.vue
-                       # + components/ + composables/
-      sync/            # sync.vue（站长专属）+ components/ + composables/
-    shared/            # 【本轮不建立，登记 TODO(扩展)】跨端复用页统一落点，见 §2.2
+      attendance.vue   # 【原位不动】页壳
+      attendance/      # 【新】同名兄弟目录：components/ + composables/ + model/
+      workorder.vue  workorderDetail.vue  workorderCreate.vue
+      workorder/       # 【新】components/ + composables/
+      parcel.vue  parcelDetail.vue  pickup.vue
+      parcel/          # 【新】components/ + composables/
+      me.vue  kpi.vue  payroll.vue  payrollDetail.vue  profile.vue  flow.vue  password.vue
+      me/              # 【新】components/ + composables/
+      leaveApply.vue  leaveList.vue  leaveReview.vue
+      leave/           # 【新】components/ + composables/
+      sync.vue         # 站长专属
+      sync/            # 【新】components/ + composables/
+      home.vue  schedule.vue  attendanceRecords.vue  makeupList.vue
+      home/  schedule/ attendanceRecords/ makeupList/   # 【按需新，确有内容才建】
     message/           # MessagePage.vue（保持原位，见 §2.2）
-    boss/              # 本轮不动（仅 router import 路径随 staff 迁移同步更新）
+    boss/              # 【本轮不动】且不得删除、不得迁移（并发会话在处理）
     login/ error/
 ```
 
 **规则**
 
 1. **新增目录只在确有内容时创建**，不预留空目录（沿用 PC 规范 §2）。
-2. `views/staff/<域>/` 下的页面文件**保留业务名**（`attendance.vue`、`workorderDetail.vue` …），不强制改成 `index.vue`；仅当某页被拆为「壳 + 多个子组件」时，**壳文件名为 `index.vue`**（用于 ESLint 体积规则精确匹配，见 §8）。
-3. 域边界机器化：`views/staff/<域>/**` 不得 `import` 兄弟域的 `components/`；跨域复用的组件必须上提到 `views/staff/components/` 或 `mobile/components/`（ESLint 落地见 §8）。
+2. **页面壳文件名一律保持现名**（`attendance.vue`、`workorderDetail.vue` …），**不重命名为 `index.vue`**，也**不移动位置** —— 这是本轮「零 router 改动」的硬前提。
+3. 域边界机器化：`views/staff/<域>/**` 不得 `import` 兄弟域的目录；跨域复用的组件必须上提到 `views/staff/components/` 或 `mobile/components/`（ESLint 落地见 §8）。
+4. ESLint 体积规则的路径匹配随之调整：页壳规则（≤150 行）匹配 `views/staff/*.vue`，普通组件规则（≤300 行）匹配 `views/staff/**/*.vue`（B0 已按「未拆分目录为 warn」渐进落地，B1 起按域收严）。
 
 ### 2.2 boss / staff 共享边界裁决（G12）
 
@@ -119,7 +125,7 @@ src/mobile/
 | --- | --- | --- |
 | 同一业务对象两端复用**同一页** | **保留复用，禁止两端各写一份**。差异只允许通过**显式 prop / route.meta** 表达 | 沿用 `demo-design.md` A12-7「同一业务对象两端优先复用」；与 UI 规范 §2.3「禁止组件内 `if (isStaff)` 隐式分支」一致 |
 | `kpi.vue` 的两端差异 | 页面壳接收显式 `view`（`'self' | 'boss'`，由 `route.meta.view` 注入），字号档 `value-size` 同理由 `view` 派生（修 `demo-staff-ui-redesign.md:118` 的现存反例） | 修复 P1-2 字号越级，不新建 boss 副本 |
-| 跨端复用页的**目录落点** | 本轮**不迁移**：`kpi.vue` 随员工端拆分进 `views/staff/me/kpi.vue`（`router/index.js:112` 的 import 路径同步改 1 行），`MessagePage.vue` 保持 `views/message/`。登记 `TODO(扩展): 跨端复用页统一迁入 views/shared/` | 迁移 `MessagePage` 会牵动老板端路由与 e2e，超出「员工端拆分」范围 |
+| 跨端复用页的**目录落点** | 本轮**不迁移**：`kpi.vue` **留在原位** `views/staff/kpi.vue`（按 §2.1 v1.1，页面一律不移动、不改 router），`MessagePage.vue` 保持 `views/message/`。登记 `TODO(扩展): 跨端复用页统一迁入 views/shared/` | 迁移 `MessagePage` 会牵动老板端路由与 e2e，超出「员工端拆分」范围 |
 | 两端共享的**组件** | 全部落 `mobile/components/`（如 `LeaveApprovalList`），不放 `views/` 内 | 组件与页面分开管理，避免 `views/staff/**` 被 boss 反向 import |
 
 ---
@@ -143,6 +149,9 @@ src/mobile/
 
 依赖顺序：`B0 → {B1,B2,B3,B4,B5,B7} → B6 → B8`。每批完成即跑门禁（§10.2），通过后写入 `SESSION-STATE.md` 检查点。
 
+> **全局约定（v1.1，适用于 B1–B7 全部批次）**：页壳**保持原位路径**（`views/staff/<域>.vue` 等，见 §2.1 v1.1 修正），组件 / composable / model 落**同名兄弟目录** `views/staff/<域>/`。
+> **严禁改 `src/mobile/router/index.js` 与 `router/index.spec.js`**（被并发会话占用）。若某批确实需要改路由，**停止并报告**，由主智能体协调。
+
 #### B0 · 基建批次（无依赖，先行）
 
 - **本批目标**：把「跨批共用的结构与机制」一次做对，避免 7 个域各建一套。
@@ -160,7 +169,7 @@ src/mobile/
 #### B1 · 考勤域（依赖 B0）
 
 - **文件清单**：`attendance.vue`(972) / `attendanceRecords.vue`(247) / `schedule.vue`(190) / `makeupList.vue`(171)。
-- **拆分产物**：`views/staff/attendance/index.vue`（壳 ≤150）+ `components/{ClockHero, PeriodCard, CheckSlotRow, CheckResultPanel, VerifyCard, MakeupPopup}.vue` + `components/` 复用 `ShiftCard`（上提至 `views/staff/components/`）+ `composables/{useAttendanceStatus, useMakeupForm}.js` + `model/attendanceUi.js`（展示常量与状态键）。
+- **拆分产物**：`views/staff/attendance.vue`（**壳，原位不改路径**，≤150）+ `views/staff/attendance/components/{ClockHero, PeriodCard, CheckSlotRow, CheckResultPanel, VerifyCard, MakeupPopup}.vue` + `views/staff/attendance/composables/{useAttendanceStatus, useMakeupForm}.js` + `views/staff/attendance/model/attendanceUi.js`（展示常量与状态键）+ 共享组件上提 `views/staff/components/ShiftCard.vue`。
   其余三页：抽 `views/staff/components/ShiftCard.vue`、`views/staff/components/StepNavButton.vue`（`attendanceRecords.vue` 与 `schedule.vue` 重复的月/周导航按钮）；`attendanceRecords.vue` 与 `makeupList.vue` 改用 `ListItemCard` + `Chip`。
 - **行数上限**：壳 ≤150；组件 ≤300；`useCheckIn` 收敛后打卡页**不得保留第二份提交实现**（`composables/useCheckIn.js:17-19` 的 `TODO(扩展)` 在本批销项）。
 - **依赖**：B0；组件依赖 UI 规范 §4.2 的 C1/C3/C4/C5/C6/C7/C8/C9 与 §4.3 的 `PageState.denied`。
