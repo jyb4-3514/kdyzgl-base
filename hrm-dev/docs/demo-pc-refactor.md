@@ -118,10 +118,22 @@ async function load() {
 
 | 批次 | 范围 | 状态 |
 | --- | --- | --- |
-| B1 | `workOrder` + `schedule` | 待办 |
-| B2 | `dashboard` + `sync` + `finance` | 待办 |
-| B3 | 状态管理三层梳理 + PC store | 待办 |
-| B4 | 性能（Element Plus 按需 + 懒加载） | 待办 |
-| B5 | 响应式断点补齐 | 待办 |
-| B6 | 单测补齐 | 待办 |
-| B7 | 视觉/无障碍走查 + 全门禁 | 待办 |
+| B1 | `workOrder` + `schedule` | ✅ 完成（工单 1057→129、排班 651→135） |
+| B2 | `dashboard` + `sync` + `finance` | ✅ 完成（823→121、720→132、671→128） |
+| B3 | 状态管理三层梳理 + PC store | ✅ 完成（新建 `src/pc/stores/org.js`；其余按判据不建） |
+| B4 | 性能（Element Plus 按需 + 懒加载） | ✅ 完成（首屏 gzip 465218→151354，-67.5%） |
+| B5 | 响应式断点补齐 | ✅ 完成（105 格实测，修 2 类真缺陷） |
+| B6 | 单测补齐 | 🚧 部分（拆分随附 10 个 spec；`utils`/`config`/`router` 待补） |
+| B7 | 视觉/无障碍走查 + 全门禁 | 🚧 全门禁已过（含 e2e 37）；UI/UX 走查待排 |
+
+### 各批次实测门禁
+
+| 项 | 结果 |
+| --- | --- |
+| `verify:mock` | 879 / 879 通过 |
+| `test`（Vitest） | 300 用例 / 37 文件通过 |
+| `eslint src/pc` / `stylelint src/pc` | 0 error / 0 problem |
+| `build` / `build:prod` | EXIT=0，且生产产物 Mock 特征串命中 0 |
+| `e2e`（Playwright） | 37 passed / 0 failed |
+
+> 部署部分不在本文件范围，见 `hrm-dev/docs/demo-docker-deploy.md`。
