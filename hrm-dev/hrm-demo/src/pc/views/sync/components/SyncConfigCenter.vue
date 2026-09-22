@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { saveResponseFile, formatDateCompact } from '@admin/utils/download'
 import { getSyncConfigs } from '../../../api/syncConfig.js'
@@ -23,9 +23,14 @@ import GlobalDefaultForm from './GlobalDefaultForm.vue'
 import StationOverrideTable from './StationOverrideTable.vue'
 import StationOverrideDrawer from './StationOverrideDrawer.vue'
 import ExportScopeDialog from './ExportScopeDialog.vue'
-import ConfigImportDrawer from './ConfigImportDrawer.vue'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import StateBlock from '../../../components/StateBlock.vue'
+
+/**
+ * 配置导入抽屉本组件最重、且只在点「导入」按钮后才可见，异步拆 chunk 后不阻塞配置列表首屏。
+ * 保持常驻渲染（不加 v-if），DOM 结构不变。
+ */
+const ConfigImportDrawer = defineAsyncComponent(() => import('./ConfigImportDrawer.vue'))
 
 /**
  * 配置管理（设计 B.1.2 编排层）

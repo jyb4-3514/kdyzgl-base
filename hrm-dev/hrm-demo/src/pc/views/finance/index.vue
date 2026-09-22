@@ -78,7 +78,7 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { defineAsyncComponent, onMounted } from 'vue'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import PageHeader from '../../components/PageHeader.vue'
 import PayrollTabPanel from './components/PayrollTabPanel.vue'
@@ -86,9 +86,14 @@ import PayrollRulesPanel from './components/PayrollRulesPanel.vue'
 import PayrollObjectionsPanel from './components/PayrollObjectionsPanel.vue'
 import PayrollApproveDialog from './components/PayrollApproveDialog.vue'
 import GeneratePayrollDialog from './components/GeneratePayrollDialog.vue'
-import PayrollRuleEditor from './components/PayrollRuleEditor.vue'
 import PayrollDetailDrawer from './components/PayrollDetailDrawer.vue'
 import { useFinancePage } from './composables/useFinancePage.js'
+
+/**
+ * 计薪规则编辑器是财务页最重的抽屉、且只在「计算规则」Tab 点编辑才可见，
+ * 异步拆 chunk 后不阻塞工资单列表首屏。保持常驻渲染（不加 v-if），DOM 结构不变。
+ */
+const PayrollRuleEditor = defineAsyncComponent(() => import('./components/PayrollRuleEditor.vue'))
 
 /**
  * 财务管理（需求9）页面壳

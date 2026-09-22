@@ -58,6 +58,8 @@
     "stylelint": "^17.15.0",
     "stylelint-config-recommended-vue": "^2.0.0",
     "stylelint-config-standard-scss": "^17.0.0",
+    "unplugin-auto-import": "^21.1.0",
+    "unplugin-vue-components": "^32.1.0",
     "vconsole": "^3.15.1",
     "vite": "^6.0.5",
     "vitest": "^5.0.1"

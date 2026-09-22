@@ -144,7 +144,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -160,7 +160,13 @@ import StateBlock from '../../../components/StateBlock.vue'
 import StatusTag from '../../../components/StatusTag.vue'
 import KpiResultTable from './components/KpiResultTable.vue'
 import KpiScoreDrawer from './components/KpiScoreDrawer.vue'
-import KpiTemplateDrawer from './components/KpiTemplateDrawer.vue'
+
+/**
+ * 指标模板抽屉本页最重、且只有点「模板」按钮才可见，异步拆成独立 chunk，
+ * 不必等它解析完就能渲染 KPI 列表首屏。仍是常驻渲染（不加 v-if），DOM 结构不变；
+ * 组件在父页渲染时即发起请求，用户点开时通常已就绪，不会出现空态闪烁。
+ */
+const KpiTemplateDrawer = defineAsyncComponent(() => import('./components/KpiTemplateDrawer.vue'))
 
 /**
  * 员工 KPI 考核（需求7）

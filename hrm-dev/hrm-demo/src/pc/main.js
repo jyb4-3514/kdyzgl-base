@@ -1,9 +1,22 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
-import zhCn from 'element-plus/es/locale/lang/zh-cn'
-import 'element-plus/dist/index.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+
+/**
+ * Element Plus 样式按需引入（T04）。
+ * 组件样式由 unplugin-vue-components 随组件注入（element-plus/es/components/<name>/style/css），
+ * 但下面几项必须在这里显式引入：
+ * 1) base/style/css 定义了 :root 上的全部 --el-* 变量。必须最先引入 —— 按需后组件样式会进异步 chunk，
+ *    若 base 跟着组件后到，会把 tokens.scss 里的品牌色覆盖回 Element 默认蓝（顺序敏感，见 tokens.scss 头部说明）。
+ * 2) message / message-box / notification 是函数式调用（ElMessage.xxx()），不走模板解析器，
+ *    而各页面都是 `import { ElMessage } from 'element-plus'` 显式引入，解析器不会为它们补样式 ——
+ *    不显式引入就会出现「弹框有内容、无样式」。loading 同理（v-loading 指令样式，双保险）。
+ */
+import 'element-plus/es/components/base/style/css'
+import 'element-plus/es/components/message/style/css'
+import 'element-plus/es/components/message-box/style/css'
+import 'element-plus/es/components/notification/style/css'
+import 'element-plus/es/components/loading/style/css'
 
 // @admin 别名只读复用一期资产：样式基座 + HTTP 封装（Mock 必须挂到同一 axios 实例上才能拦住一期 api/*）
 import '@admin/styles/index.scss'
@@ -19,8 +32,9 @@ import { initClientLog } from '../shared/clientLog.js'
 
 /**
  * 网页端入口（T10）
- * 与一期 main.js 的差异只有两处：路由表换成 Demo 扩展版、请求走 Mock 适配器；
- * Element Plus、图标全量注册、Pinia 的初始化方式与一期保持一致，便于一期页面零改动复用。
+ * 与一期 main.js 的差异只有三处：路由表换成 Demo 扩展版、请求走 Mock 适配器、
+ * Element Plus 改按需引入（locale 移交 App.vue 的 el-config-provider）；
+ * 图标仍全量全局注册，与一期一致，便于一期页面零改动复用。
  */
 
 // 一期 request 实例的 baseURL 硬编码为 '/api/v1'（hrm-admin/src/utils/request.js:16，不可改）；
@@ -32,7 +46,6 @@ const pinia = createPinia()
 
 app.use(pinia)
 app.use(router)
-app.use(ElementPlus, { locale: zhCn })
 
 // 与一期 main.js 一致：整包注册图标组件（一期页面模板里直接用全局图标名）
 Object.entries(ElementPlusIconsVue).forEach(([name, component]) => {

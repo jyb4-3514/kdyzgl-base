@@ -1,5 +1,8 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import AutoImport from 'unplugin-auto-import/vite'
+import Components from 'unplugin-vue-components/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { fileURLToPath, URL } from 'node:url'
 
 /**
@@ -8,10 +11,32 @@ import { fileURLToPath, URL } from 'node:url'
  *   （生产构建只出 pc / mobile：index 与 demo 剧本属演示资产，不进生产包）
  * - @admin 别名指向一期 hrm-admin/src（只读复用，Demo 不复制源码、不改一期文件）
  * - 依赖版本与 hrm-admin 同版本线（Vite ^6），故锁定 build.rollupOptions 写法
+ * - Element Plus 按需引入（T04）：官方推荐 unplugin-vue-components + unplugin-auto-import + ElementPlusResolver，
+ *   见 https://element-plus.org/en-US/guide/quickstart.html「On-demand Import / Auto import Recommend」
  */
 export default defineConfig(({ mode }) => ({
   plugins: [
     vue(),
+    /**
+     * Element Plus 按需引入。两个插件都只作用于「源码里出现但未 import 的 El* 标识」，
+     * 已显式 import 的组件不受影响 —— 因此 @admin 一期源码（只读）里的 <el-*> 与 ElMessage 无需改动即可继续工作。
+     * dts: false —— 本工程无 TypeScript，置 false 同时避免构建时在仓库里生成 components.d.ts / auto-imports.d.ts。
+     */
+    AutoImport({
+      /**
+       * 不加 'vue' / 'vue-router' 预设：本工程（含冻结的 @admin 与 mock 层）一律显式 import，
+       * 预设只会往文件里注入多余的自动导入，反而扩大行为差异面。这里只用解析器兜住未来可能出现的
+       * 「未 import 的 El* 函数式调用」（对应 ElementPlusResolver 的 named 解析与样式副作用）。
+       */
+      imports: [],
+      resolvers: [ElementPlusResolver()],
+      dts: false
+    }),
+    Components({
+      // 解析器默认 include 覆盖所有 .vue（@admin 别名下的文件同样命中），exclude 只排除 node_modules/.git
+      resolvers: [ElementPlusResolver()],
+      dts: false
+    }),
     {
       name: 'hrm-demo-mock-guard',
       /**
