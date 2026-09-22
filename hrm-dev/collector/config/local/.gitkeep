@@ -1,0 +1,2 @@
+# 该目录用于存放本地凭据文件（DPAPI 加密），内容不入库。
+# 真实文件 local.secrets.json 由 scripts/env-setup.ps1 与 scripts/init-local-secrets.ps1 生成。
