@@ -4,6 +4,9 @@
 .env.*
 *.env
 
+# 本地凭据目录（主智能体独占读写）：由项目规则 §7.1 指定的两处凭据落点之一
+.secrets/
+
 # Spring Boot 环境专属配置（含真实数据库/JWT/Redis 密码）
 # 说明：基础文件 application.yml（无后缀环境名）不在此列；如含密钥请迁移到 env.example
 application-*.yml

@@ -1,0 +1,45 @@
+# 三端演示 Demo · 测试环境静态站（Docker Compose）
+#
+# 与现网 courier-server 栈完全独立：
+#   只「借用」它已存在的 courier-net 网络，使现网 Nginx 能以容器名反代到本服务，
+#   不改动现网 docker-compose.yml / 容器 / 配置。现网 Nginx 侧那一处改动单独走 C 档授权。
+#
+# 数据面：本服务无后端、无数据库、无 Redis，纯静态文件 → 无任何持久化卷，删容器即彻底回滚。
+
+services:
+  demo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hrm-demo-static:${DEMO_TAG:-latest}
+    container_name: hrm-demo-static
+    env_file:
+      - .env
+    environment:
+      # 显式声明为必填：缺失时 compose 直接报错，避免起出一个「没有 Auth 的裸站」
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:?BASIC_AUTH_USER 未设置，请检查 .env}
+      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH:?BASIC_AUTH_HASH 未设置，请检查 .env}
+    networks:
+      - courier-net
+    ports:
+      # 仅绑回环：部署方自验用（curl 127.0.0.1:PORT/healthz）；公网入口一律经现网 Nginx 反代
+      - "127.0.0.1:${HOST_PORT:-8090}:80"
+    restart: unless-stopped
+    # 与现网同口径：单文件 10MB、留 3 个，避免演示站日志吃满 30G 系统盘
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  courier-net:
+    # 现网已创建，这里只引用不创建：external 保证 compose down 不会误删现网网络
+    external: true
+    name: courier-net

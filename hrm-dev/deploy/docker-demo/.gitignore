@@ -1,0 +1,9 @@
+# 构建产物由本地 `npm run build` 产出后上传，不入库
+dist/
+
+# 真实部署参数（含 Basic Auth 哈希）与本地凭据目录
+.env
+.secrets/
+
+# 部署时生成的备份（如现网 nginx.conf 快照）
+backup/
