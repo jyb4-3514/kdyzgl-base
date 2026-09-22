@@ -16,7 +16,7 @@
 
   用法（在 hrm-dev\collector 目录下执行；非交互场景由主智能体调用）：
     powershell -ExecutionPolicy Bypass -File scripts\init-local-secrets.ps1 `
-        -Site 'https://mcmd.pinduoduo.com/home' -Account '16600000000' `
+        -Site 'https://mdkd.pinduoduo.com/login' -Account '16600000000' `
         -PasswordSecure (Read-Host -AsSecureString '请输入多多账号密码') `
         -AuthorizedBy '张三' -AuthorizationNote '2026-09-22 站长书面授权，扫描件见授权台账 #12'
 

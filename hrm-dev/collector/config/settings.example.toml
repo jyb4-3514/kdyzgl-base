@@ -7,19 +7,21 @@
 #       敏感凭据一律走 config/local/local.secrets.json（DPAPI 密文，已被 .gitignore 排除）。
 #
 # 环境变量覆盖：任意键都可被 YIZHAN__<节>__<键> 覆盖（全大写），例如
-#   $env:YIZHAN__SITE__LOGIN_URL = "https://mdkd.pinduoduo.com/"
+#   $env:YIZHAN__SITE__LOGIN_URL = "https://mdkd.pinduoduo.com/login"
 #   $env:YIZHAN__BROWSER__HEADLESS = "false"        # 布尔：1/true/yes/on 为真
 #   $env:YIZHAN__BROWSER__EXTRA_ARGS = "arg1,arg2"  # 列表：逗号分隔
 #   $env:YIZHAN__HUMANIZE_MOUSE__ENABLED = "true"   # 嵌套节用下划线连接
 
 [site]
-# 登录入口地址。注意：ADR 已核实入口 mcmd 可能只是营销落地页、真实工作台为 mdkd，
-# 因此本值必须可配，首次实测时按实际情况调整（详见 README「已知限制与未验证项」）。
-login_url = "https://mcmd.pinduoduo.com/home"
+# 登录入口地址。2026-09-22 采集机实测：真实登录页为 mdkd.pinduoduo.com/login，
+# 根路径 https://mdkd.pinduoduo.com/ 会 302 跳到这里，标题「代收点」。
+# 注意：mcmd.pinduoduo.com 是**营销落地页**（实测 input 数=0、无密码框、文案为「入驻福利」等），
+# 已于 2026-09-22 实测确认无登录入口——保留在 allowed_hosts 仅因落地页会跳转。
+login_url = "https://mdkd.pinduoduo.com/login"
 # 登录成功后的工作台地址，用于登录结果判定（结合 DOM 特征，不只看 URL 跳转）。
 workbench_url = "https://mdkd.pinduoduo.com/"
 # 允许的域名白名单：登录态探测与跳转判定只认这些主机，防止被异常跳转引导到其它站点。
-allowed_hosts = ["mcmd.pinduoduo.com", "mdkd.pinduoduo.com"]
+allowed_hosts = ["mdkd.pinduoduo.com", "mcmd.pinduoduo.com"]
 
 [browser]
 # Playwright 持久化上下文目录（相对采集端根目录）。登录态以此 profile 为权威载体。

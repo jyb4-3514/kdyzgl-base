@@ -177,10 +177,12 @@ class Settings:
 
 
 def _build(raw: dict, source_file: Path) -> Settings:
+    # 默认值与 config/settings.example.toml 保持一致：登录页取 2026-09-22 采集机实测的 mdkd 地址
+    # （mcmd.pinduoduo.com/home 是营销落地页，实测无登录入口，仅保留在 allowed_hosts 供跳转判定）
     site = SiteConfig(
-        login_url=str(_pick(raw, "site", "login_url", "https://mcmd.pinduoduo.com/home")),
+        login_url=str(_pick(raw, "site", "login_url", "https://mdkd.pinduoduo.com/login")),
         workbench_url=str(_pick(raw, "site", "workbench_url", "https://mdkd.pinduoduo.com/")),
-        allowed_hosts=tuple(_pick(raw, "site", "allowed_hosts", ("mcmd.pinduoduo.com", "mdkd.pinduoduo.com"))),
+        allowed_hosts=tuple(_pick(raw, "site", "allowed_hosts", ("mdkd.pinduoduo.com", "mcmd.pinduoduo.com"))),
     )
     if not site.login_url.startswith("https://"):
         raise ConfigError(f"site.login_url 必须为 https:// 开头（当前 {site.login_url}）")

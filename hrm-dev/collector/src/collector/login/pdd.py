@@ -3,7 +3,9 @@
 
 流程（对齐 ADR §20.4.2）：
 1. 打开配置的站点 URL，**先探测**是否已有有效登录态；有效则不重复登录，直接返回；
-2. 无效才走登录：定位账号/密码输入框（选择器集中在 selectors.py）、按人工节奏分隔输入、提交；
+2. 无效才走登录：**先切到「密码登录」方式**——2026-09-22 采集机实测目标站默认停在「短信登录」，
+   此时密码框不可见、无法填密码，故须先点击「密码登录」页签（已是密码登录态时**幂等跳过**）；
+   再定位账号/密码输入框（选择器集中在 selectors.py）、按人工节奏分隔输入、提交；
 3. **挑战探测**：出现验证码 / 滑块 / 短信二次验证 / 风控提示 → 立即停止自动化，抛
    :class:`ManualInterventionRequired`，把状态置 ``MANUAL_REQUIRED`` 并给出人工处置指引；
 4. 结果判定：**不只看 URL 跳转**，结合「域名白名单 + 工作台特征元素 + 登录表单是否存在」三项可观测信号；
@@ -106,6 +108,21 @@ _OUTCOME_TO_STATUS: dict[LoginOutcome, LoginStatus] = {
     LoginOutcome.FAILED: LoginStatus.FAILED,
 }
 
+# 单个候选在一轮扫描中最多检查的匹配项数。目标站同 id / 同 class 元素各挂两份
+# （短信页签与密码页签面板并存），上限用于防止兜底候选匹配过多元素时空转。
+_MAX_MATCHES_PER_CANDIDATE = 8
+# 单轮未命中后的轮询间隔（毫秒）。Playwright 的 locator.is_visible() 官方声明**不等待、立即返回**，
+# 因此「等待元素出现」的语义由 find_first_visible 的轮询承担。
+_SCAN_POLL_INTERVAL_MS = 200
+# 判定「当前已是密码登录方式」的快速探测预算（毫秒）：已就绪时不应长等。
+_LOGIN_MODE_PROBE_MS = 800
+
+# 定位失败时统一给出的可执行指引（指向只读诊断脚本与选择器文件）
+_SELECTOR_HINT = (
+    "请先跑 `python scripts/dump-login-page.py --url <登录地址> --click-text 密码登录` 导出真实 DOM，"
+    "再校准 src/collector/login/selectors.py"
+)
+
 
 # ==================================================================
 # 纯函数区（不依赖 Playwright，可离线单测）
@@ -177,30 +194,61 @@ def judge_login_result(
 # 页面操作区（依赖 Playwright）
 # ==================================================================
 def _locator(page: Any, candidate: selectors.SelectorCandidate) -> Any:
+    """把候选描述翻译为 Playwright 定位器（可见性由候选自身携带，如 CSS 的 ``:visible``）。"""
     if candidate.kind == "css":
         return page.locator(candidate.value)
     if candidate.kind == "text":
-        return page.get_by_text(candidate.value, exact=False)
+        return page.get_by_text(candidate.value, exact=candidate.exact)
     if candidate.kind == "role":
         role, _, accessible_name = candidate.value.partition(":")
         return page.get_by_role(role, name=accessible_name) if accessible_name else page.get_by_role(role)
     raise LoginPageError(f"未知选择器类型：{candidate.kind!r}")
 
 
-def find_first_visible(page: Any, candidates: Iterable[selectors.SelectorCandidate], timeout_ms: int = 1500) -> Any | None:
-    """按候选顺序返回首个可见元素；全部未命中返回 None。
+def _first_visible_match(page: Any, candidate: selectors.SelectorCandidate) -> Any | None:
+    """在单个候选的匹配项中取首个可见元素；无可见项返回 None。
 
-    候选之间是**降级关系**：语义定位优先，通用 CSS 兜底，避免目标站改版即全盘失效。
+    逐个匹配项校验可见性，而**不是只取 ``.first``**：目标站同 id / 同 class 元素各挂两份
+    （短信页签与密码页签面板并存），``.first`` 会命中隐藏的那一份，导致填错框或点击无效。
     """
-    for candidate in candidates:
+    try:
+        locator = _locator(page, candidate)
+        count = locator.count()
+    except Exception:
+        # 单个候选不可用不应中断整体降级链
+        return None
+    for index in range(min(count, _MAX_MATCHES_PER_CANDIDATE)):
+        element = locator.nth(index)
         try:
-            locator = _locator(page, candidate).first
-            if locator.count() > 0 and locator.is_visible(timeout=timeout_ms):
-                return locator
+            if element.is_visible():
+                return element
         except Exception:
-            # 单个候选不可用不应中断整体降级链
             continue
     return None
+
+
+def find_first_visible(
+    page: Any, candidates: Iterable[selectors.SelectorCandidate], timeout_ms: int = 1500
+) -> Any | None:
+    """按候选顺序返回首个可见元素；在 ``timeout_ms`` 总预算内未命中则返回 None。
+
+    候选之间是**降级关系**：实测定位优先、语义定位次之、通用 CSS 兜底，避免目标站改版即全盘失效。
+
+    等待语义由本函数承担：``locator.is_visible()`` 的 ``timeout`` 选项官方已标记为**被忽略**、
+    且该方法**不等待、立即返回**（见
+    https://playwright.dev/python/docs/api/class-locator#locator-is-visible ），
+    故此处按总预算轮询扫描（单轮立即扫一次，未命中再按间隔重试）。
+    """
+    candidate_list = tuple(candidates)
+    deadline = time.monotonic() + max(timeout_ms, 0) / 1000.0
+    while True:
+        for candidate in candidate_list:
+            element = _first_visible_match(page, candidate)
+            if element is not None:
+                return element
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(_SCAN_POLL_INTERVAL_MS / 1000.0)
 
 
 def _visible_any(page: Any, candidates: Iterable[selectors.SelectorCandidate], timeout_ms: int = 1500) -> bool:
@@ -237,6 +285,41 @@ def probe_state(page: Any, settings: Settings) -> LoginOutcome:
         has_login_form=has_login_form(page),
         challenge=detect_challenge(page, settings.login.probe_timeout_ms),
     )
+
+
+def password_login_ready(page: Any) -> bool:
+    """是否已处于「密码登录」方式。
+
+    判据 = **密码输入框可见**（2026-09-22 采集机实测：密码页签下密码框唯一且可见；
+    短信页签下该框被隐藏）。该判据同时是页签切换的幂等依据。
+    """
+    return _visible_any(page, selectors.PASSWORD_INPUTS, _LOGIN_MODE_PROBE_MS)
+
+
+def ensure_password_login_mode(page: Any, settings: Settings, humanizer: Humanizer) -> None:
+    """确保页面停在「密码登录」方式；已是密码登录态则**幂等跳过**（不重复点击页签）。
+
+    2026-09-22 采集机实测：目标登录页默认停在「短信登录」，此时页面虽能定位到手机号框，
+    但密码框被隐藏、无法输入密码；必须先点击「密码登录」页签，否则登录流程必然卡在密码步骤。
+    """
+    if password_login_ready(page):
+        return
+
+    timeout_ms = settings.login.probe_timeout_ms
+    switcher = find_first_visible(page, selectors.LOGIN_MODE_SWITCHERS, timeout_ms)
+    if switcher is None:
+        raise LoginPageError(
+            "未定位到「密码登录」页签：登录页结构可能与 selectors.py 的 LOGIN_MODE_SWITCHERS 不匹配。" + _SELECTOR_HINT
+        )
+
+    switcher.click()
+    humanizer.pause_field()
+
+    if not _visible_any(page, selectors.PASSWORD_INPUTS, timeout_ms):
+        raise LoginPageError(
+            "已点击「密码登录」页签，但密码输入框仍未出现：疑似登录页改版或页签文案变化，"
+            "请核对 selectors.py 的 LOGIN_MODE_SWITCHERS / PASSWORD_INPUTS。" + _SELECTOR_HINT
+        )
 
 
 def _wait_for_login_signal(page: Any, settings: Settings, timeout_ms: int, poll_interval_ms: int = 500) -> None:
@@ -391,34 +474,29 @@ class PddLoginService:
             raise LoginPageError(f"打开登录页失败（{url}）：{exc}") from exc
 
     def _submit_credentials(self, page: Any) -> None:
-        # 站点存在「短信/密码/微信」多种登录方式，先尽力切到密码登录（未命中不视为失败）
-        tab = find_first_visible(page, selectors.LOGIN_MODE_SWITCHERS)
-        if tab is not None:
-            tab.click()
-            self._humanizer.pause_field()
+        # 实测目标站默认停在短信登录，先切到密码登录（已就绪则幂等跳过），否则密码框不可见
+        ensure_password_login_mode(page, self._settings, self._humanizer)
 
         if detect_challenge(page, self._settings.login.probe_timeout_ms) is not None:
             raise self._manual_required(page)
 
         account_input = find_first_visible(page, selectors.ACCOUNT_INPUTS)
         if account_input is None:
-            raise LoginPageError(
-                "未定位到账号输入框：登录页结构可能与 selectors.py 中的候选不匹配（需在采集机实测校准选择器）"
-            )
+            raise LoginPageError("未定位到账号输入框：ACCOUNT_INPUTS 与登录页结构不匹配。" + _SELECTOR_HINT)
         self._humanizer.move_to(page, account_input)
         self._humanizer.type_like_human(account_input, self._account.account)
         self._humanizer.pause_field()
 
         password_input = find_first_visible(page, selectors.PASSWORD_INPUTS)
         if password_input is None:
-            raise LoginPageError("未定位到密码输入框：登录页结构可能已变或当前不是密码登录方式")
+            raise LoginPageError("未定位到密码输入框：PASSWORD_INPUTS 与登录页结构不匹配。" + _SELECTOR_HINT)
         self._humanizer.move_to(page, password_input)
         self._humanizer.type_like_human(password_input, self._account.password)
         self._humanizer.pause_field()
 
         submit = find_first_visible(page, selectors.SUBMIT_BUTTONS)
         if submit is None:
-            raise LoginPageError("未定位到登录提交按钮：登录页结构可能与 selectors.py 中的候选不匹配")
+            raise LoginPageError("未定位到登录提交按钮：SUBMIT_BUTTONS 与登录页结构不匹配。" + _SELECTOR_HINT)
         self._humanizer.pause_before_submit()
         self._humanizer.move_to(page, submit)
         submit.click()

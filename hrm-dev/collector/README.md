@@ -46,7 +46,7 @@ powershell -ExecutionPolicy Bypass -File scripts\env-setup.ps1
 
 # ② 多多账号密码（加密写入 pdd 段；密钥文件默认按脚本位置推导）
 powershell -ExecutionPolicy Bypass -File scripts\init-local-secrets.ps1 `
-    -Site 'https://mcmd.pinduoduo.com/home' `
+    -Site 'https://mdkd.pinduoduo.com/login' `
     -Account '<多多账号，建议由站长本人提供>' `
     -PasswordSecure (Read-Host -AsSecureString '请输入多多账号密码') `
     -AuthorizedBy '<授权人姓名>' `
@@ -131,8 +131,9 @@ print(account.masked_description())          # site=... account=166****9983 auth
 | --- | --- |
 | 浏览器 | Playwright `launch_persistent_context`，`user_data_dir = runtime/browser-profile`（被 .gitignore 排除）；多账号 = 每账号独立 profile（ADR §18.3 补丁 3） |
 | 登录态载体 | **profile 为权威载体**（ADR §20.2.5）；`storage_state` 仅作诊断导出，落 `runtime/storage-state/<account_hash>.json` |
-| 登录结果判定 | **不只看 URL**：① 域名白名单（允许白名单域子域）② 工作台特征元素（已核实的 `DIV[role=menuitem]` / 「运单查询」）③ 登录表单是否仍存在；三者组合判定，见 `pdd.judge_login_result` |
-| 选择器策略 | 全部集中在 `src/collector/login/selectors.py`，语义定位优先、通用 CSS 兜底；每条带「依据」与 `verified` 标记。**目标站登录页的真实 DOM 未实测，故一律标 `未核实，需在采集机实测确认`** |
+| 登录结果判定 | **不只看 URL**：① 域名白名单（允许白名单域子域）② 工作台特征元素（**未实测**：`DIV[role=menuitem]` / 「运单查询」）③ 登录表单是否仍存在；三者组合判定，见 `pdd.judge_login_result` |
+| 登录方式切换 | 实测目标站**默认停在「短信登录」**，此时密码框不可见。本项目走密码登录，登录前先点「密码登录」页签；以「密码框可见」为**幂等判据**，已就绪则跳过点击；切换失败给出指向 `dump-login-page.py` 与 `selectors.py` 的可执行报错（不泛化成「登录失败」）|
+| 选择器策略 | 全部集中在 `src/collector/login/selectors.py`，**实测定位优先 → 语义定位次之 → 通用 CSS 兜底**；每条带「依据」与 `verified` 标记。2026-09-22 采集机实测已确认 4 类条目（密码登录页签 / `#mobile` / `input.password-input` / `button.login-btn`），其余仍标未核实。同 id（`#mobile`）与同 class（`button.login-btn`）元素**各挂两份**，故交互类 CSS 候选一律带 `:visible` |
 | 仿人工 | 仅限**节奏与停顿**（`src/collector/login/humanize.py`）：逐字符 60–180ms 随机、字段间停顿、提交前停顿；参数全部可配 |
 | 人工介入触发 | 页面文本命中挑战信号（验证码 / 滑块 / 短信验证 / 风控提示）→ 立即停止，抛 `ManualInterventionRequired`，登录态置 `MANUAL_REQUIRED`，退出码 2 并打印指引 |
 | 凭据错误 | 明确「账号或密码错误」→ **不重试**，提示站长更新凭据（`init-local-secrets.ps1 -Force`） |
@@ -146,11 +147,42 @@ print(account.masked_description())          # site=... account=166****9983 auth
 - 只连 `127.0.0.1`：`db.host` 非本机直接拒绝启动。
 - 日志全局脱敏：`RedactionFormatter` 对整条日志（含异常堆栈）替换 `password/pwd/cookie/authorization/anti-content/etag/pdd-id` 及运行期登记的明文值，另有手机号兜底脱敏。
 
+### 选择器校准（目标站改版后如何重新导出）
+
+登录页 DOM 只能在采集机实测，因此**改版后不要靠猜**：先用只读诊断脚本导出真实结构，再回填 `selectors.py`。
+
+```powershell
+$env:PYTHONPATH = "src"
+# ① 直接导出登录页结构
+python scripts/dump-login-page.py --url https://mdkd.pinduoduo.com/login
+# ② 先点击页签再导出（短信/密码页签面板同时在 DOM 上，切页签只切显隐）
+python scripts/dump-login-page.py --url https://mdkd.pinduoduo.com/login --click-text 密码登录
+# ③ 页面较慢时多等；排障时可强制无头
+python scripts/dump-login-page.py --url https://mdkd.pinduoduo.com/login --settle-ms 6000 --headless
+```
+
+- `--url` 覆盖目标地址（不改配置文件）；`--click-text` 可多次指定，逐个点击后再导出；`--settle-ms` 为加载后额外等待毫秒；`--out` 指定输出路径。
+- 脚本**只读**：不输入内容、不点击提交、不保存 Cookie 明文、不做任何验证码处理；产出落 `runtime/diagnostics/login-page-<时间>.json`（被 .gitignore 排除），控制台同步打印 input / button 与关键词命中摘要。
+- 校准规则：实测命中的条目把 `verified` 置 `True`、`basis` 写明**实测时间 + 地址 + 命中的真实属性**；未实测的保持 `verified=False`。**同 id / 同 class 存在两份时，交互候选必须带 `:visible`**（该文件头有完整说明与 Playwright 官方依据链接）。
+
 ## 8. 已知限制与未验证项（如实声明）
 
-1. **登录页 DOM 未实测**：`selectors.py` 中除站点分析已核实的两条（`div[role=menuitem]`、「运单查询」）外，其余均为语义候选，**标注为未核实**，需在采集机打开登录页实测校准。
-2. **站点 URL 待确认**：ADR 已核实入口 `mcmd.pinduoduo.com` 可能只是营销落地页、真实工作台为 `mdkd.pinduoduo.com`，故 `site.login_url` / `site.workbench_url` 均为配置项，首次实测须确认并回填。
-3. **挑战信号表未校准**：`CHALLENGE_SIGNALS` 为通用中文文案推断，需按真实登录页校准（ADR 待验证项 V17 / V21）。
+### 8.1 已由采集机实测确认（2026-09-22，PC-20260112CXLA / Win10 19045.4291）
+
+| 项 | 实测结论 |
+| --- | --- |
+| 真实登录入口 | `https://mdkd.pinduoduo.com/login`（`https://mdkd.pinduoduo.com/` 会 302 跳到这里，标题「代收点」） |
+| `mcmd.pinduoduo.com/home` | **营销落地页**：标题「快递代收官网」，`input 数=0`、无密码框，文案为「入驻福利」「短信全免费」等 |
+| 登录方式 | 页面提供「短信登录 / 密码登录 / 微信登录」三种，**默认停在「短信登录」**（此时密码框不可见）。本项目走密码登录方式，**需先切页签** |
+| 密码登录页签 DOM | 密码框 `input.password-input`（id=`password`，该页签下唯一）；账号框 `#mobile`（class 含 `rocket-input`）；提交按钮 `button.login-btn` |
+| 同元素两份 | 短信/密码页签面板**同时挂在 DOM**，切换页签只切显隐 → `#mobile` 与 `button.login-btn` 各两份，必须用 `:visible` 约束区分 |
+| 采集机环境 | Python 3.13.15 + MySQL 8.0.46，依赖已装、Chromium 已下载，`check-env` 全绿 |
+
+### 8.2 仍未实测（不得当作已验证）
+
+1. **提交后是否出现滑块 / 图形验证码**：本轮只做只读结构导出，**未提交表单**，未实测。
+2. **登录成功后的工作台 DOM 与跳转目标**：尚未成功登录，故 `WORKBENCH_MARKERS`（`div[role=menuitem]` / 「运单查询」）**仍属未实测**——其 `verified=True` 的依据是站点分析文档核实，**不是**采集机实测。
+3. **挑战信号表未校准**：`CHALLENGE_SIGNALS` 仍为通用中文文案推断（ADR 待验证项 V17 / V21）。**已知风险**：密码登录页 DOM 中存在「获取验证码」按钮，通用信号「验证码」可能被误命中而直接回落人工；是否误命中取决于该按钮在密码页签下是否可见，**待实跑确认**。
 4. **会话有效期未实测**：`session_ttl_hours`（默认 12h）为保守估值，仅用于估算 `expire_at`，待 V18 实测回填。
 5. **未运行验证项**：开发机无 MySQL、无企业微信，且未安装 Playwright/PyMySQL，故以下**从未真实执行**：真实开浏览器、真实登录、真实连库建表、DPAPI 真实解密。以上均在采集机验证。
 6. **storage_state 落盘与 ADR 表述的差异**：ADR §20.2.5 表述「登录态仍落在 profile、采集端不另行落盘」。本版按任务要求实现了 `storage_state` 导出（含 Cookie，属敏感物，落 `runtime/` 且不入库不入 Git）。若评审认定 profile 已足够，可将 `login.export_storage_state` 置 `false` 彻底关闭（代码内已标 `TODO(扩展)`）。
@@ -163,7 +195,8 @@ print(account.masked_description())          # site=... account=166****9983 auth
 | 现象 | 处理 |
 | --- | --- |
 | **登录时出现验证码 / 滑块 / 短信验证** | 这是**预期行为**：采集端会立即停止并退出码 2。请在采集机浏览器窗口中**人工完成验证**，然后重跑 `python -m collector login --check` 确认登录态有效。**禁止**接入任何打码/识别服务（红线 C2/C8）。 |
-| 提示「未定位到账号/密码输入框」 | 登录页结构变化。核对 `src/collector/login/selectors.py` 的候选选择器并实测校准（改版只需改这一个文件）。 |
+| 提示「未定位到账号/密码输入框」「未定位到「密码登录」页签」「已点击「密码登录」页签但密码框仍未出现」 | 登录页结构或文案变化。**先导出真实 DOM 再校准**：`python scripts/dump-login-page.py --url <登录地址> [--click-text 密码登录]`，对照产出改 `src/collector/login/selectors.py`（改版只需改这一个文件）。同 id / 同 class 有两份时记得带 `:visible`。 |
+| 提示密码框定位不到、但手机号框正常 | 目标站**默认停在「短信登录」**、密码框此时不可见。本项目走密码登录，登录流程会先点「密码登录」页签；若页签文案变了按上一行重新导出校准 `LOGIN_MODE_SWITCHERS`。 |
 | 提示「账号或密码错误」 | 凭据已失效。请站长确认后重跑 `init-local-secrets.ps1 ... -Force` 覆盖 `pdd` 段。 |
 | 提示「DPAPI 解密失败」 | 密文与当前 Windows 账户/机器不匹配。请在生成密文的**同一账户**下执行；跨机器/跨账户复制密钥文件无效。 |
 | 提示「未找到本地密钥文件」 | 先跑 `scripts\env-setup.ps1`，再跑 `scripts\init-local-secrets.ps1`。 |
@@ -178,7 +211,7 @@ python -m compileall -q src tests          # 语法编译
 python -m pytest tests -q                   # 纯逻辑单测（不连库、不开浏览器）
 ```
 
-测试覆盖：配置加载与环境变量覆盖、DPAPI 封装（打桩）、`PddAccount` 脱敏与校验、仿人工延时区间边界、repository 参数化 SQL 与幂等 upsert、建表语句切分、登录结果判定与挑战识别、日志脱敏。
+测试覆盖：配置加载与环境变量覆盖、DPAPI 封装（打桩）、`PddAccount` 脱敏与校验、仿人工延时区间边界、repository 参数化 SQL 与幂等 upsert、建表语句切分、登录结果判定与挑战识别、选择器表的实测优先级与可见性约束（`:visible`）、登录方式页签切换的幂等判定与失败报错、日志脱敏。
 
 日志：`runtime/logs/collector.log`（滚动，全局脱敏）；凭据初始化日志：`runtime/logs/init-local-secrets.log`。
 
@@ -191,7 +224,8 @@ hrm-dev/collector/
 │   └── local/                     # 本地凭据（DPAPI 密文，不入库）
 ├── scripts/
 │   ├── env-setup.ps1              # 环境 + MySQL 凭据（已存在，本版未改动）
-│   └── init-local-secrets.ps1     # 多多账号密码加密写入
+│   ├── init-local-secrets.ps1     # 多多账号密码加密写入
+│   └── dump-login-page.py         # 只读导出登录页 DOM，用于校准 selectors.py
 ├── src/collector/
 │   ├── __main__.py                # CLI 入口
 │   ├── logging_setup.py           # 日志分级 + 全局脱敏
