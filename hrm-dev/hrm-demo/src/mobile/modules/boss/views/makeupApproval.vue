@@ -1,13 +1,13 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { showFailToast, showSuccessToast } from 'vant'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import StatusTag from '../../components/StatusTag.vue'
-import { approveMakeup, getMakeupList } from '../../api/index.js'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import StatusTag from '@/mobile/components/StatusTag.vue'
+import { approveMakeup, getMakeupList } from '@/mobile/api/attendance.js'
 import { ATTENDANCE_CODE } from '@/shared/constants/errorCode.js'
-import { MAKEUP_FILTERS, MAKEUP_STATUS } from '../../constants/makeup.js'
-import { periodLabel } from '../../utils/attendance.js'
+import { MAKEUP_FILTERS, MAKEUP_STATUS } from '@/mobile/constants/makeup.js'
+import { periodLabel } from '@/mobile/utils/attendance.js'
 
 /**
  * B12 补卡审批（ADMIN · 全驿站）

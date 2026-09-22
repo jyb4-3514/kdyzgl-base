@@ -2,14 +2,16 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showConfirmDialog, showSuccessToast } from 'vant'
-import MonthPicker from '../../components/MonthPicker.vue'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import StationPicker from '../../components/StationPicker.vue'
-import StatusTag from '../../components/StatusTag.vue'
+import MonthPicker from '@/mobile/components/MonthPicker.vue'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import StationPicker from '@/mobile/components/StationPicker.vue'
+import StatusTag from '@/mobile/components/StatusTag.vue'
+import { bossConfirm } from '../components/bossConfirm.js'
 import { PAYROLL_FILTERS, PAYROLL_STATUS } from '@/shared/constants/dict.js'
-import { getPayrolls, getStationList, publishPayrolls } from '../../api/index.js'
-import { moneyText, recentMonths } from '../../utils/format.js'
+import { getPayrolls, publishPayrolls } from '@/mobile/api/finance.js'
+import { getStationList } from '@/mobile/api/org.js'
+import { moneyText, recentMonths } from '@/mobile/utils/format.js'
 
 /**
  * B9 老板端 · 工资单审核
@@ -27,6 +29,8 @@ const month = ref(recentMonths()[0])
 const status = ref('PENDING_APPROVAL')
 const stationId = ref(null)
 const stations = ref([])
+const stationsLoading = ref(true)
+const stationsError = ref('')
 const showStation = ref(false)
 
 const loading = ref(true)
@@ -61,10 +65,16 @@ function query(page) {
 }
 
 async function loadStations() {
+  stationsLoading.value = true
+  stationsError.value = ''
   try {
     stations.value = await getStationList()
   } catch (e) {
+    // 筛选项失败不阻断列表，但弹层里要能区分「取不到」与「确实没有」
     stations.value = []
+    stationsError.value = e.message || '驿站列表加载失败'
+  } finally {
+    stationsLoading.value = false
   }
 }
 
@@ -132,16 +142,15 @@ async function onPublishAll() {
     }).catch(() => {})
     return
   }
-  try {
-    await showConfirmDialog({
-      title: '发布工资单',
-      message: `将发布给 ${approvedCount.value} 名员工（${month.value} · ${stationText.value}），发布后员工可见并需确认，不可撤回。`,
-      confirmButtonText: '确认发布',
-      cancelButtonText: '再想想'
-    })
-  } catch (e) {
-    return
-  }
+  // 发布不可撤回且影响全站可见性，走 BossConfirm 四要素（对象 + 影响面 + 不可逆声明）
+  const ok = await bossConfirm({
+    action: '发布工资单',
+    target: `${month.value} · ${stationText.value}`,
+    impact: `${approvedCount.value} 名员工将可见并需确认`,
+    irreversible: true,
+    confirmText: '确认发布'
+  })
+  if (!ok) return
   publishing.value = true
   try {
     const result = await publishPayrolls({ month: month.value, stationId: stationId.value })
@@ -165,7 +174,7 @@ onMounted(() => {
   <div class="boss-payroll">
     <PageNav title="工资单审核" />
     <div class="page page--loose">
-      <MonthPicker :model-value="month" label="工资月份" @update:model-value="onMonthChange" />
+      <MonthPicker :model-value="month" label="工资月份" :disabled="loading" @update:model-value="onMonthChange" />
 
       <div class="tool-row">
         <button type="button" class="chip station-chip" @click="showStation = true">
@@ -238,7 +247,16 @@ onMounted(() => {
       </PageState>
     </div>
 
-    <StationPicker v-model:show="showStation" :stations="stations" :model-value="stationId" @select="onPickStation" />
+    <StationPicker
+      v-model:show="showStation"
+      :stations="stations"
+      :model-value="stationId"
+      :loading="stationsLoading"
+      :error="stationsError"
+      empty-text="暂无可选驿站，请先在 PC 端维护驿站"
+      @retry="loadStations"
+      @select="onPickStation"
+    />
   </div>
 </template>
 

@@ -1,10 +1,10 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { showConfirmDialog, showSuccessToast } from 'vant'
-import ActionBar from '../../components/ActionBar.vue'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import { getLeaveSettings, saveLeaveSettings } from '../../api/index.js'
+import ActionBar from '@/mobile/components/ActionBar.vue'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import { getLeaveSettings, saveLeaveSettings } from '@/mobile/api/leave.js'
 
 /**
  * P5 请假扣款设置（ADMIN · 全局单开关，D5）

@@ -1,11 +1,11 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import StatusTag from '../../components/StatusTag.vue'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import StatusTag from '@/mobile/components/StatusTag.vue'
 import { FLOW_STATUS } from '@/shared/constants/dict.js'
-import { getOffboardingFlows, getOnboardingFlows } from '../../api/index.js'
+import { getOffboardingFlows, getOnboardingFlows } from '@/mobile/api/hr.js'
 
 /**
  * B10 老板端 · 入离职审批

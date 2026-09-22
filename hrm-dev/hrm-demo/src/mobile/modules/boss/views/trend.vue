@@ -1,11 +1,12 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import LineChart from '../../components/LineChart.vue'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import StatCard from '../../components/StatCard.vue'
-import { getParcelTrend } from '../../api/index.js'
-import { numberText, percent } from '../../utils/format.js'
+import LineChart from '@/mobile/components/LineChart.vue'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import StatCard from '@/mobile/components/StatCard.vue'
+import BossScopeNote from '../components/BossScopeNote.vue'
+import { getParcelTrend } from '@/mobile/api/parcel.js'
+import { numberText, percent } from '@/mobile/utils/format.js'
 
 /**
  * B3 包裹趋势（ADMIN · 全局）
@@ -100,7 +101,7 @@ onMounted(load)
           <StatCard label="日均入库" :value="numberText(avgInbound)" unit="件" tone="neutral" value-size="md" dense />
         </div>
 
-        <p class="tip">口径：入库按包裹入库时间分天聚合；取件含历史派生取件时间与演示中的实时核销</p>
+        <BossScopeNote text="口径：入库按包裹入库时间分天聚合；取件含历史派生取件时间与演示中的实时核销" />
       </PageState>
     </van-pull-refresh>
   </div>

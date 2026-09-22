@@ -2,12 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { showConfirmDialog, showFailToast, showSuccessToast } from 'vant'
-import ActionBar from '../../components/ActionBar.vue'
-import MyPayrollCard from '../../components/MyPayrollCard.vue'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import PayrollStatusSteps from '../../components/PayrollStatusSteps.vue'
-import { approvePayroll, getPayroll, publishPayrolls } from '../../api/index.js'
+import ActionBar from '@/mobile/components/ActionBar.vue'
+import MyPayrollCard from '@/mobile/components/MyPayrollCard.vue'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import PayrollStatusSteps from '@/mobile/components/PayrollStatusSteps.vue'
+import { approvePayroll, getPayroll, publishPayrolls } from '@/mobile/api/finance.js'
 import { FINANCE_CODE } from '@/shared/constants/errorCode.js'
 
 /**

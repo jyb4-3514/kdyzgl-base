@@ -1,23 +1,24 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { showConfirmDialog, showSuccessToast } from 'vant'
-import ActionBar from '../../components/ActionBar.vue'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import StationPicker from '../../components/StationPicker.vue'
+import { showSuccessToast } from 'vant'
+import ActionBar from '@/mobile/components/ActionBar.vue'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import StationPicker from '@/mobile/components/StationPicker.vue'
+import { bossConfirm } from '../components/bossConfirm.js'
 // FlowSteps 与 PayrollStatusSteps 是同一份实现（纵向步骤条），此处按业务语义重命名引用，避免写第二份
-import FlowSteps from '../../components/PayrollStatusSteps.vue'
+import FlowSteps from '@/mobile/components/PayrollStatusSteps.vue'
 import {
   completeOffboardingStep,
   completeOnboardingStep,
   getOffboardingFlow,
   getOnboardingFlow,
-  getStationList,
   rejectOffboardingFlow,
   rejectOnboardingFlow
-} from '../../api/index.js'
-import { valueText } from '../../utils/format.js'
+} from '@/mobile/api/hr.js'
+import { getStationList } from '@/mobile/api/org.js'
+import { valueText } from '@/mobile/utils/format.js'
 
 /**
  * B10 流程详情（老板端：办理当前步骤 / 驳回）
@@ -32,29 +33,30 @@ import { valueText } from '../../utils/format.js'
  */
 const CONFIRM_STEPS = {
   CREATE_ACCOUNT: {
-    title: '建档并生成账号',
-    message: '将通过本流程创建员工与登录账号，账号初始密码由你设定。',
-    confirmButtonText: '确认建档'
+    action: '建档并生成账号',
+    impact: '将通过本流程创建员工与登录账号，账号初始密码由你设定',
+    confirmText: '确认建档'
   },
   SET_SALARY: {
-    title: '确认定薪',
-    message: '定薪结果将写入员工薪资档案，并生成一条调薪留痕。',
-    confirmButtonText: '确认定薪'
+    action: '确认定薪',
+    impact: '定薪结果将写入员工薪资档案，并生成一条调薪留痕',
+    confirmText: '确认定薪'
   },
   SETTLEMENT: {
-    title: '确认薪资结算',
-    message: '办理完成后将自动生成该员工的离职结算工资单（草稿），需再走审核与发布。',
-    confirmButtonText: '确认结算'
+    action: '确认薪资结算',
+    impact: '办理完成后将自动生成该员工的离职结算工资单（草稿），需再走审核与发布',
+    confirmText: '确认结算'
   },
   LEAVE: {
-    title: '确认离岗',
-    message: '通过后该账号立即停用、员工将无法登录，档案写入离职日期，不可撤销。',
-    confirmButtonText: '确认离岗'
+    action: '确认离岗',
+    impact: '通过后该账号立即停用、员工将无法登录，档案写入离职日期',
+    irreversible: true,
+    confirmText: '确认离岗'
   },
   DONE: {
-    title: '完成入职',
-    message: '通过后该员工转为在职状态，将进入全站统计与考核范围。',
-    confirmButtonText: '确认完成'
+    action: '完成入职',
+    impact: '通过后该员工转为在职状态，将进入全站统计与考核范围',
+    confirmText: '确认完成'
   }
 }
 
@@ -73,6 +75,8 @@ const rejectReason = ref('')
 const rejectError = ref('')
 
 const stations = ref([])
+const stationsLoading = ref(true)
+const stationsError = ref('')
 const showStation = ref(false)
 
 const form = ref({
@@ -167,10 +171,16 @@ async function load() {
 }
 
 async function loadStations() {
+  stationsLoading.value = true
+  stationsError.value = ''
   try {
     stations.value = await getStationList()
   } catch (e) {
+    // 分配步骤的驿站选择失败必须可见：选不到驿站时用户会以为「公司没有驿站」
     stations.value = []
+    stationsError.value = e.message || '驿站列表加载失败'
+  } finally {
+    stationsLoading.value = false
   }
 }
 
@@ -236,11 +246,12 @@ async function onAction(key) {
   if (!body) return
   const confirmConfig = CONFIRM_STEPS[stepKey.value]
   if (confirmConfig) {
-    try {
-      await showConfirmDialog(confirmConfig)
-    } catch (e) {
-      return
-    }
+    // 作用对象由页面补齐（步骤配置只声明「做什么、会怎样」），四要素缺失会被 bossConfirm 直接拦下
+    const ok = await bossConfirm({
+      ...confirmConfig,
+      target: `${flow.value.employeeName}（${flow.value.flowNo}）`
+    })
+    if (!ok) return
   }
   submitting.value = true
   try {
@@ -462,7 +473,11 @@ onMounted(() => {
       :stations="stations"
       :model-value="form.stationId"
       :allow-all="false"
+      :loading="stationsLoading"
+      :error="stationsError"
       title="选择归属驿站"
+      empty-text="暂无可选驿站，请先在 PC 端维护驿站"
+      @retry="loadStations"
       @select="form.stationId = $event"
     />
   </div>

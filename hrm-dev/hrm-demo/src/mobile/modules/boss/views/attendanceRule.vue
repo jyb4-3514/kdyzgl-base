@@ -1,12 +1,13 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { showSuccessToast } from 'vant'
-import ActionBar from '../../components/ActionBar.vue'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import { getAttendanceRule, getStationList, saveAttendanceRule } from '../../api/index.js'
+import ActionBar from '@/mobile/components/ActionBar.vue'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import { getAttendanceRule, saveAttendanceRule } from '@/mobile/api/attendance.js'
+import { getStationList } from '@/mobile/api/org.js'
 import { MATCH_MODE } from '@/shared/constants/dict.js'
-import { minutesOfDay } from '../../utils/attendance.js'
+import { minutesOfDay } from '@/mobile/utils/attendance.js'
 
 /**
  * B8 打卡规则（ADMIN · 查看 + 快捷调整）

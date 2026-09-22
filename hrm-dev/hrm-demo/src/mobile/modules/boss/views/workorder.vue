@@ -2,15 +2,16 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showFailToast } from 'vant'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import SlaTag from '../../components/SlaTag.vue'
-import StationPicker from '../../components/StationPicker.vue'
-import StatusTag from '../../components/StatusTag.vue'
-import WorkOrderCopyButton from '../../components/WorkOrderCopyButton.vue'
-import { getStationList, getWorkOrders } from '../../api/index.js'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import SlaTag from '@/mobile/components/SlaTag.vue'
+import StationPicker from '@/mobile/components/StationPicker.vue'
+import StatusTag from '@/mobile/components/StatusTag.vue'
+import WorkOrderCopyButton from '@/mobile/components/WorkOrderCopyButton.vue'
+import { getStationList } from '@/mobile/api/org.js'
+import { getWorkOrders } from '@/mobile/api/workOrder.js'
 import { WORK_ORDER_PRIORITY, WORK_ORDER_STATUS, WORK_ORDER_TYPE } from '@/shared/constants/dict.js'
-import { numberText, relativeTime } from '../../utils/format.js'
+import { numberText, relativeTime } from '@/mobile/utils/format.js'
 
 /**
  * B11 工单管理（ADMIN · 跨驿站全局视角）
@@ -41,6 +42,8 @@ const keyword = ref('')
 /** 提交给接口的关键字：与输入框分离，否则每敲一个字都会触发一次查询 */
 const searchText = ref('')
 const stations = ref([])
+const stationsLoading = ref(true)
+const stationsError = ref('')
 const stationId = ref(null)
 const showStation = ref(false)
 
@@ -113,11 +116,16 @@ async function onLoadMore() {
 }
 
 async function loadStations() {
+  stationsLoading.value = true
+  stationsError.value = ''
   try {
     stations.value = await getStationList()
   } catch (e) {
-    // 筛选项加载失败不影响主列表：降级为「全部驿站」，不误导
+    // 筛选项失败不影响主列表，但不能静默成「没有驿站」：弹层里给错误与重试
     stations.value = []
+    stationsError.value = e.message || '驿站列表加载失败'
+  } finally {
+    stationsLoading.value = false
   }
 }
 
@@ -204,7 +212,16 @@ onMounted(async () => {
 
     <p class="tip">超时未处理只统计待处理与处理中的工单；点任意一行进入详情页可指派、转单或流转</p>
 
-    <StationPicker v-model:show="showStation" :stations="stations" :model-value="stationId" @select="selectStation" />
+    <StationPicker
+      v-model:show="showStation"
+      :stations="stations"
+      :model-value="stationId"
+      :loading="stationsLoading"
+      :error="stationsError"
+      empty-text="暂无可选驿站，请先在 PC 端维护驿站"
+      @retry="loadStations"
+      @select="selectStation"
+    />
   </div>
 </template>
 

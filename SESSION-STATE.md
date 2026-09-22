@@ -646,8 +646,8 @@ B1–B7 原本都要把页面改为 `views/staff/<域>/index.vue` 并同步改 `
 # 会话状态 — 移动端老板端模块化（单工程内按域拆模块）
 
 > 最后更新: 2026-09-22
-> 状态：**A0–A6 已落地并通过全量门禁；A10 部分落地；N-02 待产品决策**
-> 分支：工作区分支为 `feature/二期采集端`（**非本任务所属的三端 Demo 工作流分支，提交前必须确认**）
+> 状态：**A0–A6 + A9/A10 + N-02 全部落地并通过全量门禁；老板端模块交付完成**
+> 分支：`feature/前端演示项目拆分与精细化`（多会话共用的拆分主分支；**已实测核对**，本任务与之对齐，无需切换）
 > 方案与规范：`hrm-dev/docs/demo-boss-module-plan.md`（结构与依赖边界）、`hrm-dev/docs/demo-boss-ui-spec.md`（UI/UX 与组件规范）
 
 ## 交付物
@@ -668,8 +668,11 @@ B1–B7 原本都要把页面改为 `views/staff/<域>/index.vue` 并同步改 `
 - [x] **D-2** `alerts.vue` 三处可点 `<div>` 补 `role="button"` + `tabindex="0"` + 键盘触发
 - [x] **D-3 / G-01** `StationPicker` 补 `loading`/`error`/`emptyText` + `retry`（默认行为不变，员工端零回归）
 - [x] **G-02** `ActionBar` 按钮级 loading；**G-03** `MonthPicker` 补 `disabled`
-- [ ] **N-02 `BossDonutChart`（待产品决策）** —— `alerts.vue` 现有「采集四态计数按钮」是否承担下钻/筛选能力未定；未决策前已**删除未接线的实现**，避免死代码。决策后再按「是否保留四态按钮」定接入形态
-- [ ] **G-04** `NoticeList` 行级 pending / **G-05** `MeSection` 三态（均需 store 层改造，留待下一轮）
+- [x] **N-02 `BossShareBar`（占比堆叠条）** —— 用户裁决：**用 100% 堆叠条 + 保留 `alerts` 四态计数按钮的下钻能力**（**否决环图方向**）。已接入 `alerts.vue`（采集四态）与 `attendance.vue`（考勤构成），均为**纯新增**、零新增接口请求；百分比采**最大余数法**取整，保证各段合计恒为 100%（不会出现「四段加起来 101%」）
+- [x] **A11（Review 追加）横向溢出缺陷修复** —— `LineChart.vue` 的读屏等价表 `class="visually-hidden"` 直接加在 `<table>` 上，被表格 min-content 击败（**实测渲染宽 444px**），375×812 下 `boss/home` 横向溢出 **96px → 0px**；修法为外包一层块级 `.visually-hidden` 容器
+- [x] **G-04** `NoticeList` 行级 pending（写入期间行内忙碌指示 + `aria-busy` + 防重复触发与重复跳转；失败给可见提示，**不静默**）
+- [x] **G-05** `MeSection` 账号信息三态（`stores/auth.js` 暴露 `userLoaded`/`userLoading`/`userError`，组件**零新增接口请求**，仅做渲染分流）
+- [x] **A10（收口）** 老板端组件库共 **6 项**：`BossRankBar` / `BossMetricDelta` / `BossScopeNote` / `BossInlineEmpty` / `BossShareBar` / `bossConfirm`（函数式），全部零十六进制色值
 - [ ] **A7** 负向验证脚本化（未采纳，仍为手工探针）
 
 ## 目标结构（供其他域负责人对齐）
@@ -685,13 +688,14 @@ B1–B7 原本都要把页面改为 `views/staff/<域>/index.vue` 并同步改 `
 
 | 项 | 结果 |
 | ---- | ---- |
-| `npm run lint` | **0 error**；老板端模块 0 error / 9 warn（均为随迁页面的既有 a11y warn） |
+| `npm run lint` | **我的范围 0 error / 10 warn**（`src/mobile/modules/boss` + `LineChart.vue` 单独跑）。**全仓 5 error 属他人**：全部落在 `e2e/evidence/deployed-check.mjs`（`no-undef: process`）——该文件位于 gitignore 的产物目录，为并行负责人在本会话期间新增的临时脚本，**未擅自动** |
 | `npm run lint:style` | 0 error |
 | `npm run build` / `npm run build:prod` | EXIT=0（prod 产物 mock 命中 0 处） |
 | `npm run verify:mock` | **879 / 879**（计数因并行改动 +1，非本模块引入） |
 | `npm run verify:mobile` | 48 / 48 |
-| `npm test` | 297 / 298；唯一失败在**员工端** `staff/components/ShiftCard.spec.js`（并行改造员工端的负责人新增，非本模块范围） |
-| `npm run e2e` | **37 passed**（6.4m） |
+| `npm test` | **300 / 300**（37 files）；先前员工端 `staff/components/ShiftCard.spec.js` 的失败已由其负责人修复，本模块未新增失败 |
+| `npm run e2e` | **37 passed**（4.8m；此前 PC 侧 `A2-1`/`A5-2` 两项失败已随并行改造自行恢复） |
+| 横向溢出实测（375×812，独立脚本取证后已删除脚本） | `boss/home` **96px → 0px**；`boss/trend` / `boss/alerts` / `boss/attendance` 均 **0px**；包装容器实测宽 **1px**（444px 表格被正确裁剪） |
 | `npm run verify:tokens` | 通过 |
 | 结构断言 | `views/boss` 不存在；`modules/boss/views` 21 个 `.vue`；模块内深层相对路径 **0 条**（改写后别名数 110 与迁移前 109+1 守恒） |
 | URL 冻结核对 | `bossRoutes` 23 条全部 `/boss/*`；`path`/`name`/`meta` 与迁移前**逐字一致**，仅 `component` 路径变更 |
@@ -700,7 +704,67 @@ B1–B7 原本都要把页面改为 `views/staff/<域>/index.vue` 并同步改 `
 ## 环境阻塞（不得当作已完成）
 
 1. **`npm run format:check` 全仓红灯（290 文件）**：全仓文件为 CRLF，而 `.prettierrc` 为 `endOfLine: "lf"`；未参与本任务的 `src/shared/constants/dict.js`（实测 418 处 CRLF）同样报错 → **环境级预存在问题**。本轮**未**做全量 `prettier --write`（会覆盖并行负责人的改动），仅保证本次改动文件不新增格式违规。需专项裁决是否补 `.gitattributes` 或调整 `endOfLine`。
-2. **分支未对齐**：工作区当前为 `feature/二期采集端`，本任务属三端 Demo 工作流；**任何提交前必须先确认并切到目标分支**（本轮未擅自切换、未做任何 git 操作）。
+2. **分支（已实测核对；本节此前记录有误，已更正）**：当前分支为 `feature/前端演示项目拆分与精细化` —— 与多会话拍板的共用分支一致（见本文件后文「并发冲突」节：`feature/PC端拆分与精细化` 已作废，PC / 员工端 / 老板端拆分统一汇入该分支）。**本任务无需切分支**。⚠️ 原写「工作区当前为 `feature/二期采集端`」系沿用本文件旧记录、未经 `git` 核实即转述，**已更正**；`feature/二期采集端` 是另一条并行工作流（作业隔离在 git worktree `C:\Users\16626\AppData\Local\Temp\yz-wt`），与本工作区无关。
+   - **该共用分支尚无上游（未推送）**：`git rev-parse @{u}` 报 `no upstream configured`；`git branch -r` 中无同名远端分支。
+   - **工作区混入非本工作流的未提交改动**（提交时必须按范围分离，禁止 `git add -A`）：`hrm-dev/collector/scripts/env-setup.ps1`、`hrm-dev/poc/wecom/POC-0{1,2,5}*.ps1`（二期采集端资产）、`hrm-demo/src/mobile/utils/workorder.js` 与 `hrm-demo/src/mobile/views/staff/home.vue`（员工端并行改动）。
 3. **工作区并发**：`src/pc/**`（PC 模块）与员工端模块正由其他负责人并行改造，同一工作区存在未提交改动；`SESSION-STATE.md` 亦被多方写入，本节点为**追加**而非重写。
 4. 本机无 Android SDK / 真机，且 TRAE Chrome 扩展不可用（os error 10061）→ **375px 真机档、≥1280px 宽屏、iOS Safari、企业微信内置浏览器、壳内 `--status-bar-height` 实测值均为「未验证」**，不得在交付中改述为已验证。
 5. 内联 `--stdin --stdin-filename` 探针在本机 ESLint 9.39.5 上**行为正常**（已实测），无需回退临时文件方案。
+
+***
+
+# 会话状态 — PC 端拆分与精细化 + 三端 Demo Docker 测试环境部署
+
+> 最后更新: 2026-09-22
+> 分支：`feature/前端演示项目拆分与精细化`（多会话共用；原 `feature/员工端拆分与精细化` 按用户拍板合并为该共分支）
+> 状态：**PC 精细化 B1–B5 完成并提交；Docker 测试环境部署完成并通过端到端验收**
+
+## 进度
+
+| 批次 | 内容 | commit |
+| --- | --- | --- |
+| 规范 | `hrm-dev/docs/demo-pc-refactor.md`（目录约定 / 组件契约 / 状态三层边界 / 竞态守卫 / 行为等价红线） | `2dc680d` |
+| B1 | 工单 1057→129 行、排班 651→135 行 | `2dc680d` |
+| B2 | 看板 823→121、同步 720→132、财务 671→128 行 | `69aabaa` |
+| B3 | 状态三层梳理 + `src/pc/stores/org.js`（驿站 11 页、部门 3 页重复取数收敛） | `fd695d8` |
+| B4 | Element Plus 按需引入：首屏 gzip **465218→151354（-67.5%）** | `adfcd9d` |
+| B5 | 响应式：15 路由 × 7 宽度 = 105 格实测，修 2 类真缺陷 | `06e587d` |
+| B6 | 部署产物与手册（Dockerfile / nginx / compose / 入口脚本 / C 档手册） | `5134821` |
+| 待办 | 补测 PC `utils` / `config` / `router`；UI/UX 走查 | — |
+
+## 门禁（实测）
+
+`verify:mock` **879/879** · `test` **300 用例 / 37 文件** · `eslint src/pc` **0 error** · `stylelint src/pc` **0 problem** · `build` 与 `build:prod` **EXIT=0** · **`e2e` 37 passed / 0 failed**
+
+## 部署（已完成，端到端验收 22/22）
+
+- 服务器 `root@156.225.23.154`，Docker 29.7.2；本服务 `hrm-demo-static` **仅绑 `127.0.0.1:8090`**，经现网 `courier-nginx` 反代到 `kongzhen1.com` 根路径
+- 现网**仅改 2 处 location**（`= /` 改为反代 + 新增 catch-all）；`/admin/`、`/api/`、`/photos/`、`/apk/`、`/download`、`/health` 逐条未动
+- 备份：`/data/backup/nginx.conf.20260922-165202`；回滚与验证清单见 `hrm-dev/docs/demo-docker-deploy.md`
+- 验收含：15 个 PC 路由无白屏、深链 `/dashboard` 正确回退 pc.html、刷新保登录、移动端入口、缺失资源 404、未鉴权全站 401、公网直连 8090 超时
+- 凭据：Basic Auth 用户 `16626369983`，口令**仅存**本地 `.secrets/hrm-demo-basic-auth.txt`（已 gitignore）与服务器 `/data/www/hrm-demo/.env`（600）
+
+## 关键决策
+
+1. **多会话共用一个分支**（用户拍板）：`feature/PC端拆分与精细化` 作废，统一到 `feature/前端演示项目拆分与精细化`
+2. **状态边界不凑指标**：三域拆分后按「≥2 路由页消费」判据无跨页共享状态，故未建 store；驿站/部门因 11 页与 3 页重复取数才建 `org.js`
+3. **Element Plus 按需引入保留图标全局注册**：`@admin` 一期页面依赖全局图标名，移除必白屏
+4. **静态站无法隐藏口令**：站内账号会打进公开 bundle，故访问控制放 Basic Auth 网关层；测试手机号**仅作网关账号**，站内仍用演示账号
+5. **单文件 bind mount 绑定的是 inode**：`mv` 换 inode 后容器读不到新配置，必须重启容器让 Docker 重新解析路径
+
+## 实测踩坑（登记，避免复发）
+
+1. nginx `location ~*` 正则含 `{8,}` **必须加引号**，否则报 `unknown directive`
+2. `.htpasswd` 设 600 → worker（nginx 用户）读不到 → 症状是「无凭据 401、带凭据反而 500」，需 `root:nginx` + 640
+3. `{SHA}` 格式哈希可安全放 `.env`（**不含 `$`**，规避 Compose 插值吃掉 `$apr1$…`）
+4. 部署前必须对 nginx.conf 先 `nginx -t` 干跑再落盘，否则现网容器进入重启循环
+5. 并行会话会停掉 5188 dev server → e2e 大面积假失败；判定归属前先 curl 探活（本轮 28 失败即由此证伪）
+
+## 未完成 / 遗留
+
+1. **`/admin/` 现网返回 500**：`courier-nginx` 镜像内 `/usr/share/nginx/html/` 只有 nginx 自带文件，**无 `admin/` 目录** → 属改动前既有的部署缺口，非本次引入
+2. `/api/` 403、`/photos/` 403、`/download` 404 均为未改动 location 的既有行为
+3. 375px 及以下 PC 布局外溢**刻意未修**（规范 §8：<768px 由移动端入口承接）
+4. `npm run format:check` 全仓红灯（既有 CRLF 与 `.prettierrc` `endOfLine: lf` 冲突，需专项裁决）
+5. 测试手机号仅在网关层生效；如需**站内**以该手机号登录并带管理权限，须改 `src/demo/accounts.js` 与 Mock 权限映射（口令将公开于 bundle，**不建议**）
+6. 文档漂移待修：项目规则写「生产 = 宝塔 + systemd `hrm-server.jar`、库名 `kdyzgl`」，实测为 Docker 栈 `courier-server` + 库名 `courier_station` + 另一仓库 `kdyzzhxt`

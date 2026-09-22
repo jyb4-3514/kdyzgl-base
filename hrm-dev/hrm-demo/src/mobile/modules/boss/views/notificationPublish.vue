@@ -2,10 +2,11 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showConfirmDialog, showFailToast, showSuccessToast } from 'vant'
-import ActionBar from '../../components/ActionBar.vue'
-import PageNav from '../../components/PageNav.vue'
-import StationPicker from '../../components/StationPicker.vue'
-import { getEmployees, getStationList, publishNotification } from '../../api/index.js'
+import ActionBar from '@/mobile/components/ActionBar.vue'
+import PageNav from '@/mobile/components/PageNav.vue'
+import StationPicker from '@/mobile/components/StationPicker.vue'
+import { publishNotification } from '@/mobile/api/notification.js'
+import { getEmployees, getStationList } from '@/mobile/api/org.js'
 import { NOTIFICATION_TYPE, PUBLISH_SCOPE } from '@/shared/constants/dict.js'
 import { DEMO_CODE } from '@/shared/constants/errorCode.js'
 
@@ -280,7 +281,11 @@ onMounted(async () => {
       :stations="stations"
       :model-value="form.stationId"
       :allow-all="false"
+      :loading="stationsLoading"
+      :error="stationsError"
       title="选择发布范围驿站"
+      empty-text="暂无可选驿站，请先在 PC 端维护驿站"
+      @retry="loadStations"
       @select="pickStation"
     />
   </div>

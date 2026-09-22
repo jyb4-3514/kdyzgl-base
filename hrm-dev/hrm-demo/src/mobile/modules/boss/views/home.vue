@@ -1,24 +1,19 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import HomeQuickGrid from '../../components/HomeQuickGrid.vue'
-import LineChart from '../../components/LineChart.vue'
-import PageState from '../../components/PageState.vue'
-import StatCard from '../../components/StatCard.vue'
-import {
-  getAttendanceSummary,
-  getDashboardSummary,
-  getParcelRanking,
-  getParcelSummary,
-  getParcelTrend,
-  getParcels,
-  getSyncOverview,
-  getSyncTasks,
-  getWorkOrders
-} from '../../api/index.js'
-import { BOSS_QUICK_ENTRIES } from '../../constants/quickEntries.js'
-import { useTodoStore } from '../../stores/todo.js'
-import { clockText, hoursAgoParam, numberText, percent, relativeTime, shortDateText } from '../../utils/format.js'
+import HomeQuickGrid from '@/mobile/components/HomeQuickGrid.vue'
+import LineChart from '@/mobile/components/LineChart.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import StatCard from '@/mobile/components/StatCard.vue'
+import BossRankBar from '../components/BossRankBar.vue'
+import { getAttendanceSummary } from '@/mobile/api/attendance.js'
+import { getDashboardSummary } from '@/mobile/api/dashboard.js'
+import { getParcelRanking, getParcelSummary, getParcelTrend, getParcels } from '@/mobile/api/parcel.js'
+import { getSyncOverview, getSyncTasks } from '@/mobile/api/syncTask.js'
+import { getWorkOrders } from '@/mobile/api/workOrder.js'
+import { BOSS_QUICK_ENTRIES } from '@/mobile/constants/quickEntries.js'
+import { useTodoStore } from '@/mobile/stores/todo.js'
+import { clockText, hoursAgoParam, numberText, percent, relativeTime, shortDateText } from '@/mobile/utils/format.js'
 
 /**
  * B2 经营总览（ADMIN · 全局数据）
@@ -154,13 +149,10 @@ function trendOf(today, avg) {
   return avg > 0 ? ((today - avg) / avg) * 100 : null
 }
 
-const maxRankValue = computed(() => Math.max(...topStations.value.map((item) => item.parcelTotal), 1))
-function rankPercent(item) {
-  return Math.round((item.parcelTotal / maxRankValue.value) * 100)
-}
-function rankTone(index) {
-  return index === 0 ? 'gold' : index === 1 ? 'silver' : 'bronze'
-}
+/** 传 BossRankBar 的行数据：条形按批内最大值归一化，名次配色由组件统一取真源 --rank-* */
+const rankItems = computed(() =>
+  topStations.value.map((item) => ({ key: item.stationId, name: item.stationName, value: item.parcelTotal }))
+)
 </script>
 
 <template>
@@ -295,22 +287,14 @@ function rankTone(index) {
         <button type="button" class="section-title__extra link" @click="router.push('/boss/rank')">全部 ›</button>
       </div>
       <div class="card rank-list">
-        <div v-for="(item, index) in topStations" :key="item.stationId" class="rank-row">
-          <span class="rank-row__no" :class="`rank-row__no--${rankTone(index)}`">{{ index + 1 }}</span>
-          <div class="rank-row__body">
-            <div class="flex-between">
-              <span class="list-item__meta">{{ item.stationName }}</span>
-              <span class="rank-row__value tabular-nums">{{ numberText(item.parcelTotal) }}</span>
-            </div>
-            <van-progress
-              :percentage="rankPercent(item)"
-              :show-pivot="false"
-              color="var(--color-primary-icon)"
-              stroke-width="8"
-            />
-          </div>
-        </div>
-        <p v-if="!topStations.length" class="list-item__meta">暂无驿站数据</p>
+        <!-- 排行行收口到 BossRankBar（N-01）：名次配色与条形只在此处定义，避免与排行页分叉 -->
+        <BossRankBar
+          :items="rankItems"
+          metric="count"
+          :max-visible="3"
+          empty-text="暂无驿站数据"
+          @select="router.push('/boss/rank')"
+        />
       </div>
 
       <!-- 组织规模：一期指标移到末位并默认折叠（B2） -->
@@ -378,50 +362,10 @@ function rankTone(index) {
   color: var(--color-warning);
 }
 
-.rank-row {
-  display: flex;
-  gap: var(--sp-3);
-  align-items: center;
-}
-
-.rank-row + .rank-row {
-  margin-top: var(--sp-3);
-}
-
-.rank-row__no {
-  flex: none;
-  width: 24px;
-  height: 24px;
-  font-size: var(--fs-caption);
-  font-weight: var(--fw-semibold);
-  line-height: 24px;
-  color: var(--text-on-dark);
-  text-align: center;
-  border-radius: var(--r-xs);
-}
-
-.rank-row__no--gold {
-  background: var(--rank-1-bg);
-}
-
-.rank-row__no--silver {
-  background: var(--rank-2-bg);
-}
-
-.rank-row__no--bronze {
-  /* 铜牌底色是橙 600（#D46B08），与 --rank-3-bg 的铜 700（#92400E）不同值；
-     统一会改视觉，保留原值待决策（P2-4 已登记） */
-  background: var(--c-orange-600);
-}
-
-.rank-row__body {
-  flex: 1;
-  min-width: 0;
-}
-
-.rank-row__value {
-  font-size: var(--fs-num-sm);
-  font-weight: var(--fw-semibold);
+/* 卡片内不叠第二层带阴影的卡：按 alerts.vue 的既有正例改浅底无阴影（AP-03） */
+.rank-list :deep(.list-item) {
+  background: var(--surface-subtle);
+  box-shadow: none;
 }
 
 .org-head {

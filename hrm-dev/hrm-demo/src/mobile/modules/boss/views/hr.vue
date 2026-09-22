@@ -1,10 +1,10 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import StatusTag from '../../components/StatusTag.vue'
-import { getHrProfiles } from '../../api/index.js'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import StatusTag from '@/mobile/components/StatusTag.vue'
+import { getHrProfiles } from '@/mobile/api/hr.js'
 
 /**
  * B8 老板端 · 人事管理（员工档案查询 + 调薪入口）

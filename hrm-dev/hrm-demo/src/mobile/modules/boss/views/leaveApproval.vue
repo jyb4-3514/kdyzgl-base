@@ -1,5 +1,5 @@
 <script setup>
-import LeaveApprovalList from '../../components/LeaveApprovalList.vue'
+import LeaveApprovalList from '@/mobile/components/LeaveApprovalList.vue'
 
 /**
  * P4 请假审批（ADMIN · 全域终审）

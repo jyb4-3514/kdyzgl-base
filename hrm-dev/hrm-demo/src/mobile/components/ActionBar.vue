@@ -9,7 +9,7 @@ import { computed, ref } from 'vue'
  * 配套：使用本组件的页面根容器加 .page--bar，否则末元素会被固定栏盖住。
  */
 const props = defineProps({
-  /** [{ key, label, type, plain, loading, disabled }]，第 1 个为主操作 */
+  /** [{ key, label, type, plain, loading, disabled }]，第 1 个为主操作；loading 为按钮级，主/次操作同口径 */
   actions: { type: Array, default: () => [] },
   /** 主操作不可用时的原因说明 / 权限说明，渲染在按钮上方 */
   note: { type: String, default: '' },
@@ -29,7 +29,8 @@ const visibleActions = computed(() => (variant.value === 'multi' ? [props.action
 const moreActions = computed(() => (variant.value === 'multi' ? props.actions.slice(2) : []))
 
 function onSelect(action) {
-  if (!action || action.disabled || props.submitting) return
+  // 已在提交中的按钮不再接受点击：避免同一动作被连点产生多次流转
+  if (!action || action.disabled || action.loading || props.submitting) return
   showMore.value = false
   emit('select', action.key)
 }
@@ -63,6 +64,7 @@ function onSelect(action) {
         class="actionbar__btn"
         :type="action.type || 'primary'"
         :plain="action.plain !== false"
+        :loading="action.loading"
         :disabled="action.disabled || submitting"
         @click="onSelect(action)"
       >
@@ -83,10 +85,11 @@ function onSelect(action) {
           type="button"
           class="actionbar__sheet-item"
           :class="{ 'actionbar__sheet-item--danger': action.type === 'danger' }"
-          :disabled="action.disabled || submitting"
+          :disabled="action.disabled || submitting || action.loading"
+          :aria-busy="action.loading || undefined"
           @click="onSelect(action)"
         >
-          {{ action.label }}
+          {{ action.loading ? '处理中…' : action.label }}
         </button>
       </div>
     </van-popup>

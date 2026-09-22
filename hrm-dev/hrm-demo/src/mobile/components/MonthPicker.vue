@@ -6,13 +6,20 @@ import { recentMonths } from '../utils/format.js'
  * 为什么不用 van-picker 弹层：账期切换在 KPI 与工资单两页都是高频动作，一屏内的 chip 行一步点到，
  * 不必「开弹层 → 滚动 → 确认」三步。只给 6 个月是因为演示数据只覆盖本期与上期，更早的月份选了也是空态。
  */
-defineProps({
+const props = defineProps({
   modelValue: { type: String, default: '' },
-  label: { type: String, default: '账期' }
+  label: { type: String, default: '账期' },
+  /** 整页重载期间禁用：切换账期会触发全量重查，不禁用会被连点打出多次请求 */
+  disabled: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['update:modelValue'])
 const months = recentMonths()
+
+function pick(month) {
+  if (props.disabled) return
+  emit('update:modelValue', month)
+}
 </script>
 
 <template>
@@ -25,7 +32,9 @@ const months = recentMonths()
       :class="{ 'chip--active': month === modelValue }"
       role="radio"
       :aria-checked="month === modelValue"
-      @click="emit('update:modelValue', month)"
+      :aria-disabled="disabled || undefined"
+      :disabled="disabled"
+      @click="pick(month)"
     >
       {{ month }}
     </button>
@@ -50,5 +59,12 @@ const months = recentMonths()
   flex: none;
   padding: 0 var(--sp-3);
   font-size: var(--fs-caption);
+}
+
+/* 禁用态压成中性灰：WCAG 1.4.3 对失效控件豁免对比度，故可用 --text-disabled */
+.month-row__chip:disabled {
+  color: var(--text-disabled);
+  background: var(--surface-sunken);
+  border-color: var(--border-line);
 }
 </style>

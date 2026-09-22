@@ -3,7 +3,11 @@ import http from '../utils/http.js'
 /** 通知（三期）：未读数走 stores/notify.js 单点收敛，组件不直连本文件 */
 export const getNotifications = (params) => http.get('/notifications', { params })
 export const getUnreadCount = () => http.get('/notifications/unread-count', { silent: true })
-export const markNotificationRead = (id) => http.put(`/notifications/${id}/read`)
+/**
+ * 标记单条已读：silent —— 端点无入参，失败提示改由 NoticeList 的行级反馈收敛（G-04）。
+ * 页面自己会弹一条，http 层再弹一条就是同一次失败两条提示（与 publishNotification 同口径）。
+ */
+export const markNotificationRead = (id) => http.put(`/notifications/${id}/read`, {}, { silent: true })
 export const markAllNotificationsRead = () => http.put('/notifications/read-all')
 /**
  * 发布通知（需求4，仅 ADMIN）：入参 { type, title, content, scope, stationId? }，

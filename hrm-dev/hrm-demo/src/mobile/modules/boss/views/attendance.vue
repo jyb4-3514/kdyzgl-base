@@ -1,11 +1,13 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import StatCard from '../../components/StatCard.vue'
-import { getAttendanceSummary } from '../../api/index.js'
-import { clockText, numberText, shortDateText } from '../../utils/format.js'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import StatCard from '@/mobile/components/StatCard.vue'
+import BossScopeNote from '../components/BossScopeNote.vue'
+import BossShareBar from '../components/BossShareBar.vue'
+import { getAttendanceSummary } from '@/mobile/api/attendance.js'
+import { clockText, numberText, shortDateText } from '@/mobile/utils/format.js'
 
 /**
  * B7 考勤概览（ADMIN · 老板端）
@@ -40,6 +42,20 @@ const abnormalText = computed(() => {
   const data = summary.value
   if (!data) return ''
   return `今日 ${abnormalTotal.value} 项考勤异常：迟到 ${data.lateCount} · 早退 ${data.earlyLeaveCount} · 缺卡 ${data.absentCount}`
+})
+
+/**
+ * 出勤构成占比摘要：正常 + 迟到 + 缺卡 恰为应到（异常卡不计入实到与迟到/早退）。
+ * 早退发生在到达之后，与到达状态重叠，并进来会重复计数，故不进构成 —— 它仍有独立指标卡与提示条。
+ */
+const attendanceSegments = computed(() => {
+  const data = summary.value
+  if (!data) return []
+  return [
+    { key: 'NORMAL', label: '正常', value: data.normalCount, tone: 'success' },
+    { key: 'LATE', label: '迟到', value: data.lateCount, tone: 'warning' },
+    { key: 'ABSENT', label: '缺卡', value: data.absentCount, tone: 'danger' }
+  ]
 })
 
 /** 考勤管理入口：四宫格（与员工端宫格同规格，图标 24 / 文字 12 / 单元高 88） */
@@ -105,6 +121,21 @@ onMounted(load)
         />
         <StatCard label="缺卡" :value="numberText(summary.absentCount)" unit="人" tone="danger" />
       </div>
+
+      <!-- 出勤构成占比（N-02）：与上方 6 张指标卡同一份 summary，不新增接口请求 -->
+      <div class="section-title">
+        考勤构成<span class="section-title__extra tabular-nums">应到 {{ numberText(summary.shouldCount) }} 人</span>
+      </div>
+      <BossShareBar
+        :segments="attendanceSegments"
+        :total="summary.shouldCount"
+        :loading="loading"
+        :error="error"
+        empty-text="今日无排班，暂无出勤构成"
+      />
+      <BossScopeNote
+        text="口径：构成以今日应到人数为分母，正常 / 迟到 / 缺卡 三段合计即应到；早退是到达后的签退行为、与到达状态重叠，不并入构成；占比按最大余数法取整，各段合计恒为 100%（单段与真实占比最多差 1 个百分点）"
+      />
 
       <van-notice-bar
         v-if="abnormalTotal"

@@ -727,3 +727,16 @@
 | 「待办审批」入口位置 | [demo-ux-improvement.md](demo-ux-improvement.md) A12-4「我的页拆待办审批 + 我的数据」 | **待办统一收进消息 Tab，我的页不再放待办** | 已在 A2（B13-B16、S15-S16）与 A4 说明；属对 A12-4 的修正，建议一并回写 |
 | 消息 Tab 与通知中心 | 既有无「消息」概念 | **通知中心升格为消息 Tab 的通知子视图，新增待办子视图** | A4 定义 |
 
+---
+
+## 附：路径变更注记（2026-09-22 · 老板端按域拆模块）
+
+老板端 21 个页面已从 `src/mobile/views/boss/` 迁入 **`src/mobile/modules/boss/views/`**，路由定义迁入 `src/mobile/modules/boss/router.js`（导出 `bossRoutes`，23 条），并由 `src/mobile/router/index.js` 单点聚合展开。
+
+**本文件前述章节的全部结论均为生效真源、未作废**：三 Tab 信息架构、95 条入口迁移映射、宫格项数与列数、角标口径、Tabbar 行为实测结论（含 Vant 重复点击不触发 `change`、不输出 `aria-current`、不处理 Enter 三项）**全部不变**。本次仅改**文件物理位置**：
+
+- `/boss/*` 的 **URL 与 meta（`tabbar`/`roles`/`title`）逐字未变** —— 共享内核 `TabbarLayout.vue:33,79` 与 e2e 的 3 处 `/boss/*` URL 断言均依赖这些字面值；
+- `src/mobile/constants/quickEntries.js` **原地未动**（`e2e/03-mobile-nav.spec.js:2` 以源码相对路径直连它，迁移会直接打断该 spec）；
+- 文中出现的 `views/boss/<页面>.vue` 请按 `modules/boss/views/<页面>.vue` 理解；`views/message/MessagePage.vue`（双端共用的中立共享页）与 `views/staff/**` **未迁移**；
+- 老板端专属组件新增于 `src/mobile/modules/boss/components/`（`Boss*` 前缀），命名与接口见 `demo-boss-ui-spec.md`。
+

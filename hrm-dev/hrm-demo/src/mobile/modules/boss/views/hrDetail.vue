@@ -2,10 +2,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { showConfirmDialog, showSuccessToast } from 'vant'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import { getHrProfile, getHrSalary, updateHrSalary } from '../../api/index.js'
-import { moneyText, nextMonthFirstDay } from '../../utils/format.js'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import BossMetricDelta from '../components/BossMetricDelta.vue'
+import { getHrProfile, getHrSalary, updateHrSalary } from '@/mobile/api/hr.js'
+import { moneyText, nextMonthFirstDay } from '@/mobile/utils/format.js'
 
 /**
  * B8 员工档案与定薪（ADMIN 可写）
@@ -40,10 +41,6 @@ const nextTotal = computed(
     Number(allowancesTotal.value || 0)
 )
 const diff = computed(() => nextTotal.value - currentTotal.value)
-const diffText = computed(() => {
-  if (!diff.value) return '与当前持平'
-  return `${diff.value < 0 ? '降薪' : '涨薪'} ${moneyText(Math.abs(diff.value))}`
-})
 
 async function load() {
   loading.value = true
@@ -231,9 +228,11 @@ onMounted(load)
               :readonly="resigned"
             />
 
+            <!-- 差额徽标收口到 BossMetricDelta（N-03）：符号 + 文字 + 颜色三通道，零差额不渲染徽标 -->
             <p class="diff-line tabular-nums">
               调整后合计 {{ moneyText(nextTotal) }} ·
-              <span :class="diff < 0 ? 'diff-line--down' : diff > 0 ? 'diff-line--up' : ''">{{ diffText }}</span>
+              <BossMetricDelta v-if="diff" :value="diff" mode="money" />
+              <span v-else>与当前持平</span>
             </p>
             <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
 
@@ -281,14 +280,6 @@ onMounted(load)
   font-size: var(--fs-caption);
   line-height: var(--lh-caption);
   color: var(--text-2);
-}
-
-.diff-line--down {
-  color: var(--color-danger);
-}
-
-.diff-line--up {
-  color: var(--color-success);
 }
 
 .form-error {

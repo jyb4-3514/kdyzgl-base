@@ -4,6 +4,7 @@ import { ROLE } from '@/shared/constants/role.js'
 import { canAccess } from '@/shared/domain/permission.js'
 import { useAuthStore } from '../stores/auth.js'
 import { readToken, readUser } from '../utils/authStorage.js'
+import { bossRoutes } from '../modules/boss/router.js'
 
 const ALL_ROLES = [ROLE.ADMIN, ROLE.STATION_ADMIN, ROLE.STAFF]
 const STAFF_ROLES = [ROLE.STATION_ADMIN, ROLE.STAFF]
@@ -33,133 +34,15 @@ const routes = [
   },
 
   /* ==================== 老板端（ADMIN） ==================== */
-  { path: '/boss', redirect: '/boss/home' },
-  {
-    path: '/boss/home',
-    name: 'bossHome',
-    component: () => import('../views/boss/home.vue'),
-    meta: { tabbar: 'boss', roles: [ROLE.ADMIN], title: '经营总览' }
-  },
-  // 消息 Tab：通知与待办两个子视图共用一页，按角色渲染（C2 / A4-1）
-  {
-    path: '/boss/message',
-    name: 'bossMessage',
-    component: () => import('../views/message/MessagePage.vue'),
-    meta: { tabbar: 'boss', roles: [ROLE.ADMIN], title: '消息' }
-  },
-  {
-    path: '/boss/me',
-    name: 'bossMe',
-    component: () => import('../views/boss/me.vue'),
-    meta: { tabbar: 'boss', roles: [ROLE.ADMIN], title: '我的' }
-  },
-  // 以下四页原为 Tabbar 一级页，本轮（三 Tab 改造）降为首页宫格进入的二级页，自带返回 NavBar
-  {
-    path: '/boss/attendance',
-    name: 'bossAttendance',
-    component: () => import('../views/boss/attendance.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '考勤概览' }
-  },
-  {
-    path: '/boss/trend',
-    name: 'bossTrend',
-    component: () => import('../views/boss/trend.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '包裹趋势' }
-  },
-  {
-    path: '/boss/rank',
-    name: 'bossRank',
-    component: () => import('../views/boss/rank.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '驿站排行' }
-  },
-  {
-    path: '/boss/alerts',
-    name: 'bossAlerts',
-    component: () => import('../views/boss/alerts.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '异常预警' }
-  },
-  {
-    path: '/boss/workorder',
-    name: 'bossWorkOrder',
-    component: () => import('../views/boss/workorder.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '工单管理' }
-  },
-  {
-    path: '/boss/attendance/makeup',
-    name: 'bossMakeupApproval',
-    component: () => import('../views/boss/makeupApproval.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '补卡审批' }
-  },
-  // 发布通知（需求4）：表单两段 + 实时人数预览，用整页而不是弹层（B4.6）
-  {
-    path: '/boss/notification/publish',
-    name: 'bossNotificationPublish',
-    component: () => import('../views/boss/notificationPublish.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '发布通知' }
-  },
-
-  /* 需求 7–10 老板端：不进 Tabbar，入口在首页宫格与「我的 · 管理与配置」 */
-  {
-    path: '/boss/kpi',
-    name: 'bossKpi',
-    component: () => import('../views/boss/kpi.vue'),
-    meta: { roles: [ROLE.ADMIN], title: 'KPI 考核' }
-  },
+  // 老板端域子表（../modules/boss/router.js）：/boss 重定向 + 21 个老板端页面 + 中立共享页 /boss/message
+  ...bossRoutes,
   // 考核明细复用员工端同页（A12-7：同一业务对象两端优先复用，仅按角色改标题与入口）
+  // 跨域复用，刻意留在聚合点；彻底去耦路径见方案 §3.2 的 TODO(扩展)（提升为中立共享页）
   {
     path: '/boss/kpi/:employeeId',
     name: 'bossKpiDetail',
     component: () => import('../views/staff/kpi.vue'),
     meta: { roles: [ROLE.ADMIN], title: '考核明细' }
-  },
-  {
-    path: '/boss/hr',
-    name: 'bossHr',
-    component: () => import('../views/boss/hr.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '人事管理' }
-  },
-  {
-    path: '/boss/hr/:employeeId',
-    name: 'bossHrDetail',
-    component: () => import('../views/boss/hrDetail.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '员工档案' }
-  },
-  {
-    path: '/boss/payroll',
-    name: 'bossPayroll',
-    component: () => import('../views/boss/payroll.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '工资单审核' }
-  },
-  {
-    path: '/boss/payroll/:id',
-    name: 'bossPayrollDetail',
-    component: () => import('../views/boss/payrollDetail.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '工资单详情' }
-  },
-  {
-    path: '/boss/flow',
-    name: 'bossFlow',
-    component: () => import('../views/boss/flow.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '入离职审批' }
-  },
-  {
-    path: '/boss/flow/:type/:id',
-    name: 'bossFlowDetail',
-    component: () => import('../views/boss/flowDetail.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '流程办理' }
-  },
-  // 请假（M11）：终审 + 扣款设置，均仅 ADMIN（§2.1 权限矩阵）
-  {
-    path: '/boss/leave',
-    name: 'bossLeave',
-    component: () => import('../views/boss/leaveApproval.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '请假审批' }
-  },
-  {
-    path: '/boss/leave/settings',
-    name: 'bossLeaveSettings',
-    component: () => import('../views/boss/leaveSettings.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '请假扣款设置' }
   },
 
   /* ==================== 员工端（STATION_ADMIN / STAFF） ==================== */
@@ -288,24 +171,6 @@ const routes = [
     name: 'staffLeaveList',
     component: () => import('../views/staff/leaveList.vue'),
     meta: { roles: STAFF_ROLES, title: '我的请假' }
-  },
-  {
-    path: '/boss/attendance/rule',
-    name: 'bossAttendanceRule',
-    component: () => import('../views/boss/attendanceRule.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '打卡规则' }
-  },
-  {
-    path: '/boss/schedule',
-    name: 'bossSchedule',
-    component: () => import('../views/boss/schedule.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '排班管理' }
-  },
-  {
-    path: '/boss/attendance/records',
-    name: 'bossAttendanceRecords',
-    component: () => import('../views/boss/attendanceRecords.vue'),
-    meta: { roles: [ROLE.ADMIN], title: '打卡记录' }
   },
 
   /* 需求 7–10 员工端：我的数据类入口（宫格放高频作业，低频查询进「我的」） */

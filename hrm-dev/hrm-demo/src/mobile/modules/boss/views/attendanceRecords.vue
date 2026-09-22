@@ -2,13 +2,14 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { showFailToast } from 'vant'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import StationPicker from '../../components/StationPicker.vue'
-import StatusTag from '../../components/StatusTag.vue'
-import { getAttendanceRecords, getStationList } from '../../api/index.js'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import StationPicker from '@/mobile/components/StationPicker.vue'
+import StatusTag from '@/mobile/components/StatusTag.vue'
+import { getAttendanceRecords } from '@/mobile/api/attendance.js'
+import { getStationList } from '@/mobile/api/org.js'
 import { ATTENDANCE_STATUS, CHECK_MODE, dictLabel } from '@/shared/constants/dict.js'
-import { clockOf, formatDate, addDays, periodLabel } from '../../utils/attendance.js'
+import { clockOf, formatDate, addDays, periodLabel } from '@/mobile/utils/attendance.js'
 
 /**
  * B10 打卡记录（ADMIN · 列表 + 筛选）
@@ -45,6 +46,8 @@ const loadingMore = ref(false)
 const dateKey = ref('today')
 const status = ref(STATUS_OPTIONS.some((item) => item.value === route.query.status) ? String(route.query.status) : '')
 const stations = ref([])
+const stationsLoading = ref(true)
+const stationsError = ref('')
 const stationId = ref(null)
 const showStation = ref(false)
 
@@ -114,11 +117,16 @@ async function onLoadMore() {
 }
 
 async function loadStations() {
+  stationsLoading.value = true
+  stationsError.value = ''
   try {
     stations.value = await getStationList()
   } catch (e) {
-    // 驿站筛选项失败不影响主列表：降级为「全部驿站」，不误导用户
+    // 驿站筛选项失败不影响主列表，但仍要把「取不到」告诉用户，不能静默成「没有驿站」
     stations.value = []
+    stationsError.value = e.message || '驿站列表加载失败'
+  } finally {
+    stationsLoading.value = false
   }
 }
 
@@ -224,7 +232,16 @@ onMounted(async () => {
       <p class="tip">打卡记录按打卡时间倒序；异常卡为校验未通过的尝试，不计入出勤统计</p>
     </div>
 
-    <StationPicker v-model:show="showStation" :stations="stations" :model-value="stationId" @select="selectStation" />
+    <StationPicker
+      v-model:show="showStation"
+      :stations="stations"
+      :model-value="stationId"
+      :loading="stationsLoading"
+      :error="stationsError"
+      empty-text="暂无可选驿站，请先在 PC 端维护驿站"
+      @retry="loadStations"
+      @select="selectStation"
+    />
   </div>
 </template>
 

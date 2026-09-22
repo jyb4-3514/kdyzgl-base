@@ -1,12 +1,14 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { showConfirmDialog, showSuccessToast, showToast } from 'vant'
-import ActionBar from '../../components/ActionBar.vue'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import StationPicker from '../../components/StationPicker.vue'
-import { batchSchedulesByStation, getSchedules, getStationList, saveSchedules } from '../../api/index.js'
-import { addDays, formatDate, mondayOf, WEEKDAYS } from '../../utils/attendance.js'
+import { showSuccessToast, showToast } from 'vant'
+import ActionBar from '@/mobile/components/ActionBar.vue'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import StationPicker from '@/mobile/components/StationPicker.vue'
+import { bossConfirm } from '../components/bossConfirm.js'
+import { batchSchedulesByStation, getSchedules, saveSchedules } from '@/mobile/api/attendance.js'
+import { getStationList } from '@/mobile/api/org.js'
+import { addDays, formatDate, mondayOf, WEEKDAYS } from '@/mobile/utils/attendance.js'
 
 /**
  * B9 排班管理（ADMIN · 周视图查看 + 快捷调整 + 批量工具）
@@ -23,6 +25,8 @@ const loading = ref(true)
 const error = ref('')
 const saving = ref(false)
 const stations = ref([])
+const stationsLoading = ref(true)
+const stationsError = ref('')
 const stationId = ref(null)
 const weekStart = ref(formatDate(mondayOf(new Date())))
 const matrix = ref(null)
@@ -174,9 +178,25 @@ function buildDraft() {
 }
 
 async function loadStations() {
-  const list = await getStationList()
-  stations.value = list
-  if (stationId.value == null && list.length) stationId.value = list[0].id
+  stationsLoading.value = true
+  stationsError.value = ''
+  try {
+    const list = await getStationList()
+    stations.value = list
+    if (stationId.value == null && list.length) stationId.value = list[0].id
+  } finally {
+    stationsLoading.value = false
+  }
+}
+
+/** 弹层内重试：失败只落在弹层，不把整页打成错误态（主列表可能仍在正常展示） */
+async function retryStations() {
+  try {
+    await loadStations()
+  } catch (e) {
+    stations.value = []
+    stationsError.value = e.message || '驿站列表加载失败'
+  }
 }
 
 async function load() {
@@ -289,19 +309,17 @@ function toggleWeekday(value) {
 async function onSpreadConfirm() {
   if (spreading.value || spread.shiftId == null || !spreadDates.value.length) return
   if (!spread.skipExisting) {
-    // 覆盖类操作必须先说清影响范围（B0.3），文案用具体动词而不是「确定/取消」
-    try {
-      await showConfirmDialog({
-        title: '覆盖已有排班',
-        message: `已关闭「跳过已有排班」，本次将写入 ${spreadPreview.value.total} 个格子，其中已排部分会被「${
-          shifts.value.find((item) => item.id === spread.shiftId).shiftName
-        }」覆盖，覆盖后不可撤回。`,
-        confirmButtonText: '确认铺排',
-        cancelButtonText: '再想想'
-      })
-    } catch (e) {
-      return // 用户取消
-    }
+    // 覆盖类操作必须先说清影响范围（B0.3）：BossConfirm 用具体动词，且显式声明不可撤回
+    const ok = await bossConfirm({
+      action: '覆盖已有排班',
+      target: `${currentStationName.value} · ${rangeText.value || '当前周'}`,
+      impact: `将写入 ${spreadPreview.value.total} 个格子，其中已排部分会被「${
+        shifts.value.find((item) => item.id === spread.shiftId)?.shiftName || '所选班次'
+      }」覆盖`,
+      irreversible: true,
+      confirmText: '确认铺排'
+    })
+    if (!ok) return // 用户取消
   }
   spreading.value = true
   try {
@@ -341,16 +359,14 @@ async function openCopy() {
 /** 复制结果写进本地待保存区：用户仍可逐人微调，最后统一保存，避免「复制后又改」产生第二次请求 */
 async function onCopyConfirm() {
   if (!prevWeek.value || !copyPreview.value.total) return
-  try {
-    await showConfirmDialog({
-      title: '复制上一周排班',
-      message: `将把 ${prevWeek.value.weekStart} ~ ${prevWeek.value.weekEnd} 的排班套用到 ${rangeText.value}：新增 ${copyPreview.value.created} 处、覆盖 ${copyPreview.value.overwritten} 处、清空 ${copyPreview.value.cleared} 处，写入后仍需点「保存排班」才会生效。`,
-      confirmButtonText: '确认复制',
-      cancelButtonText: '再想想'
-    })
-  } catch (e) {
-    return // 用户取消
-  }
+  // 批量覆盖属「影响面大」：走 BossConfirm，影响数量逐项列出
+  const ok = await bossConfirm({
+    action: '复制上一周排班',
+    target: `${currentStationName.value} · ${rangeText.value || '当前周'}`,
+    impact: `新增 ${copyPreview.value.created} 处、覆盖 ${copyPreview.value.overwritten} 处、清空 ${copyPreview.value.cleared} 处；写入后仍需点「保存排班」才生效`,
+    confirmText: '确认复制'
+  })
+  if (!ok) return // 用户取消
   const next = { ...draft.value }
   matrix.value.employees.forEach((employee) => {
     const source = prevWeek.value.employees.find((item) => item.employeeId === employee.employeeId)
@@ -366,16 +382,14 @@ async function onCopyConfirm() {
 
 async function onClearWeek() {
   showTools.value = false
-  try {
-    await showConfirmDialog({
-      title: '清空本周排班',
-      message: `将清空 ${rangeText.value} 内 ${matrix.value.employees.length} 名员工的全部排班，清空后仍需点「保存排班」才会生效。`,
-      confirmButtonText: '确认清空',
-      cancelButtonText: '再想想'
-    })
-  } catch (e) {
-    return // 用户取消
-  }
+  // 清空全部员工的当周排班属「影响面大」：走 BossConfirm，明确人数与生效条件
+  const ok = await bossConfirm({
+    action: '清空本周排班',
+    target: `${currentStationName.value} · ${rangeText.value || '当前周'}`,
+    impact: `将清空 ${matrix.value.employees.length} 名员工的全部排班；清空后仍需点「保存排班」才生效`,
+    confirmText: '确认清空'
+  })
+  if (!ok) return // 用户取消
   const next = { ...draft.value }
   matrix.value.employees.forEach((employee) => {
     dates.value.forEach((date) => {
@@ -498,6 +512,10 @@ onMounted(init)
       :stations="stations"
       :model-value="stationId"
       :allow-all="false"
+      :loading="stationsLoading"
+      :error="stationsError"
+      empty-text="暂无可选驿站，请先在 PC 端维护驿站"
+      @retry="retryStations"
       @select="pickStation"
     />
 

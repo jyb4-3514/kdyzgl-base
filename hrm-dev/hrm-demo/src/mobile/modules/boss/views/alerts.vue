@@ -1,13 +1,18 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import SlaTag from '../../components/SlaTag.vue'
-import StatusTag from '../../components/StatusTag.vue'
-import { getParcels, getSyncOverview, getSyncTasks, getWorkOrders } from '../../api/index.js'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import SlaTag from '@/mobile/components/SlaTag.vue'
+import StatusTag from '@/mobile/components/StatusTag.vue'
+import BossInlineEmpty from '../components/BossInlineEmpty.vue'
+import BossScopeNote from '../components/BossScopeNote.vue'
+import BossShareBar from '../components/BossShareBar.vue'
+import { getParcels } from '@/mobile/api/parcel.js'
+import { getSyncOverview, getSyncTasks } from '@/mobile/api/syncTask.js'
+import { getWorkOrders } from '@/mobile/api/workOrder.js'
 import { COLLECT_STATE, COLLECT_STATE_ORDER, WORK_ORDER_PRIORITY, WORK_ORDER_TYPE } from '@/shared/constants/dict.js'
-import { hoursAgoParam, numberText, relativeTime } from '../../utils/format.js'
+import { hoursAgoParam, numberText, relativeTime } from '@/mobile/utils/format.js'
 
 /**
  * B5 异常预警（ADMIN · 四组）
@@ -39,6 +44,9 @@ const collect = reactive({ open: true, total: 0, counts: {}, stations: [], filte
 /** 服务端 counts 的键名 → 字典键，避免两处各写一套映射 */
 const COUNT_KEY = { NORMAL: 'normal', ABNORMAL: 'abnormal', UNCONFIGURED: 'unconfigured', DISABLED: 'disabled' }
 
+/** 四态 → 语义色族：与四态计数按钮的数字配色同口径（异常红 / 未配置橙 / 正常绿 / 停用中性） */
+const COLLECT_TONE = { ABNORMAL: 'danger', UNCONFIGURED: 'warning', NORMAL: 'success', DISABLED: 'neutral' }
+
 const counts = computed(() => ({
   overdue: overdueTotal.value,
   sync: groups.sync.list.reduce((sum, item) => sum + item.count, 0),
@@ -54,6 +62,16 @@ const collectCounts = computed(() =>
   }))
 )
 const collectTodo = computed(() => (collect.counts.abnormal || 0) + (collect.counts.unconfigured || 0))
+
+/** 四态占比摘要：与四态计数按钮共用同一份 counts，不新增接口请求 */
+const collectSegments = computed(() =>
+  collectCounts.value.map((item) => ({
+    key: item.state,
+    label: item.label,
+    value: item.count,
+    tone: COLLECT_TONE[item.state]
+  }))
+)
 const collectRows = computed(() => {
   const rows = collect.filter
     ? collect.stations.filter((item) => item.collectState === collect.filter)
@@ -128,6 +146,15 @@ function openStationSync(item) {
   showSyncDetail.value = true
 }
 
+/** 下钻跳转抽成方法：点击与键盘（Enter/Space）三个触发点共用，避免模板里重复三份路由字符串 */
+function openParcel(id) {
+  router.push(`/staff/parcel/${id}`)
+}
+
+function openWorkOrder(id) {
+  router.push(`/staff/workorder/${id}`)
+}
+
 onMounted(() => {
   load()
   loadCollect()
@@ -148,12 +175,16 @@ onMounted(() => {
           </span>
         </button>
         <div v-show="groups.overdue.open" class="group__body">
-          <p v-if="!groups.overdue.list.length" class="empty muted">暂无超 48 小时未取件包裹</p>
+          <BossInlineEmpty v-if="!groups.overdue.list.length" text="暂无超 48 小时未取件包裹" />
           <div
             v-for="item in groups.overdue.list"
             :key="item.id"
             class="list-item"
-            @click="router.push(`/staff/parcel/${item.id}`)"
+            role="button"
+            tabindex="0"
+            @click="openParcel(item.id)"
+            @keydown.enter="openParcel(item.id)"
+            @keydown.space.prevent="openParcel(item.id)"
           >
             <div class="list-item__title">
               <span>{{ item.waybillNo }}</span>
@@ -177,8 +208,17 @@ onMounted(() => {
           </span>
         </button>
         <div v-show="groups.sync.open" class="group__body">
-          <p v-if="!groups.sync.list.length" class="empty muted">近 100 个批次全部同步成功</p>
-          <div v-for="item in groups.sync.list" :key="item.stationId" class="list-item" @click="openStationSync(item)">
+          <BossInlineEmpty v-if="!groups.sync.list.length" text="近 100 个批次全部同步成功" />
+          <div
+            v-for="item in groups.sync.list"
+            :key="item.stationId"
+            class="list-item"
+            role="button"
+            tabindex="0"
+            @click="openStationSync(item)"
+            @keydown.enter="openStationSync(item)"
+            @keydown.space.prevent="openStationSync(item)"
+          >
             <div class="list-item__title">
               <span>{{ item.stationName }}</span>
               <span class="danger-text">{{ item.count }} 个批次失败</span>
@@ -198,12 +238,16 @@ onMounted(() => {
           </span>
         </button>
         <div v-show="groups.sla.open" class="group__body">
-          <p v-if="!groups.sla.list.length" class="empty muted">暂无超时未处理工单</p>
+          <BossInlineEmpty v-if="!groups.sla.list.length" text="暂无超时未处理工单" />
           <div
             v-for="item in groups.sla.list"
             :key="item.id"
             class="list-item"
-            @click="router.push(`/staff/workorder/${item.id}`)"
+            role="button"
+            tabindex="0"
+            @click="openWorkOrder(item.id)"
+            @keydown.enter="openWorkOrder(item.id)"
+            @keydown.space.prevent="openWorkOrder(item.id)"
           >
             <div class="list-item__title">
               <span>{{ item.orderNo }}</span>
@@ -231,14 +275,23 @@ onMounted(() => {
           </span>
         </button>
         <div v-show="collect.open" class="group__body">
-          <div v-if="collectLoading" class="skeleton-block collect-skeleton" />
+          <!-- 占比摘要（N-02）：与下方四态计数同一份 counts；不绑 select，下钻仍归四态按钮 -->
+          <BossShareBar
+            class="collect-share"
+            :segments="collectSegments"
+            :total="collect.total"
+            :loading="collectLoading"
+            :error="collectError"
+            empty-text="暂无采集状态占比"
+            @retry="loadCollect"
+          />
 
-          <div v-else-if="collectError" class="collect-error" role="alert">
-            <p class="empty muted">{{ collectError }}</p>
-            <button type="button" class="collect-retry" @click="loadCollect">重新加载</button>
-          </div>
+          <template v-if="!collectLoading && !collectError">
+            <BossScopeNote
+              class="collect-scope"
+              text="口径：采集四态以「共 N 站」为分母按站点计数，与上方四态计数按钮同源；占比按最大余数法取整，各段合计恒为 100%（单段与真实占比最多差 1 个百分点）"
+            />
 
-          <template v-else>
             <!-- 四态计数：点某一档即筛明细，再点一次取消筛选 -->
             <div class="collect-counts" role="group" aria-label="按采集状态筛选驿站">
               <button
@@ -256,7 +309,7 @@ onMounted(() => {
               </button>
             </div>
 
-            <p v-if="!collectRows.length" class="empty muted">该状态暂无驿站</p>
+            <BossInlineEmpty v-if="!collectRows.length" text="该状态暂无驿站" />
             <div v-for="item in collectRows" :key="item.stationId" class="list-item">
               <div class="list-item__title">
                 <span>{{ item.stationName }}</span>
@@ -274,10 +327,9 @@ onMounted(() => {
         </div>
       </section>
 
-      <p class="tip">
-        超 48h 判定基于包裹入库时间（当前时间往前推 {{ OVERDUE_HOURS }} 小时）；超时未处理判定：已过 SLA
-        且仍为待处理/处理中
-      </p>
+      <BossScopeNote
+        :text="`口径：超 48h 判定基于包裹入库时间（当前时间往前推 ${OVERDUE_HOURS} 小时）；超时未处理判定：已过 SLA 且仍为待处理/处理中`"
+      />
     </PageState>
 
     <van-popup v-model:show="showSyncDetail" round position="bottom" safe-area-inset-bottom>
@@ -369,9 +421,14 @@ onMounted(() => {
   margin-top: var(--sp-2);
 }
 
-.empty {
-  padding: var(--sp-3) 2px;
-  font-size: var(--fs-caption);
+/* 占比摘要与四态计数之间留一格间距（原区块三态骨架/错误条已由 BossShareBar 内置，故此处只补间距） */
+.collect-share {
+  margin-bottom: var(--sp-3);
+}
+
+/* 口径条自身只有上间距，后面紧跟四态计数会贴住，这里补下间距 */
+.collect-scope {
+  margin-bottom: var(--sp-3);
 }
 
 /* 采集状态四态计数（需求1）：2×2 排布，单格 ≥44 高满足触控；选中态用描边 + 主色底双通道表达 */
@@ -417,33 +474,6 @@ onMounted(() => {
 
 .collect-count--unconfigured .collect-count__num {
   color: var(--color-warning);
-}
-
-.collect-skeleton {
-  height: 108px;
-}
-
-.collect-error {
-  padding: var(--sp-2) 0;
-}
-
-/* 采集失败重试：描边取 500 档，与 .chip--active 等既有描边控件同口径（P2-3） */
-.collect-retry {
-  display: block;
-  width: 100%;
-  min-height: 44px;
-  margin-top: var(--sp-2);
-  font-size: var(--fs-body);
-  color: var(--color-primary);
-  background: var(--surface-card);
-  border: 1px solid var(--color-primary-icon);
-  border-radius: var(--r-sm);
-}
-
-.tip {
-  margin: var(--sp-3) 2px 0;
-  font-size: var(--fs-caption);
-  line-height: var(--lh-caption);
 }
 
 .sync-pop {

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { showConfirmDialog, showSuccessToast, showToast } from 'vant'
+import { showConfirmDialog, showFailToast, showSuccessToast, showToast } from 'vant'
 import PageState from './PageState.vue'
 import StatusTag from './StatusTag.vue'
 import { NOTIFICATION_TYPE, PUBLISH_SCOPE, dictLabel } from '@/shared/constants/dict.js'
@@ -37,6 +37,8 @@ const finished = ref(false)
 const refreshing = ref(false)
 const error = ref('')
 const initialized = ref(false)
+/** 正在写入已读的行 id：写入期间该行给忙碌指示并拒绝再次触发，防止重复写入与重复跳转 */
+const pendingId = ref(null)
 
 let busy = false
 
@@ -101,13 +103,21 @@ async function onReadAll() {
 
 /** 点击通知：先标记已读，再按业务类型跳转 */
 async function onOpen(item) {
+  // 同一行写入未完成时直接返回：重复点既会重复发写请求，也会把同一个目标页两次压进路由栈
+  if (pendingId.value === item.id) return
   if (!item.isRead) {
+    pendingId.value = item.id
     try {
       // 角标同步收敛在 store 内，组件只负责替换本行数据
       const updated = await notify.markRead(item.id)
       Object.assign(item, updated)
     } catch (e) {
-      // 9001（通知不存在）等错误已由 http 层提示
+      // 写操作不得静默失败：markNotificationRead 已置 silent，失败提示收敛在这里，避免与 http 层弹两条；
+      // 401 例外 —— http 层会广播下线并回登录页，此时再弹一条只会和跳转叠加
+      if (e.code !== 401) showFailToast(e.message || '标记已读失败，请稍后重试')
+    } finally {
+      // 无论成败都解除 pending，否则该行会永久卡在「标记中」
+      pendingId.value = null
     }
   }
   if (item.bizType === 'work_order' && item.bizId) {
@@ -199,6 +209,7 @@ onMounted(onLoad)
             :class="{ 'list-item--marked': !item.isRead }"
             role="button"
             tabindex="0"
+            :aria-busy="pendingId === item.id ? 'true' : undefined"
             @click="onOpen(item)"
             @keydown.enter="onOpen(item)"
             @keydown.space.prevent="onOpen(item)"
@@ -222,7 +233,12 @@ onMounted(onLoad)
                   · 由 {{ item.publisherName || '管理员' }} 发布 · 范围：{{ scopeLabel(item.publishScope) }}
                 </template>
               </span>
-              <span v-if="!item.isRead" class="list-item__meta">未读</span>
+              <!-- 写入期间原位替换「未读」标签：位置与行高都不变，数据到达不跳版（AP-15） -->
+              <span v-if="pendingId === item.id" class="list-item__busy">
+                <van-loading size="14" aria-hidden="true" />
+                <span class="list-item__meta">标记中…</span>
+              </span>
+              <span v-else-if="!item.isRead" class="list-item__meta">未读</span>
             </div>
           </div>
         </van-list>
@@ -285,5 +301,18 @@ onMounted(onLoad)
   flex: none;
   gap: var(--sp-1);
   align-items: center;
+}
+
+/* 行内忙碌指示：与「未读」同位同高，写入期间替换它，行内高度不变（AP-15） */
+.list-item__busy {
+  display: inline-flex;
+  flex: none;
+  gap: var(--sp-1);
+  align-items: center;
+}
+
+/* 复用 .list-item__meta 的字号与色值，但要抹掉上外边距：它此刻与加载圈同处一条水平线 */
+.list-item__busy .list-item__meta {
+  margin-top: 0;
 }
 </style>

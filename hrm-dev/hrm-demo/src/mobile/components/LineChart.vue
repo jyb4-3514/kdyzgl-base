@@ -414,28 +414,35 @@ const state = computed(() => {
       </div>
     </div>
 
-    <!-- 读屏数据表替代（6.5），视觉隐藏 -->
-    <table v-if="state === 'ready'" class="visually-hidden">
-      <caption>
-        {{
-          ariaLabel
-        }}
-      </caption>
-      <thead>
-        <tr>
-          <th scope="col">日期</th>
-          <th scope="col">入库</th>
-          <th scope="col">取件</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="item in points" :key="item.date">
-          <th scope="row">{{ item.date }}</th>
-          <td>{{ item.inbound }}</td>
-          <td>{{ item.pickup }}</td>
-        </tr>
-      </tbody>
-    </table>
+    <!--
+      读屏数据表替代（6.5），视觉隐藏。
+      为什么多包一层 div：`.visually-hidden` 的 width:1px 加在 <table> 上会被表格的 min-content
+      宽度击败（375×812 实测该表渲染宽 444px），绝对定位后仍撑出文档 —— boss/home 实测横向溢出 96px。
+      包一层块级容器后，由容器承担 1px 与 overflow:hidden，表格被裁剪在内。
+    -->
+    <div v-if="state === 'ready'" class="visually-hidden">
+      <table>
+        <caption>
+          {{
+            ariaLabel
+          }}
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">日期</th>
+            <th scope="col">入库</th>
+            <th scope="col">取件</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in points" :key="item.date">
+            <th scope="row">{{ item.date }}</th>
+            <td>{{ item.inbound }}</td>
+            <td>{{ item.pickup }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
 

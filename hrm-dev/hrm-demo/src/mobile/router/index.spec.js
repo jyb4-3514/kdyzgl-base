@@ -45,7 +45,7 @@ vi.mock('../stores/auth.js', () => ({
 const pages = vi.hoisted(() => ({ stub: { template: '<div />' } }))
 vi.mock('../views/login/index.vue', () => ({ default: pages.stub }))
 vi.mock('../views/staff/home.vue', () => ({ default: pages.stub }))
-vi.mock('../views/boss/home.vue', () => ({ default: pages.stub }))
+vi.mock('../modules/boss/views/home.vue', () => ({ default: pages.stub }))
 vi.mock('../views/error/NotFound.vue', () => ({ default: pages.stub }))
 
 const { default: router } = await import('./index.js')

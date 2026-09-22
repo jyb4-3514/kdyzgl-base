@@ -2,22 +2,22 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showConfirmDialog, showSuccessToast } from 'vant'
-import MonthPicker from '../../components/MonthPicker.vue'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import StationPicker from '../../components/StationPicker.vue'
-import StatCard from '../../components/StatCard.vue'
-import StatusTag from '../../components/StatusTag.vue'
+import MonthPicker from '@/mobile/components/MonthPicker.vue'
+import PageNav from '@/mobile/components/PageNav.vue'
+import PageState from '@/mobile/components/PageState.vue'
+import StationPicker from '@/mobile/components/StationPicker.vue'
+import StatCard from '@/mobile/components/StatCard.vue'
+import StatusTag from '@/mobile/components/StatusTag.vue'
 import { KPI_LEVEL } from '@/shared/constants/dict.js'
 import {
   calculateKpiScores,
   getKpiMetrics,
   getKpiRanking,
-  getStationList,
   saveKpiMetricBatch,
   updateKpiMetric
-} from '../../api/index.js'
-import { recentMonths } from '../../utils/format.js'
+} from '@/mobile/api/kpi.js'
+import { getStationList } from '@/mobile/api/org.js'
+import { recentMonths } from '@/mobile/utils/format.js'
 import { KPI_CODE } from '@/shared/constants/errorCode.js'
 
 /**
@@ -56,6 +56,8 @@ const generating = ref(false)
 
 const stationId = ref(null)
 const stations = ref([])
+const stationsLoading = ref(true)
+const stationsError = ref('')
 const showStation = ref(false)
 const stationText = computed(() => {
   const hit = stations.value.find((item) => item.id === stationId.value)
@@ -63,11 +65,16 @@ const stationText = computed(() => {
 })
 
 async function loadStations() {
+  stationsLoading.value = true
+  stationsError.value = ''
   try {
     stations.value = await getStationList()
   } catch (e) {
-    // 驿站筛选取数失败只影响筛选精度，不阻断结果列表（默认就是全部驿站）
+    // 筛选取数失败不阻断结果列表（默认就是全部驿站），但弹层里必须能看出是「取不到」
     stations.value = []
+    stationsError.value = e.message || '驿站列表加载失败'
+  } finally {
+    stationsLoading.value = false
   }
 }
 
@@ -280,7 +287,7 @@ onMounted(() => {
 
       <!-- ==================== Tab1 考核结果 ==================== -->
       <template v-if="tab === 'result'">
-        <MonthPicker :model-value="month" label="考核周期" @update:model-value="onMonthChange" />
+        <MonthPicker :model-value="month" label="考核周期" :disabled="loading" @update:model-value="onMonthChange" />
 
         <div class="tool-row">
           <button type="button" class="chip station-chip" @click="showStation = true">
@@ -443,7 +450,16 @@ onMounted(() => {
       </div>
     </van-popup>
 
-    <StationPicker v-model:show="showStation" :stations="stations" :model-value="stationId" @select="onPickStation" />
+    <StationPicker
+      v-model:show="showStation"
+      :stations="stations"
+      :model-value="stationId"
+      :loading="stationsLoading"
+      :error="stationsError"
+      empty-text="暂无可选驿站，请先在 PC 端维护驿站"
+      @retry="loadStations"
+      @select="onPickStation"
+    />
   </div>
 </template>
 

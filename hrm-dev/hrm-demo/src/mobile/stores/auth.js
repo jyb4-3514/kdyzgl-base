@@ -12,6 +12,10 @@ export const useAuthStore = defineStore('mobileAuth', () => {
   const token = ref(readToken())
   const user = ref(readUser())
 
+  /** 账号资料取数态（G-05）：「我的」页据此渲染骨架 / 失败重试 / 真实值，不再静默渲染空白或旧值 */
+  const userError = ref('')
+  const userLoading = ref(false)
+
   /**
    * 对外的 user 只读视图：登出、切换身份、401 强制下线都会把 user 置空，
    * 而「置空」到「跳转登录页」之间仍有一帧渲染窗口——此时仍在挂载的页面（工作台/我的）会继续读
@@ -21,6 +25,9 @@ export const useAuthStore = defineStore('mobileAuth', () => {
    */
   const EMPTY_USER = Object.freeze({})
   const currentUser = computed(() => user.value || EMPTY_USER)
+
+  /** 是否已拿到可用资料（storage 命中或 /auth/me 成功）：false 时页面给等高骨架而不是空白 */
+  const userLoaded = computed(() => !!user.value)
 
   const role = computed(() => (user.value && user.value.role) || '')
   const isAdmin = computed(() => role.value === 'ADMIN')
@@ -32,12 +39,15 @@ export const useAuthStore = defineStore('mobileAuth', () => {
   function setSession(nextToken, nextUser) {
     token.value = nextToken
     user.value = nextUser
+    userError.value = ''
     writeAuth(nextToken, nextUser)
   }
 
   function clearSession() {
     token.value = ''
     user.value = null
+    // 上一位用户的取数错误不留给下一位：否则换身份后「我的」会带着旧错误态渲染
+    userError.value = ''
     clearAuth()
   }
 
@@ -54,9 +64,8 @@ export const useAuthStore = defineStore('mobileAuth', () => {
     const { DEMO_ACCOUNT_LIST, DEMO_PASSWORD } = await import('@/demo/accounts.js')
     const account = DEMO_ACCOUNT_LIST.find((item) => item.key === accountKey)
     if (!account) throw new Error('演示身份不存在')
-    clearAuth() // 先清旧态，避免切换失败后残留上一个身份的角标与缓存
-    token.value = ''
-    user.value = null
+    // 先清旧态，避免切换失败后残留上一个身份的角标与缓存；状态复位统一走 clearSession，不在这里各写一份
+    clearSession()
     await login({ username: account.username, password: DEMO_PASSWORD })
     return homePath.value
   }
@@ -64,10 +73,20 @@ export const useAuthStore = defineStore('mobileAuth', () => {
   /** 刷新当前用户（壳内 onResume 或长时间停留后调用，保证资料与 Mock 一致） */
   async function refreshMe() {
     if (!token.value) return null
-    const data = await getMe()
-    user.value = data
-    writeAuth(token.value, data)
-    return data
+    userLoading.value = true
+    try {
+      const data = await getMe()
+      user.value = data
+      writeAuth(token.value, data)
+      userError.value = ''
+      return data
+    } catch (e) {
+      // 失败原因留给「我的」页错误态消费；仍向上抛，调用方可自行决定怎么提示
+      userError.value = e.message || '账号信息获取失败'
+      throw e
+    } finally {
+      userLoading.value = false
+    }
   }
 
   async function changePassword(payload) {
@@ -87,6 +106,9 @@ export const useAuthStore = defineStore('mobileAuth', () => {
   return {
     token,
     user: currentUser,
+    userLoaded,
+    userLoading,
+    userError,
     role,
     isAdmin,
     canSeeSync,
