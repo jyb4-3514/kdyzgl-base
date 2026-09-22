@@ -18,7 +18,9 @@
 1. 登录方式页签可见文本「密码登录」（页面默认停在「短信登录」，必须点此切换）；
 2. 账号输入框 ``#mobile``（class 含 ``rocket-input``）；
 3. 密码输入框 ``input.password-input``（id 为 ``password``，密码页签下唯一）；
-4. 提交按钮 ``button.login-btn``（class 含 ``rocket-btn`` / ``rocket-btn-primary``）。
+4. 提交按钮 ``button.login-btn``（class 含 ``rocket-btn`` / ``rocket-btn-primary``）；
+5. **活动页签面板锚点**：活动面板 ``div[role="tabpanel"][aria-hidden="false"]``（含 class
+   ``rocket-tabs-tabpane-active``），非活动面板为 ``aria-hidden="true"``。
 
 **仍未实测（verified=False）的条目**：上述之外的全部内容，包括各降级候选、
 ``WORKBENCH_MARKERS``、``CHALLENGE_SIGNALS`` 与 ``CREDENTIAL_ERROR_PATTERN``。
@@ -39,6 +41,28 @@ https://playwright.dev/python/docs/other-locators#css-matching-only-visible-elem
 （零尺寸与 ``display:none`` 不算可见，``opacity:0`` 仍算可见）：
 https://playwright.dev/python/docs/actionability#visible
 
+**``:visible`` 不足以区分「当前生效面板」（2026-09-22 采集机实测新增结论）**：
+``:visible`` 的判据只看 bounding box 与 ``visibility``，**不看 ``aria-hidden``**。
+若某个页签面板仅用 ``aria-hidden="true"`` 隐藏（未同时设 ``display:none``），
+其内部元素在 Playwright 意义上**仍算可见**，于是：
+
+- ``#mobile`` 这类在激活面板里出现较早的元素可能"恰好"选对；
+- ``button.login-btn:visible`` 的``.first`` 却可能落到另一份上，点击坐标被激活面板
+  的元素与 sticky 页签容器覆盖 → pointer events 被拦截 → 重试到超时。
+
+因此本文件引入**激活面板作用域**，把交互类 CSS 候选收窄到当前生效面板内，再叠加 ``:visible``；
+非作用域候选仅作最后兜底（防该站日后调整激活面板 class 时整体失配）。
+
+**两种区分手段的取舍（``:visible`` vs 作用域锚点）**：
+
+- ``:visible``：只回答「这个元素此刻有没有可见的盒子」，**不回答「它属于哪个面板」**。
+  同 id / 同 class 元素各挂两份时，仅靠它无法保证命中的是当前生效的那一份（``.first`` 可能落到别的面板）。
+- 作用域锚点：回答「元素在哪个面板内」，把候选收窄到活动面板后再叠加 ``:visible``，定位更确定。
+  代价是**绑定了组件库 class / aria 结构**，站点改版时需同步校准——故两种锚点并列、互为兜底：
+  ``.rocket-tabs-tabpane-active``（class 锚点，实测直接命中）与
+  ``div[role="tabpanel"][aria-hidden="false"]``（aria 锚点，语义更稳、抗 class 改名）。
+- 结论：交互类实测候选**同时给出两种作用域写法并各自带 ``:visible``**，任一锚点可用即可命中。
+
 优先使用语义定位（文本 / role），其次才是通用 CSS，以降低改版脆性。
 """
 from __future__ import annotations
@@ -55,6 +79,8 @@ class SelectorCandidate:
 
     kind: ``css`` | ``text`` | ``role``（role 的 value 形如 ``button:登录``）
     exact: **仅 ``text`` 类型生效**——True 表示整串精确匹配，避免「登录」误命中「短信登录」等页签文案。
+    scope: **仅 ``css`` 类型生效**——作用域前缀（如激活面板），定位时拼在 value 之前。
+           默认空串，向后兼容既有候选（不写即为非作用域候选）。
     """
 
     kind: str
@@ -62,10 +88,21 @@ class SelectorCandidate:
     basis: str
     verified: bool = False
     exact: bool = False
+    scope: str = ""
+
+    def css_selector(self) -> str:
+        """供 Playwright 使用的最终 CSS：``css`` 类型且指定作用域时返回「作用域 + value」。
+
+        非 CSS 类型（text / role）返回 value 本身，作用域对其无意义。
+        """
+        if self.kind == "css" and self.scope:
+            return f"{self.scope} {self.value}"
+        return self.value
 
     def describe(self) -> str:
         flag = "已核实" if self.verified else _UNVERIFIED_HINT
-        return f"[{self.kind}] {self.value}（依据：{self.basis}；{flag}）"
+        scope = f"；作用域={self.scope}" if self.scope else ""
+        return f"[{self.kind}] {self.value}（依据：{self.basis}；{flag}{scope}）"
 
 
 @dataclass(frozen=True)
@@ -81,8 +118,48 @@ class ChallengeSignal:
     verified: bool = False
 
 
+# ---------------- 激活面板作用域 ----------------
+# 依据：2026-09-22 采集机实测错误日志——被填值的 #mobile 与目标按钮所在面板为
+# ``div[role=tabpanel][aria-hidden=false].rocket-tabs-tabpane-active``。
+# 两种锚点并列，互为兜底（取舍详见文件头「两种区分手段的取舍」）：
+#   - class 锚点 ACTIVE_PANEL：实测直接命中、结果唯一，优先采用；
+#   - aria 锚点 ACTIVE_PANEL_ARIA：语义更稳、抗 class 改名，但部分组件库只在隐藏面板写
+#     aria-hidden、显示时不写该属性，可能出现「匹配为空」或「匹配到多份」，故仅作并列兜底。
+ACTIVE_PANEL = SelectorCandidate(
+    kind="css",
+    value=".rocket-tabs-tabpane-active",
+    basis=(
+        "2026-09-22 采集机实测错误日志：被填值的 #mobile 与目标按钮所在面板为 "
+        "div[role=tabpanel][aria-hidden=false].rocket-tabs-tabpane-active"
+    ),
+    verified=True,
+)
+
+ACTIVE_PANEL_ARIA = SelectorCandidate(
+    kind="css",
+    value='div[role="tabpanel"][aria-hidden="false"]',
+    basis=(
+        "2026-09-22 采集机实测错误日志：被填值的 #mobile 所在面板同时为 "
+        'div[role="tabpanel"][aria-hidden="false"]（非活动面板 aria-hidden="true"）'
+    ),
+    verified=True,
+)
+
+# 实测确认的活动面板作用域锚点集合，供校验用（新增锚点时同步登记）
+ACTIVE_PANEL_SCOPES: tuple[str, ...] = (ACTIVE_PANEL.value, ACTIVE_PANEL_ARIA.value)
+
+
+def _scoped_css(
+    value: str, basis: str, verified: bool = False, *, scope: str = ACTIVE_PANEL.value
+) -> SelectorCandidate:
+    """构造「收窄到激活面板」的 CSS 候选，省去每条重复写 scope（默认用 class 锚点）。"""
+    return SelectorCandidate("css", value, basis, verified, scope=scope)
+
+
+
 # ---------------- 登录方式切换 ----------------
 # 实测：登录页默认停在「短信登录」，另有「密码登录」/「微信登录」；不切页签则密码框不可见。
+# 注意：页签本身位于页签导航栏（不在任何 tabpane 内），故本组**不加激活面板作用域**。
 LOGIN_MODE_SWITCHERS: tuple[SelectorCandidate, ...] = (
     SelectorCandidate(
         "text",
@@ -95,45 +172,70 @@ LOGIN_MODE_SWITCHERS: tuple[SelectorCandidate, ...] = (
 )
 
 # ---------------- 账号输入框 ----------------
+# 排序即降级链：实测项（作用域内）在前 → 语义定位次之 → 非作用域通用 CSS 最后兜底。
 ACCOUNT_INPUTS: tuple[SelectorCandidate, ...] = (
-    SelectorCandidate(
-        "css",
+    _scoped_css(
         "#mobile:visible",
-        f"{_MEASURED} 密码登录页签下可见的手机号框（id=mobile、class 含 rocket-input）；"
-        "同 id 在短信页签另挂一份隐藏副本，故加 :visible",
-        True,
+        f"{_MEASURED} 激活面板内可见的手机号框（id=mobile、class 含 rocket-input）；"
+        "同 id 在各页签面板各挂一份，故先按激活面板收窄、再叠加 :visible",
+        verified=True,
+    ),
+    _scoped_css(
+        "#mobile:visible",
+        f"{_MEASURED} 同一手机号框的 aria 作用域写法（活动面板 "
+        'div[role="tabpanel"][aria-hidden="false"]），class 锚点失效时的并列兜底',
+        verified=True,
+        scope=ACTIVE_PANEL_ARIA.value,
+    ),
+    _scoped_css(
+        'input[name="mobile"]:visible',
+        "激活面板内按 name 属性定位手机号框（同实测项的降级写法，未实测）",
     ),
     SelectorCandidate("role", "textbox:手机号", "按无障碍名兜底（实测 placeholder=手机号，语义定位未实测）", False),
-    SelectorCandidate("css", 'input[name="mobile"]:visible', "按 name 属性兜底（未实测）", False),
-    SelectorCandidate("css", 'input[type="tel"]:visible', "手机号登录的通用语义（与站点无关）", False),
-    SelectorCandidate("css", 'input[type="text"]:visible', "通用文本输入框，最后兜底", False),
     SelectorCandidate("role", "textbox:账号", "无障碍名含「账号」时的语义定位（原候选，未实测）", False),
+    SelectorCandidate("css", 'input[type="tel"]:visible', "手机号登录的通用语义（与站点无关）", False),
+    # 唯一的非作用域兜底：该站日后调整激活面板 class 时，靠它整体不失配
+    SelectorCandidate("css", 'input[type="text"]:visible', "通用文本输入框，最后兜底（非作用域）", False),
 )
 
 # ---------------- 密码输入框 ----------------
+# 「密码框可见」同时是页签切换的幂等判据，故同样收窄到激活面板，避免误判到其它面板的副本。
 PASSWORD_INPUTS: tuple[SelectorCandidate, ...] = (
-    SelectorCandidate(
-        "css",
+    _scoped_css(
         "input.password-input:visible",
-        f"{_MEASURED} 密码登录页签下唯一的密码框（class 为 rocket-input password-input）",
-        True,
+        f"{_MEASURED} 激活面板内唯一的密码框（class 为 rocket-input password-input）",
+        verified=True,
     ),
-    SelectorCandidate(
-        "css",
+    _scoped_css(
         "#password:visible",
-        f"{_MEASURED} 同上密码框的 id=password 定位",
-        True,
+        f"{_MEASURED} 同上密码框的 id=password 定位（激活面板内）",
+        verified=True,
     ),
-    SelectorCandidate("css", 'input[type="password"]:visible', "密码框的通用语义（与站点无关，最可靠兜底）", False),
+    _scoped_css(
+        "input.password-input:visible",
+        f"{_MEASURED} 同一密码框的 aria 作用域写法（活动面板 "
+        'div[role="tabpanel"][aria-hidden="false"]），class 锚点失效时的并列兜底',
+        verified=True,
+        scope=ACTIVE_PANEL_ARIA.value,
+    ),
+    # 非作用域兜底：激活面板 class 变化时仍能命中，代价是可能匹配到隐藏副本（由 :visible 过滤）
+    SelectorCandidate("css", 'input[type="password"]:visible', "密码框的通用语义（非作用域，最后兜底）", False),
 )
 
 # ---------------- 提交按钮 ----------------
 SUBMIT_BUTTONS: tuple[SelectorCandidate, ...] = (
-    SelectorCandidate(
-        "css",
+    _scoped_css(
         "button.login-btn:visible",
-        f"{_MEASURED} 登录提交按钮（class 含 rocket-btn login-btn rocket-btn-primary）；同 class 有两份，故加 :visible",
-        True,
+        f"{_MEASURED} 激活面板内的登录提交按钮（class 含 rocket-btn login-btn rocket-btn-primary）；"
+        "同 class 在多份面板各挂一份，故先按激活面板收窄、再叠加 :visible",
+        verified=True,
+    ),
+    _scoped_css(
+        "button.login-btn:visible",
+        f"{_MEASURED} 同一提交按钮的 aria 作用域写法（活动面板 "
+        'div[role="tabpanel"][aria-hidden="false"]），class 锚点失效时的并列兜底',
+        verified=True,
+        scope=ACTIVE_PANEL_ARIA.value,
     ),
     SelectorCandidate("role", "button:登录", "按无障碍名匹配「登录」按钮；role 定位默认排除隐藏元素（未实测）", False),
     SelectorCandidate(
@@ -143,6 +245,8 @@ SUBMIT_BUTTONS: tuple[SelectorCandidate, ...] = (
         False,
         exact=True,
     ),
+    # 非作用域兜底：该站日后调整激活面板 class 时，靠它整体不失配（遮挡由 pdd 的点击守卫兜底）
+    SelectorCandidate("css", "button.login-btn:visible", "同实测项的非作用域兜底写法（未实测）", False),
 )
 
 # ---------------- 已登录（工作台）特征 ----------------

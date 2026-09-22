@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from collector.db.connection import DatabaseError, MySqlConnection, load_mysql_c
 from collector.db.migrate import MigrationError, migrate
 from collector.login.browser import BrowserLaunchError
 from collector.login.pdd import (
+    LoginError,
     LoginPageError,
     LoginPersistenceError,
     LoginResult,
@@ -33,6 +35,8 @@ from collector.login.pdd import (
     PddLoginService,
 )
 from collector.logging_setup import redact_text, setup_logging
+
+logger = logging.getLogger("collector.cli")
 
 # Python 最低版本：tomllib 自 3.11 起进入标准库（配置读取依赖它）
 _MIN_PYTHON = (3, 11)
@@ -301,7 +305,25 @@ def main(argv: list[str] | None = None) -> int:
 
         setup_logging(LoggingConfig(level="INFO", max_bytes=5 * 1024 * 1024, backup_count=5), COLLECTOR_ROOT / "runtime" / "logs")
 
-    return args.func(args)
+    # 顶层兜底：任何未在子命令内收敛的异常都不得以裸 traceback 输出。
+    # 堆栈只进 debug 级日志（排障用），info 级只给结论与可执行指引。
+    try:
+        return args.func(args)
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        _print("[已中断] 采集端被手动中断，未完成的登录动作视为未执行")
+        return 1
+    except LoginError as exc:
+        logger.debug("登录流程异常", exc_info=True)
+        _print(f"[登录失败] {exc}")
+        return 1
+    except Exception as exc:
+        logger.debug("未预期异常", exc_info=True)
+        _print(f"[未预期错误] 采集端执行失败：{exc}")
+        _print("排障：查看 debug 级日志 runtime/logs/collector.log；若与登录页结构有关，"
+               "先跑 `python scripts/dump-login-page.py --url <登录地址> --click-text 密码登录` 导出 DOM 再校准 selectors.py")
+        return 1
 
 
 if __name__ == "__main__":

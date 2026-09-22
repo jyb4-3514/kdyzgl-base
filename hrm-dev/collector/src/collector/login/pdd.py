@@ -5,7 +5,9 @@
 1. 打开配置的站点 URL，**先探测**是否已有有效登录态；有效则不重复登录，直接返回；
 2. 无效才走登录：**先切到「密码登录」方式**——2026-09-22 采集机实测目标站默认停在「短信登录」，
    此时密码框不可见、无法填密码，故须先点击「密码登录」页签（已是密码登录态时**幂等跳过**）；
-   再定位账号/密码输入框（选择器集中在 selectors.py）、按人工节奏分隔输入、提交；
+   再定位账号/密码输入框（选择器集中在 selectors.py）、按人工节奏分隔输入、**提交前校验两框均非空**、
+   再按**多路径降级链**提交（回车 → 真实点击 → 强制点击 → 合成点击，见 :data:`_SUBMIT_PATHS`）；
+   每条路径执行后用**可观测信号**判定提交是否生效，未生效才降级下一条，绝不把「点了没反应」当成成功；
 3. **挑战探测**：出现验证码 / 滑块 / 短信二次验证 / 风控提示 → 立即停止自动化，抛
    :class:`ManualInterventionRequired`，把状态置 ``MANUAL_REQUIRED`` 并给出人工处置指引；
 4. 结果判定：**不只看 URL 跳转**，结合「域名白名单 + 工作台特征元素 + 登录表单是否存在」三项可观测信号；
@@ -26,7 +28,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 from urllib.parse import urlparse
 
 from collector.config.pdd_account import PddAccount
@@ -82,6 +84,18 @@ class LoginPersistenceError(LoginError):
 
 class LoginPageError(LoginError):
     """登录页无法打开或无法定位关键元素。"""
+
+
+class LoginTimeoutError(LoginPageError):
+    """等待或交互超时（底层为 Playwright ``TimeoutError``）。"""
+
+
+class LoginElementBlockedError(LoginPageError):
+    """目标元素被其它元素遮挡，真实鼠标点击无法落到目标上。
+
+    与「未定位到元素」严格区分：元素**已定位到且可见**，只是点击坐标被覆盖；
+    报错必须写明遮挡者是谁，避免把遮挡误报成定位失败。
+    """
 
 
 # 人工处置指引（出现挑战时打印给操作人）
@@ -186,6 +200,63 @@ def is_credential_error_text(page_text: str) -> bool:
     return bool(page_text) and selectors.CREDENTIAL_ERROR_PATTERN in page_text
 
 
+def outcome_for_error(exc: BaseException) -> LoginOutcome:
+    """异常 → 登录结论：挑战/风控类回落人工，其余一律判失败。
+
+    该映射与 ``_OUTCOME_TO_STATUS`` / ``LoginResult.exit_code`` 一起构成
+    「错误 → 落库状态 → CLI 退出码」的完整收敛链（集中一处，便于测试与审计）。
+    """
+    return LoginOutcome.MANUAL_REQUIRED if isinstance(exc, ManualInterventionRequired) else LoginOutcome.FAILED
+
+
+def exit_code_for_error(exc: BaseException) -> int:
+    """异常 → CLI 退出码：需人工介入 2，其余失败 1（成功路径不经过本函数）。"""
+    return 2 if isinstance(exc, ManualInterventionRequired) else 1
+
+
+def is_playwright_error(exc: BaseException) -> bool:
+    """是否为 Playwright 抛出的异常。
+
+    按**模块名**判定而非 ``import playwright``：开发机未装 Playwright，
+    单测与静态分析不得因缺失该依赖而失败。
+    """
+    return (type(exc).__module__ or "").startswith("playwright.")
+
+
+def is_playwright_timeout(exc: BaseException) -> bool:
+    """是否为 Playwright 的 ``TimeoutError``（点击/等待超时的底层类型）。"""
+    return is_playwright_error(exc) and type(exc).__name__ == "TimeoutError"
+
+
+def _clip_text(text: str, limit: int = 200) -> str:
+    """压缩为单行并截断，避免把整段 Playwright 调用日志写进异常与数据库。"""
+    return " ".join((text or "").split())[:limit]
+
+
+def classify_browser_failure(exc: Exception, stage: str) -> LoginError:
+    """把交互阶段的底层异常映射为**明确类型**的登录错误（stage 指明出错步骤）。
+
+    映射表：
+    - 命中 pointer events 拦截 → :class:`LoginElementBlockedError`（遮挡，可归因到遮挡者）；
+    - Playwright ``TimeoutError`` → :class:`LoginTimeoutError`；
+    - 其它 Playwright 异常 → :class:`LoginPageError`；
+    - 其余异常 → :class:`LoginPageError`。
+
+    不在此处吞掉异常：调用方要么继续向上收敛（CLI 兜底），要么转成失败结果落库。
+    """
+    text = str(exc)
+    if "intercepts pointer events" in text:
+        return LoginElementBlockedError(
+            f"{stage}被其它元素遮挡（Playwright 报 pointer events 被拦截），真实鼠标点击无法落到目标上。"
+            + _SELECTOR_HINT
+        )
+    if is_playwright_timeout(exc):
+        return LoginTimeoutError(f"{stage}超时（元素不可操作或页面长时间未就绪）。" + _SELECTOR_HINT)
+    if is_playwright_error(exc):
+        return LoginPageError(f"{stage}发生浏览器层错误：{_clip_text(text)}。" + _SELECTOR_HINT)
+    return LoginPageError(f"{stage}失败：{_clip_text(text)}。" + _SELECTOR_HINT)
+
+
 def judge_login_result(
     *,
     url: str,
@@ -218,9 +289,13 @@ def judge_login_result(
 # 页面操作区（依赖 Playwright）
 # ==================================================================
 def _locator(page: Any, candidate: selectors.SelectorCandidate) -> Any:
-    """把候选描述翻译为 Playwright 定位器（可见性由候选自身携带，如 CSS 的 ``:visible``）。"""
+    """把候选描述翻译为 Playwright 定位器。
+
+    CSS 候选走 ``css_selector()``：候选自带的作用域（如激活面板）会拼在选择器前面
+    ——「同 id / 同 class 多份」时，仅靠 ``:visible`` 不足以区分当前生效的那一份。
+    """
     if candidate.kind == "css":
-        return page.locator(candidate.value)
+        return page.locator(candidate.css_selector())
     if candidate.kind == "text":
         return page.get_by_text(candidate.value, exact=candidate.exact)
     if candidate.kind == "role":
@@ -275,6 +350,117 @@ def find_first_visible(
         time.sleep(_SCAN_POLL_INTERVAL_MS / 1000.0)
 
 
+# ---------------- 点击遮挡守卫（纯逻辑可离线单测） ----------------
+# 滚动微调序列：每个元素是一次点击尝试前的额外纵向滚动量（像素，0 = 仅居中不做偏移）。
+# 起因（2026-09-22 采集机实测）：目标站页签容器 div.rocket-tabs...login-tabs 为 sticky，
+# Playwright 默认的最小滚动会把按钮停在它下面（或被激活面板的 #mobile 覆盖），
+# 点击坐标被拦截并重试到超时。故先把目标滚到视口垂直居中，再校验落点、必要时上下微调。
+_CLICK_SCROLL_NUDGE_PX: tuple[int, ...] = (0, -160, 160)
+
+# 浏览器内命中测试：返回落点最顶层元素的描述；命中目标是自身或其子节点时返回 null（视为未被遮挡）。
+# 仅做**只读**的 elementFromPoint 查询，不触发任何点击、提交或表单动作。
+_JS_TOPMOST_BLOCKER = """
+(el, point) => {
+  const top = document.elementFromPoint(point.x, point.y);
+  if (!top) return null;
+  if (el === top || el.contains(top)) return null;
+  const cls = (typeof top.className === 'string')
+    ? top.className.trim().split(/\\s+/).filter(Boolean) : [];
+  let desc = top.tagName.toLowerCase();
+  if (top.id) desc += '#' + top.id;
+  if (cls.length) desc += '.' + cls.join('.');
+  return desc;
+}
+"""
+
+
+def element_center(box: dict | None) -> tuple[float, float] | None:
+    """取元素包围盒中心点；盒缺失或零尺寸时返回 None（零尺寸不可点击）。"""
+    if not box:
+        return None
+    width = box.get("width") or 0
+    height = box.get("height") or 0
+    if width <= 0 or height <= 0:
+        return None
+    return box.get("x", 0) + width / 2, box.get("y", 0) + height / 2
+
+
+def topmost_blocker(element: Any, box: dict | None) -> str | None:
+    """返回点击落点最顶层的遮挡元素描述；未遮挡或无法判定时返回 None。
+
+    判定标准与 Playwright 的「Receives Events」一致（元素须是点击点的命中目标）：
+    命中元素是目标本身或其子节点即视为可点击。
+    浏览器内校验不可用时返回 None，不做臆断的遮挡判定，交由 click 自身检查兜底。
+    """
+    center = element_center(box)
+    if center is None:
+        return "元素零尺寸（bounding box 为空）"
+    try:
+        return element.evaluate(_JS_TOPMOST_BLOCKER, {"x": center[0], "y": center[1]})
+    except Exception:
+        return None
+
+
+def _element_box(element: Any) -> dict | None:
+    """安全取包围盒：元素未布局或接口报错时按缺失处理。"""
+    try:
+        return element.bounding_box()
+    except Exception:
+        return None
+
+
+def _align_target_to_center(page: Any, element: Any, nudge_px: int) -> None:
+    """把目标滚到视口垂直居中（附加纵向微调），规避 sticky 容器遮挡。"""
+    try:
+        element.evaluate("el => el.scrollIntoView({block: 'center', inline: 'nearest'})")
+    except Exception:
+        try:
+            element.scroll_into_view_if_needed()
+        except Exception:
+            return
+    if nudge_px:
+        try:
+            page.mouse.wheel(0, nudge_px)
+        except Exception:
+            pass
+
+
+def click_with_occlusion_guard(page: Any, element: Any, timeout_ms: int | None = None) -> None:
+    """对已定位元素执行**真实鼠标点击**，点击前校验落点未被遮挡。
+
+    处理顺序（每一步都可验证，不是「多试几次」）：
+    1. 把目标滚动到视口垂直居中 —— 默认最小滚动可能让按钮停在 sticky 页签容器下面；
+    2. 用浏览器内 ``document.elementFromPoint`` 取落点最顶层元素，确认它是目标本身或其子节点；
+    3. 校验通过才 ``click()``；被遮挡则按 ``_CLICK_SCROLL_NUDGE_PX`` 调整纵向滚动后重试；
+    4. 全部尝试仍被遮挡 → 抛 :class:`LoginElementBlockedError` 并写明**遮挡者是谁**，
+       绝不报成「未定位到按钮」。
+
+    ``timeout_ms`` 为 ``click()`` 动作超时；**生产路径必须传短超时**（来自 ``login.submit_path_timeout_ms``），
+    否则会退回 Playwright 默认 30s，把降级链的短预算初衷废掉。留空仅供既有单测/调用方沿用默认语义。
+
+    本函数**不**使用 ``dispatch_event('click')`` 或 ``evaluate`` 直接调 ``click()``（那会绕过真实鼠标）；
+    该手段单独作为降级链的最后一条路径（:func:`_submit_dispatch`），并已在 README 标注其合成事件限制。
+    """
+    last_blocker: str | None = None
+    for nudge_px in _CLICK_SCROLL_NUDGE_PX:
+        _align_target_to_center(page, element, nudge_px)
+        blocker = topmost_blocker(element, _element_box(element))
+        if blocker is None:
+            try:
+                if timeout_ms is None:
+                    element.click()
+                else:
+                    element.click(timeout=timeout_ms)
+            except Exception as exc:
+                raise classify_browser_failure(exc, "提交按钮点击") from exc
+            return
+        last_blocker = blocker
+    raise LoginElementBlockedError(
+        f"提交按钮被其它元素遮挡，真实鼠标点击无法落到目标上：落点最顶层元素为「{last_blocker}」。"
+        "通常是登录页新增了 sticky 容器或浮层，请导出 DOM 复核。" + _SELECTOR_HINT
+    )
+
+
 def _visible_any(page: Any, candidates: Iterable[selectors.SelectorCandidate], timeout_ms: int = 1500) -> bool:
     return find_first_visible(page, candidates, timeout_ms) is not None
 
@@ -292,12 +478,14 @@ def detect_challenge(page: Any, timeout_ms: int) -> ChallengeType | None:
     return detect_challenge_from_text(_page_text(page, timeout_ms))
 
 
-def has_login_form(page: Any) -> bool:
-    return _visible_any(page, selectors.PASSWORD_INPUTS) or _visible_any(page, selectors.SUBMIT_BUTTONS)
+def has_login_form(page: Any, timeout_ms: int = 1500) -> bool:
+    return _visible_any(page, selectors.PASSWORD_INPUTS, timeout_ms) or _visible_any(
+        page, selectors.SUBMIT_BUTTONS, timeout_ms
+    )
 
 
-def has_workbench_marker(page: Any) -> bool:
-    return _visible_any(page, selectors.WORKBENCH_MARKERS)
+def has_workbench_marker(page: Any, timeout_ms: int = 1500) -> bool:
+    return _visible_any(page, selectors.WORKBENCH_MARKERS, timeout_ms)
 
 
 def probe_state(page: Any, settings: Settings) -> LoginOutcome:
@@ -365,6 +553,221 @@ def _wait_for_login_signal(page: Any, settings: Settings, timeout_ms: int, poll_
 
 
 # ==================================================================
+# 提交降级链（2026-09-22 采集机实测新增）
+# ==================================================================
+# 起因（真实 traceback）：``button.login-btn:visible`` **已定位成功**（element is visible, enabled
+# and stable），但真实点击的落点被激活面板的 ``input#mobile`` 子树与 sticky 页签容器
+# ``div.rocket-tabs...login-tabs`` 拦截（pointer events），Playwright 硬等默认 30s 才抛
+# ``TimeoutError``——单条路径吃满 30s；若再叠加 3 条降级路径会放大到 90s+。
+#
+# 对策：把「提交」拆成多条**短超时**降级路径，逐条尝试；每条执行后用**可观测信号**判定是否生效，
+# 未生效才降级下一条。**严禁**把「点了但没反应」当成成功（红线：宁停不猜）。
+#
+# 合成点击（dispatch_event）说明：它派发的是 ``isTrusted=false`` 的 DOM 事件，**不是**真实鼠标动作，
+# 也无法绕过页面自身的校验与风控；仅作最后兜底，命中即记日志便于复盘。
+# 官方语义：locator.dispatch_event = "Programmatically dispatch an event on the matching element"
+# https://playwright.dev/python/docs/api/class-locator#locator-dispatch-event
+
+
+def submit_effect_signal(
+    *,
+    url: str,
+    baseline_url: str,
+    has_workbench_marker: bool,
+    has_login_form: bool,
+    challenge: ChallengeType | None,
+    credential_error: bool,
+) -> str | None:
+    """判定「提交动作是否已被页面接收并生效」（纯函数，可离线单测）。
+
+    **不以「有没有抛异常」判定**，只看可观测信号（任一命中即认为提交已生效）：
+
+    1. 出现挑战（验证码/滑块/短信/风控）→ 提交已触发，只是需人工介入；
+    2. URL 相对提交前发生变化（含重定向）；
+    3. 出现工作台特征元素；
+    4. 出现凭据错误提示；
+    5. 登录表单消失（页面已切换）。
+
+    以上都未命中 = 「点了但没反应」，返回 None，**绝不能当成成功**。
+    """
+    if challenge is not None:
+        return f"出现 {challenge.value} 挑战"
+    if url != baseline_url:
+        return f"页面地址变化（{_clip_text(url, 120)}）"
+    if has_workbench_marker:
+        return "出现工作台特征元素"
+    if credential_error:
+        return "出现凭据错误提示"
+    if not has_login_form:
+        return "登录表单已消失"
+    return None
+
+
+def observe_submit_effect(
+    page: Any,
+    settings: Settings,
+    baseline_url: str,
+    timeout_ms: int,
+    poll_interval_ms: int = 500,
+) -> str | None:
+    """在 ``timeout_ms`` 预算内轮询观测提交是否生效；未生效返回 None。
+
+    复用既有的挑战检测（:func:`detect_challenge_from_text`）与凭据错误识别。
+    可见性探测传 ``timeout=0``（= 立即扫描一轮，非「不限时」），避免单轮探测本身吃掉整段预算。
+    """
+    deadline = time.monotonic() + max(timeout_ms, 0) / 1000.0
+    while True:
+        page_text = _page_text(page, poll_interval_ms)
+        signal = submit_effect_signal(
+            url=page.url,
+            baseline_url=baseline_url,
+            has_workbench_marker=has_workbench_marker(page, 0),
+            has_login_form=has_login_form(page, 0),
+            challenge=detect_challenge_from_text(page_text),
+            credential_error=is_credential_error_text(page_text),
+        )
+        if signal is not None:
+            return signal
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(poll_interval_ms / 1000.0)
+
+
+def _dismiss_overlays(page: Any) -> None:
+    """尝试收起可能遮挡提交按钮的浮层（自动完成/输入提示）。
+
+    先 ``mouse.move(0, 0)`` 让 hover 态收起，再按 Escape 交给页面自身的浮层逻辑关闭。
+    **不确定**：Escape 能否关闭任意自定义浮层取决于页面实现，官方未做此承诺
+    （Escape 键名依据：https://playwright.dev/python/docs/api/class-keyboard#keyboard-press ）。
+    验证方法：采集机实跑时观察遮挡者是否从「下拉浮层」变为按钮自身。无论是否生效都继续走降级链。
+    """
+    try:
+        page.mouse.move(0, 0)
+    except Exception:
+        pass
+    try:
+        page.keyboard.press("Escape")
+    except Exception:
+        pass
+
+
+# 单条降级路径的动作签名：(page, submit, password, timeout_ms) -> None
+SubmitAction = Callable[[Any, Any, Any, int], None]
+
+
+def _submit_press_enter(page: Any, submit: Any, password: Any, timeout_ms: int) -> None:
+    """路径 A：在密码框上回车提交（首选，最接近人工）。
+
+    ``locator.press`` = 先聚焦元素，再用 ``keyboard.down`` / ``keyboard.up`` 发按键；
+    按键**不依赖鼠标坐标**，天然绕开「点击落点被覆盖」。
+    官方依据：https://playwright.dev/python/docs/api/class-locator#locator-press
+    """
+    password.press("Enter", timeout=timeout_ms)
+
+
+def _submit_click(page: Any, submit: Any, password: Any, timeout_ms: int) -> None:
+    """路径 B：正常真实点击（含落点遮挡预校验与居中滚动）。"""
+    click_with_occlusion_guard(page, submit, timeout_ms=timeout_ms)
+
+
+def _submit_force_click(page: Any, submit: Any, password: Any, timeout_ms: int) -> None:
+    """路径 C：强制点击。
+
+    ``force=True`` 跳过 actionability 检查（含 Receives Events），但官方说明**仍会**用
+    ``page.mouse`` 在元素中心点击，故落点仍可能被覆盖——只作降级手段，不保证一定生效。
+    官方依据：https://playwright.dev/python/docs/api/class-locator#locator-click
+    """
+    submit.click(force=True, timeout=timeout_ms)
+
+
+def _submit_dispatch(page: Any, submit: Any, password: Any, timeout_ms: int) -> None:
+    """路径 D：派发合成 click 事件（最后兜底，事件为 ``isTrusted=false``）。"""
+    submit.dispatch_event("click", timeout=timeout_ms)
+
+
+# 降级链顺序即尝试顺序：A 回车（最像人工、绕开遮挡）→ B 真实点击 → C 强制点击 → D 合成点击。
+_SUBMIT_PATHS: tuple[tuple[str, SubmitAction], ...] = (
+    ("A-回车提交", _submit_press_enter),
+    ("B-真实点击", _submit_click),
+    ("C-强制点击", _submit_force_click),
+    ("D-合成点击", _submit_dispatch),
+)
+# 降级路径条数：与配置预算一起决定提交阶段的总耗时上限（见 settings.example.toml 注释）
+SUBMIT_PATH_COUNT = len(_SUBMIT_PATHS)
+
+
+def submit_with_degradation(
+    page: Any, submit: Any, password: Any, *, baseline_url: str, settings: Settings
+) -> str:
+    """按 :data:`_SUBMIT_PATHS` 顺序尝试提交，返回**已生效**的路径名。
+
+    每条路径：先做低成本遮挡消除 → 执行动作（短超时）→ 用可观测信号观测是否生效。
+    生效即返回；未生效则记日志并降级下一条。全部未生效 → 抛
+    :class:`LoginElementBlockedError`（点不动/被遮挡是最可能的归因），**绝不返回成功**。
+    """
+    _dismiss_overlays(page)
+    timeout_ms = settings.login.submit_path_timeout_ms
+    probe_ms = settings.login.submit_effect_probe_ms
+    last_error: BaseException | None = None
+    for index, (label, action) in enumerate(_SUBMIT_PATHS, start=1):
+        logger.info("提交按钮：尝试第 %d/%d 条路径「%s」", index, SUBMIT_PATH_COUNT, label)
+        try:
+            action(page, submit, password, timeout_ms)
+        except Exception as exc:
+            # 单条路径失败不中断降级链（如路径 B 的落点遮挡预校验会直接抛错）
+            last_error = exc
+            logger.info("提交按钮：路径「%s」执行未成功：%s", label, _clip_text(str(exc), 160))
+            continue
+        signal = observe_submit_effect(page, settings, baseline_url, probe_ms)
+        if signal is not None:
+            logger.info("提交按钮：路径「%s」已生效（可观测信号：%s）", label, signal)
+            return label
+        logger.info("提交按钮：路径「%s」已执行但未观测到生效信号，降级下一条", label)
+
+    labels = "/".join(label for label, _ in _SUBMIT_PATHS)
+    last_error_text = _clip_text(str(last_error)) if last_error is not None else "无"
+    raise LoginElementBlockedError(
+        f"{SUBMIT_PATH_COUNT} 条提交路径（{labels}）均未使登录生效：提交按钮很可能被其它元素遮挡"
+        f"（pointer events 被拦截），或页面结构已变化。最后一条路径的报错：{last_error_text}。"
+        + _SELECTOR_HINT
+    )
+
+
+# ---------------- 填表自检（提交前，仅统计字符数） ----------------
+def _input_length(element: Any, stage: str) -> int:
+    """读取输入框字符数；**只返回长度，绝不返回值本身**（红线：密码不落日志/异常）。
+
+    读取失败按 :class:`LoginPageError` 上抛（定位到的元素可能已不是可读输入框）。
+    官方依据（``locator.input_value`` 返回 ``input.value``）：
+    https://playwright.dev/python/docs/api/class-locator#locator-input-value
+    """
+    try:
+        value = element.input_value()
+    except Exception as exc:
+        raise classify_browser_failure(exc, f"{stage}内容自检") from exc
+    return len(value or "")
+
+
+def verify_credentials_filled(account_element: Any, password_element: Any) -> tuple[int, int]:
+    """提交前自检：账号框与密码框**各自都非空**，返回 ``(账号字符数, 密码字符数)``。
+
+    为什么这样做：本次故障（2026-09-22 采集机实测）暴露了「输入可能未真正落到框里」，
+    带着空框去提交只会得到难以归因的失败。此处只统计**字符长度**用于日志，
+    绝不读取/记录/返回输入值本身（密码尤甚），从源头保证密码不进日志与异常。
+    """
+    account_len = _input_length(account_element, "账号输入")
+    password_len = _input_length(password_element, "密码输入")
+    if account_len == 0 or password_len == 0:
+        empty = [name for name, length in (("账号", account_len), ("密码", password_len)) if length == 0]
+        raise LoginPageError(
+            f"提交前自检失败：{'、'.join(empty)}输入框为空，已中止提交（不用空值登录）。"
+            "请核对输入是否真正落到框内。" + _SELECTOR_HINT
+        )
+    logger.info("提交前自检通过：账号 %d 字符、密码 %d 字符（仅记录长度，不记录内容）", account_len, password_len)
+    return account_len, password_len
+
+
+# ==================================================================
 # 服务编排
 # ==================================================================
 @dataclass(frozen=True)
@@ -426,7 +829,14 @@ class PddLoginService:
             self._clear_secret_redaction()
 
     def run(self) -> LoginResult:
-        """执行登录（已登录则跳过），返回结果；遇挑战抛 ManualInterventionRequired。"""
+        """执行登录（已登录则跳过）并返回结果。
+
+        **全流程异常收敛**（2026-09-22 采集机实测暴露的缺陷：Playwright 点击超时直接抛栈）：
+
+        - 挑战/风控 → 先落库 ``MANUAL_REQUIRED``，再抛 :class:`ManualInterventionRequired`（退出码 2）；
+        - 定位失败 / 超时 / 遮挡 / 浏览器错误 → 落库 ``FAILED`` 并返回失败结果（退出码 1）；
+        - 任何失败都带**脱敏后**的 ``fail_reason``，绝不把裸 traceback 抛到 CLI 顶层。
+        """
         self._register_secret_for_redaction()
         try:
             if not self._settings.login.auto_login_enabled:
@@ -440,54 +850,81 @@ class PddLoginService:
                 logger.warning("自动登录未启用，回落人工：%s", self._account.masked_description())
                 return result
 
-            with browser.persistent_context(self._settings) as context:
-                page = browser.open_page(context)
-                self._goto_login(page)
-
-                # 1) 先探测：已有有效登录态则不重复登录
-                outcome = probe_state(page, self._settings)
-                if outcome is LoginOutcome.LOGGED_IN:
-                    result = self._build_result(LoginOutcome.LOGGED_IN, context)
-                    self._persist(result)
-                    logger.info("已有有效登录态，跳过登录动作：%s", self._account.masked_description())
-                    return result
-                if outcome is LoginOutcome.MANUAL_REQUIRED:
-                    raise self._manual_required(page)
-
-                # 2) 执行登录
-                self._submit_credentials(page)
-
-                # 3) 等待可观测信号后复核
-                _wait_for_login_signal(page, self._settings, self._settings.login.submit_wait_ms)
-                page_text = _page_text(page, self._settings.login.probe_timeout_ms)
-                challenge = detect_challenge_from_text(page_text)
-                outcome = judge_login_result(
-                    url=page.url,
-                    allowed_hosts=self._settings.site.allowed_hosts,
-                    has_workbench_marker=has_workbench_marker(page),
-                    has_login_form=has_login_form(page),
-                    challenge=challenge,
-                )
-
-                if outcome is LoginOutcome.MANUAL_REQUIRED:
-                    raise self._manual_required(page)
-                if outcome is LoginOutcome.LOGGED_IN:
-                    result = self._build_result(LoginOutcome.LOGIN_SUCCEEDED, context)
-                    self._persist(result)
-                    logger.info("登录成功：%s", self._account.masked_description())
-                    return result
-
-                reason = (
-                    "账号或密码错误（按 ADR §20.4.3 不重试，请站长更新凭据后重跑 init-local-secrets.ps1）"
-                    if is_credential_error_text(page_text)
-                    else "登录未完成且未识别到明确原因（疑似登录页结构突变，需人工核实）"
-                )
-                result = self._build_result(outcome, None, fail_reason=reason)
-                self._persist(result)
-                logger.error("登录失败：%s；%s", self._account.masked_description(), reason)
-                return result
+            try:
+                return self._run_flow()
+            except ManualInterventionRequired as exc:
+                # 落库失败不得掩盖「必须人工介入」这一结论：日志告警后仍按退出码 2 上抛
+                try:
+                    self._persist_failure(LoginOutcome.MANUAL_REQUIRED, exc.reason)
+                except LoginPersistenceError as persist_exc:
+                    logger.warning("人工介入结论未能落库（不影响停止自动化）：%s", persist_exc)
+                raise
+            except LoginPersistenceError:
+                # 落库自身失败不能伪装成业务失败，交由 CLI 按「部分失败」处理
+                raise
+            except browser.BrowserLaunchError as exc:
+                logger.error("浏览器启动/运行失败：%s；%s", self._account.masked_description(), exc)
+                return self._persist_failure(LoginOutcome.FAILED, f"浏览器启动/运行失败：{exc}")
+            except LoginError as exc:
+                logger.error("登录失败：%s；%s", self._account.masked_description(), exc)
+                return self._persist_failure(LoginOutcome.FAILED, str(exc))
+            except Exception as exc:
+                # 非预期异常同样收敛：debug 留堆栈，info 只给结论
+                logger.debug("登录流程未预期异常", exc_info=True)
+                mapped = classify_browser_failure(exc, "登录流程")
+                logger.error("登录失败：%s；%s", self._account.masked_description(), mapped)
+                return self._persist_failure(LoginOutcome.FAILED, str(mapped))
         finally:
             self._clear_secret_redaction()
+
+    def _run_flow(self) -> LoginResult:
+        """登录主流程（探测 → 切页签 → 填表提交 → 结果判定）；异常由 :meth:`run` 统一收敛。"""
+        with browser.persistent_context(self._settings) as context:
+            page = browser.open_page(context)
+            self._goto_login(page)
+
+            # 1) 先探测：已有有效登录态则不重复登录
+            outcome = probe_state(page, self._settings)
+            if outcome is LoginOutcome.LOGGED_IN:
+                result = self._build_result(LoginOutcome.LOGGED_IN, context)
+                self._persist(result)
+                logger.info("已有有效登录态，跳过登录动作：%s", self._account.masked_description())
+                return result
+            if outcome is LoginOutcome.MANUAL_REQUIRED:
+                raise self._manual_required(page)
+
+            # 2) 执行登录
+            self._submit_credentials(page)
+
+            # 3) 等待可观测信号后复核
+            _wait_for_login_signal(page, self._settings, self._settings.login.submit_wait_ms)
+            page_text = _page_text(page, self._settings.login.probe_timeout_ms)
+            challenge = detect_challenge_from_text(page_text)
+            outcome = judge_login_result(
+                url=page.url,
+                allowed_hosts=self._settings.site.allowed_hosts,
+                has_workbench_marker=has_workbench_marker(page),
+                has_login_form=has_login_form(page),
+                challenge=challenge,
+            )
+
+            if outcome is LoginOutcome.MANUAL_REQUIRED:
+                raise self._manual_required(page)
+            if outcome is LoginOutcome.LOGGED_IN:
+                result = self._build_result(LoginOutcome.LOGIN_SUCCEEDED, context)
+                self._persist(result)
+                logger.info("登录成功：%s", self._account.masked_description())
+                return result
+
+            reason = (
+                "账号或密码错误（按 ADR §20.4.3 不重试，请站长更新凭据后重跑 init-local-secrets.ps1）"
+                if is_credential_error_text(page_text)
+                else "登录未完成且未识别到明确原因（疑似登录页结构突变，需人工核实）"
+            )
+            result = self._build_result(outcome, None, fail_reason=reason)
+            self._persist(result)
+            logger.error("登录失败：%s；%s", self._account.masked_description(), reason)
+            return result
 
     # ---------------- 内部步骤 ----------------
     def _goto_login(self, page: Any) -> None:
@@ -507,23 +944,35 @@ class PddLoginService:
         account_input = find_first_visible(page, selectors.ACCOUNT_INPUTS)
         if account_input is None:
             raise LoginPageError("未定位到账号输入框：ACCOUNT_INPUTS 与登录页结构不匹配。" + _SELECTOR_HINT)
-        self._humanizer.move_to(page, account_input)
-        self._humanizer.type_like_human(account_input, self._account.account)
-        self._humanizer.pause_field()
+        self._type_like_human(page, account_input, self._account.account, "账号输入")
 
         password_input = find_first_visible(page, selectors.PASSWORD_INPUTS)
         if password_input is None:
             raise LoginPageError("未定位到密码输入框：PASSWORD_INPUTS 与登录页结构不匹配。" + _SELECTOR_HINT)
-        self._humanizer.move_to(page, password_input)
-        self._humanizer.type_like_human(password_input, self._account.password)
-        self._humanizer.pause_field()
+        self._type_like_human(page, password_input, self._account.password, "密码输入")
+
+        # 提交前自检：两框都非空（只比对字符数，不读值），避免带着空框去提交
+        verify_credentials_filled(account_input, password_input)
 
         submit = find_first_visible(page, selectors.SUBMIT_BUTTONS)
         if submit is None:
             raise LoginPageError("未定位到登录提交按钮：SUBMIT_BUTTONS 与登录页结构不匹配。" + _SELECTOR_HINT)
         self._humanizer.pause_before_submit()
         self._humanizer.move_to(page, submit)
-        submit.click()
+        # 提交走多路径降级链（回车 → 真实点击 → 强制点击 → 合成点击），每条短超时并用可观测信号判定生效
+        baseline_url = page.url
+        submit_with_degradation(
+            page, submit, password_input, baseline_url=baseline_url, settings=self._settings
+        )
+
+    def _type_like_human(self, page: Any, element: Any, value: str, stage: str) -> None:
+        """按人工节奏输入；底层异常映射为明确的登录错误类型（不裸抛）。"""
+        try:
+            self._humanizer.move_to(page, element)
+            self._humanizer.type_like_human(element, value)
+        except Exception as exc:
+            raise classify_browser_failure(exc, stage) from exc
+        self._humanizer.pause_field()
 
     def _manual_required(self, page: Any) -> ManualInterventionRequired:
         challenge = detect_challenge(page, self._settings.login.probe_timeout_ms) or ChallengeType.RISK
@@ -596,6 +1045,18 @@ class PddLoginService:
                 repository.upsert_login_session(cursor, session)
         except Exception as exc:
             raise LoginPersistenceError(result, exc) from exc
+
+    def _persist_failure(self, outcome: LoginOutcome, reason: str) -> LoginResult:
+        """把失败/需人工介入的结论落库（状态取 ``_OUTCOME_TO_STATUS``），并返回结果对象。
+
+        ``fail_reason`` 先**脱敏**再截断：底层异常文本可能夹带页面内容或敏感串，
+        且该列长度为 512（repository 侧还会再截一次）。
+        """
+        from collector import logging_setup
+
+        result = self._build_result(outcome, None, fail_reason=logging_setup.redact_text(reason or "")[:400])
+        self._persist(result)
+        return result
 
     def _register_secret_for_redaction(self) -> None:
         # 仅在流程存续期间把密码纳入日志脱敏表，用完即清（明文零落地，ADR §20.3.3）

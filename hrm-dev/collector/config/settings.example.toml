@@ -67,6 +67,12 @@ steps_max = 12
 probe_timeout_ms = 15000
 # 提交登录后等待跳转/可观测信号的上限（毫秒）。
 submit_wait_ms = 30000
+# 提交降级链的单条路径交互超时（毫秒）。**必须短**：单条路径不得吃满 30s 默认超时。
+# 2026-09-22 采集机实测：button.login-btn 已定位成功但点击落点被遮挡，Playwright 硬等 30s 才抛超时。
+submit_path_timeout_ms = 4000
+# 单条路径执行后，观测「提交是否生效」的预算（毫秒）。未观测到生效信号才继续降级。
+# 默认 4 条路径 ×(4000+3000)=28000ms ≈ submit_wait_ms，全链总预算与之对齐。
+submit_effect_probe_ms = 3000
 # 登录成功后是否导出 storage_state。
 # 注意：登录态的权威载体是 browser.user_data_dir 持久化 profile 的 contexts[0]；
 #      本开关仅用于导出摘要供诊断与登录态探测，文件落 runtime/storage-state/（被 gitignore 排除）。

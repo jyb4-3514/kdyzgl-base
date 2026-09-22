@@ -124,6 +124,8 @@ class LoginConfig:
 
     probe_timeout_ms: int
     submit_wait_ms: int
+    submit_path_timeout_ms: int
+    submit_effect_probe_ms: int
     export_storage_state: bool
     storage_state_rel_path: str
     auto_login_enabled: bool
@@ -231,6 +233,11 @@ def _build(raw: dict, source_file: Path) -> Settings:
     login = LoginConfig(
         probe_timeout_ms=int(_pick(raw, "login", "probe_timeout_ms", 15000)),
         submit_wait_ms=int(_pick(raw, "login", "submit_wait_ms", 30000)),
+        # 提交降级链：单条路径的交互超时与生效观测预算。**必须短**——
+        # 2026-09-22 采集机实测：单条 click 吃满默认 30s，4 条降级会放大到 120s+。
+        # 默认值使「路径数 ×(交互 + 观测)」≈ submit_wait_ms（4×(4000+3000)=28000 ≤ 30000）。
+        submit_path_timeout_ms=int(_pick(raw, "login", "submit_path_timeout_ms", 4000)),
+        submit_effect_probe_ms=int(_pick(raw, "login", "submit_effect_probe_ms", 3000)),
         export_storage_state=bool(_pick(raw, "login", "export_storage_state", True)),
         storage_state_rel_path=str(
             _pick(raw, "login", "storage_state_rel_path", "runtime/storage-state/{account_hash}.json")
@@ -238,6 +245,12 @@ def _build(raw: dict, source_file: Path) -> Settings:
         auto_login_enabled=bool(_pick(raw, "login", "auto_login_enabled", True)),
         session_ttl_hours=int(_pick(raw, "login", "session_ttl_hours", 12)),
     )
+    # 超时必须为正：为 0 会让 Playwright 走「不限时」语义，反而把降级链的短超时初衷废掉
+    if login.submit_path_timeout_ms <= 0 or login.submit_effect_probe_ms <= 0:
+        raise ConfigError(
+            "login.submit_path_timeout_ms / submit_effect_probe_ms 必须为正整数"
+            f"（当前 {login.submit_path_timeout_ms} / {login.submit_effect_probe_ms}）"
+        )
 
     db = DbConfig(
         host=str(_pick(raw, "db", "host", "127.0.0.1")),

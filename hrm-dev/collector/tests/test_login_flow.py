@@ -83,6 +83,15 @@ def _candidate(value: str, kind: str = "css") -> selectors.SelectorCandidate:
     return selectors.SelectorCandidate(kind, value, "测试构造")
 
 
+def _scoped(value: str) -> str:
+    """实测候选的查找键：作用域（激活面板）+ 基础选择器，与 selectors 的取值保持一致。"""
+    return f"{selectors.ACTIVE_PANEL.value} {value}"
+
+
+def _css_key(value: str) -> str:
+    return f"css|{value}"
+
+
 # ==================================================================
 # 登录方式页签切换：幂等判定
 # ==================================================================
@@ -90,7 +99,7 @@ def test_已处于密码登录态时幂等跳过页签点击():
     click_log: list = []
     page = _FakePage(
         {
-            "css|input.password-input:visible": [_FakeElement(True, click_log)],
+            _css_key(_scoped("input.password-input:visible")): [_FakeElement(True, click_log)],
             "text|密码登录|True": [_FakeElement(True, click_log)],
         }
     )
@@ -104,7 +113,7 @@ def test_短信登录态下点击密码登录页签后转为可填():
     switcher = _FakeElement(True, click_log, on_click=lambda: setattr(password_element, "visible", True))
     page = _FakePage(
         {
-            "css|input.password-input:visible": [password_element],
+            _css_key(_scoped("input.password-input:visible")): [password_element],
             "text|密码登录|True": [switcher],
         }
     )
@@ -130,7 +139,7 @@ def test_点击页签后密码框仍不可见时报错指向诊断脚本():
     switcher = _FakeElement(True, click_log)  # 点击后不改变密码框可见性，模拟登录页改版
     page = _FakePage(
         {
-            "css|input.password-input:visible": [_FakeElement(False, click_log)],
+            _css_key(_scoped("input.password-input:visible")): [_FakeElement(False, click_log)],
             "text|密码登录|True": [switcher],
         }
     )
@@ -161,22 +170,22 @@ def test_全部匹配项均不可见时返回None():
 def test_降级链在首选候选未命中时回落到通用候选():
     page = _FakePage(
         {
-            "css|#mobile:visible": [],
+            _css_key(_scoped("#mobile:visible")): [],
             'css|input[type="text"]:visible': [_FakeElement(True, [])],
         }
     )
     assert pdd.find_first_visible(page, selectors.ACCOUNT_INPUTS, timeout_ms=0) is not None
 
 
-def test_候选定位异常时不影响后续候选():
+def test_首个作用域候选定位异常时不阻断后续候选():
     class _BoomPage(_FakePage):
         def locator(self, value: str) -> _FakeLocator:
             self.queries.append(f"css|{value}")
-            if value == "#mobile:visible":
+            if value == _scoped("#mobile:visible"):
                 raise RuntimeError("模拟单个候选不可用")
             return super().locator(value)
 
-    page = _BoomPage({"css|input.password-input:visible": [_FakeElement(True, [])]})
+    page = _BoomPage({_css_key(_scoped("input.password-input:visible")): [_FakeElement(True, [])]})
     assert pdd.find_first_visible(page, selectors.PASSWORD_INPUTS, timeout_ms=0) is not None
     assert pdd.find_first_visible(page, selectors.ACCOUNT_INPUTS, timeout_ms=0) is None
 
@@ -188,6 +197,12 @@ def test_css候选的可见性约束原样透传():
     page = _FakePage()
     pdd._locator(page, _candidate("#mobile:visible"))
     assert page.queries == ["css|#mobile:visible"]
+
+
+def test_css候选的作用域在定位时前置():
+    page = _FakePage()
+    pdd._locator(page, selectors.ACCOUNT_INPUTS[0])
+    assert page.queries == [_css_key(_scoped("#mobile:visible"))]
 
 
 def test_文本候选的精确匹配透传():

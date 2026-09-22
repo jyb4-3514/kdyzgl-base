@@ -133,7 +133,11 @@ print(account.masked_description())          # site=... account=166****9983 auth
 | 登录态载体 | **profile 为权威载体**（ADR §20.2.5）；`storage_state` 仅作诊断导出，落 `runtime/storage-state/<account_hash>.json` |
 | 登录结果判定 | **不只看 URL**：① 域名白名单（允许白名单域子域）② 工作台特征元素（**未实测**：`DIV[role=menuitem]` / 「运单查询」）③ 登录表单是否仍存在；三者组合判定，见 `pdd.judge_login_result` |
 | 登录方式切换 | 实测目标站**默认停在「短信登录」**，此时密码框不可见。本项目走密码登录，登录前先点「密码登录」页签；以「密码框可见」为**幂等判据**，已就绪则跳过点击；切换失败给出指向 `dump-login-page.py` 与 `selectors.py` 的可执行报错（不泛化成「登录失败」）|
-| 选择器策略 | 全部集中在 `src/collector/login/selectors.py`，**实测定位优先 → 语义定位次之 → 通用 CSS 兜底**；每条带「依据」与 `verified` 标记。2026-09-22 采集机实测已确认 4 类条目（密码登录页签 / `#mobile` / `input.password-input` / `button.login-btn`），其余仍标未核实。同 id（`#mobile`）与同 class（`button.login-btn`）元素**各挂两份**，故交互类 CSS 候选一律带 `:visible` |
+| 选择器策略 | 全部集中在 `src/collector/login/selectors.py`，**实测定位优先 → 语义定位次之 → 通用 CSS 兜底**；每条带「依据」与 `verified` 标记。2026-09-22 采集机实测已确认 4 类元素（密码登录页签 / `#mobile` / `input.password-input` / `button.login-btn`），并按两种作用域锚点生成 8 条实测候选，其余仍标未核实。同 id（`#mobile`）与同 class（`button.login-btn`）元素**各挂多份**，故交互类 CSS 候选一律带 `:visible` **并收窄到激活面板作用域**：`ACTIVE_PANEL`（class 锚点 `.rocket-tabs-tabpane-active`）与 `ACTIVE_PANEL_ARIA`（aria 锚点 `div[role="tabpanel"][aria-hidden="false"]`）并列、互为兜底。`:visible` 只看包围盒、不看 `aria-hidden`，单独用不足以区分「当前生效面板」；作用域锚点则回答「元素属于哪个面板」，两者叠加使用。非作用域候选仅作最后兜底 |
+| 提交动作 | `pdd.submit_with_degradation`：**多路径降级链**，顺序 A 回车提交（密码框 `press('Enter')`，按键不依赖鼠标落点、天然绕开遮挡）→ B 真实点击（`click_with_occlusion_guard`：居中滚动 + `elementFromPoint` 落点校验，通过才 `click(timeout=短)`）→ C 强制点击 `click(force=True)` → D 合成点击 `dispatch_event('click')`。每条路径**短超时**（`login.submit_path_timeout_ms`，默认 4000ms），执行后用**可观测信号**判定是否生效（URL 变化 / 工作台特征 / 挑战 / 凭据错误 / 表单消失），未生效才降级；全部未生效抛 `LoginElementBlockedError` 并点明每条路径与最后报错。**D 为 `isTrusted=false` 的合成 DOM 事件**（非真实鼠标动作，也绕不过页面自身校验与风控），仅最后兜底 |
+| 填表自检 | 提交前 `pdd.verify_credentials_filled`：校验账号框与密码框**各自非空**——只读取并比较**字符数**，密码值不返回、不记日志、不进异常（红线）；任一为空即报错并指向 `selectors.py`，绝不带着空框提交 |
+| 提交路径预算配置 | `login.submit_path_timeout_ms`（单条路径交互超时，默认 4000）与 `login.submit_effect_probe_ms`（单条路径生效观测预算，默认 3000）：默认「4 条 ×(4000+3000)=28000ms」≈ `login.submit_wait_ms`（30000），全链总预算与之一致，杜绝单条路径吃满 30s |
+| 异常收敛 | `run()` 全流程收敛：定位失败 / 超时 / 遮挡 / 浏览器错误 → 落库 `FAILED` 并返回失败结果（退出码 1）；挑战/风控 → 落库 `MANUAL_REQUIRED` 后抛 `ManualInterventionRequired`（退出码 2）。CLI 顶层兜底，**不输出裸 traceback**；堆栈只进 debug 级日志 |
 | 仿人工 | 仅限**节奏与停顿**（`src/collector/login/humanize.py`）：逐字符 60–180ms 随机、字段间停顿、提交前停顿；参数全部可配 |
 | 人工介入触发 | 页面文本命中挑战信号（验证码 / 滑块 / 短信验证 / 风控提示）→ 立即停止，抛 `ManualInterventionRequired`，登录态置 `MANUAL_REQUIRED`，退出码 2 并打印指引 |
 | 凭据错误 | 明确「账号或密码错误」→ **不重试**，提示站长更新凭据（`init-local-secrets.ps1 -Force`） |
@@ -176,26 +180,33 @@ python scripts/dump-login-page.py --url https://mdkd.pinduoduo.com/login --settl
 | 登录方式 | 页面提供「短信登录 / 密码登录 / 微信登录」三种，**默认停在「短信登录」**（此时密码框不可见）。本项目走密码登录方式，**需先切页签** |
 | 密码登录页签 DOM | 密码框 `input.password-input`（id=`password`，该页签下唯一）；账号框 `#mobile`（class 含 `rocket-input`）；提交按钮 `button.login-btn` |
 | 同元素两份 | 短信/密码页签面板**同时挂在 DOM**，切换页签只切显隐 → `#mobile` 与 `button.login-btn` 各两份，必须用 `:visible` 约束区分 |
+| **激活面板（作用域锚点）** | 被填值的 `#mobile` 与目标按钮所在面板为 `div[role=tabpanel][aria-hidden=false].rocket-tabs-tabpane-active`；其中 `aria-hidden=true` 的为非活动面板。据此设两个作用域锚点：`selectors.ACTIVE_PANEL`（class 锚点 `.rocket-tabs-tabpane-active`）与 `selectors.ACTIVE_PANEL_ARIA`（aria 锚点 `div[role="tabpanel"][aria-hidden="false"]`），交互类实测候选两种写法并列、互为兜底 |
+| **提交按钮点击被拦截** | 实测日志：`button.login-btn:visible` 已定位成功（`element is visible, enabled and stable`），但点击坐标被激活面板的 `#mobile` 子树与 `div.rocket-tabs...login-tabs` 页签容器覆盖（pointer events 拦截），Playwright 重试 30s 后抛 `TimeoutError`。**本次对策**：提交改为多路径降级链（回车 → 真实点击 → 强制点击 → 合成点击），每条短超时并用可观测信号判定生效；`run()` 全流程收敛、不输出裸 traceback |
+| **账号框已填入** | 实测 traceback 的拦截者日志中出现 `<input id="mobile" ... value="16626369983" class="rocket-input"/>`，证明账号框已被逐字符填入（`humanize` 输入与页签切换均生效） |
 | 采集机环境 | Python 3.13.15 + MySQL 8.0.46，依赖已装、Chromium 已下载，`check-env` 全绿 |
 
 ### 8.2 仍未实测（不得当作已验证）
 
-1. **提交后是否出现滑块 / 图形验证码**：本轮只做只读结构导出，**未提交表单**，未实测。
-2. **登录成功后的工作台 DOM 与跳转目标**：尚未成功登录，故 `WORKBENCH_MARKERS`（`div[role=menuitem]` / 「运单查询」）**仍属未实测**——其 `verified=True` 的依据是站点分析文档核实，**不是**采集机实测。
-3. **挑战信号表未校准**：`CHALLENGE_SIGNALS` 仍为通用中文文案推断（ADR 待验证项 V17 / V21）。**已知风险**：密码登录页 DOM 中存在「获取验证码」按钮，通用信号「验证码」可能被误命中而直接回落人工；是否误命中取决于该按钮在密码页签下是否可见，**待实跑确认**。
-4. **会话有效期未实测**：`session_ttl_hours`（默认 12h）为保守估值，仅用于估算 `expire_at`，待 V18 实测回填。
-5. **未运行验证项**：开发机无 MySQL、无企业微信，且未安装 Playwright/PyMySQL，故以下**从未真实执行**：真实开浏览器、真实登录、真实连库建表、DPAPI 真实解密。以上均在采集机验证。
-6. **storage_state 落盘与 ADR 表述的差异**：ADR §20.2.5 表述「登录态仍落在 profile、采集端不另行落盘」。本版按任务要求实现了 `storage_state` 导出（含 Cookie，属敏感物，落 `runtime/` 且不入库不入 Git）。若评审认定 profile 已足够，可将 `login.export_storage_state` 置 `false` 彻底关闭（代码内已标 `TODO(扩展)`）。
-7. **版本与多实例**：本版为**单机单实例单账号**，未做多账号并发（代码内已标 `TODO(扩展)`）。
-8. **DPAPI 作用域约束**：密文为 CurrentUser 作用域，只能由生成它的同一 Windows 账户在同一台机器解密；若管理员**重置**该账户密码，旧密文可能不可恢复（ADR §20.3.1）。
-9. **PyMySQL 版本**：`PyMySQL[rsa]==1.2.*` 的次要版本号取自 PyPI 当前发布线，未在采集机实装验证。
+1. **密码框是否被正确填入**：本轮 traceback 只暴露了账号框（`#mobile`）的 `value`，**密码框的 value 未验证**（密码值也不应出现在日志中，故只能靠「提交前自检通过」这一信号间接确认）。
+2. **提交降级链未在采集机实跑**：新增的 A~D 四条路径与「提交是否生效」的信号判定目前**只有单测覆盖**（纯逻辑、假页面），尚未在真实 Chromium 上跑通；哪条路径最终生效、`Escape` 能否收起浮层均待实测。
+3. **提交后是否出现滑块 / 图形验证码**：本轮只做只读结构导出，**未提交表单**，未实测。
+4. **登录成功后的工作台 DOM 与跳转目标**：尚未成功登录，故 `WORKBENCH_MARKERS`（`div[role=menuitem]` / 「运单查询」）**仍属未实测**——其 `verified=True` 的依据是站点分析文档核实，**不是**采集机实测。
+5. **挑战信号表未校准**：`CHALLENGE_SIGNALS` 仍为通用中文文案推断（ADR 待验证项 V17 / V21）。**已知风险**：密码登录页 DOM 中存在「获取验证码」按钮，通用信号「验证码」可能被误命中而直接回落人工；是否误命中取决于该按钮在密码页签下是否可见，**待实跑确认**。
+6. **会话有效期未实测**：`session_ttl_hours`（默认 12h）为保守估值，仅用于估算 `expire_at`，待 V18 实测回填。
+7. **未运行验证项**：开发机无 MySQL、无企业微信，且未安装 Playwright/PyMySQL，故以下**从未真实执行**：真实开浏览器、真实登录、真实连库建表、DPAPI 真实解密。以上均在采集机验证。
+8. **storage_state 落盘与 ADR 表述的差异**：ADR §20.2.5 表述「登录态仍落在 profile、采集端不另行落盘」。本版按任务要求实现了 `storage_state` 导出（含 Cookie，属敏感物，落 `runtime/` 且不入库不入 Git）。若评审认定 profile 已足够，可将 `login.export_storage_state` 置 `false` 彻底关闭（代码内已标 `TODO(扩展)`）。
+9. **版本与多实例**：本版为**单机单实例单账号**，未做多账号并发（代码内已标 `TODO(扩展)`）。
+10. **DPAPI 作用域约束**：密文为 CurrentUser 作用域，只能由生成它的同一 Windows 账户在同一台机器解密；若管理员**重置**该账户密码，旧密文可能不可恢复（ADR §20.3.1）。
+11. **PyMySQL 版本**：`PyMySQL[rsa]==1.2.*` 的次要版本号取自 PyPI 当前发布线，未在采集机实装验证。
 
 ## 9. 故障处理
 
 | 现象 | 处理 |
 | --- | --- |
 | **登录时出现验证码 / 滑块 / 短信验证** | 这是**预期行为**：采集端会立即停止并退出码 2。请在采集机浏览器窗口中**人工完成验证**，然后重跑 `python -m collector login --check` 确认登录态有效。**禁止**接入任何打码/识别服务（红线 C2/C8）。 |
-| 提示「未定位到账号/密码输入框」「未定位到「密码登录」页签」「已点击「密码登录」页签但密码框仍未出现」 | 登录页结构或文案变化。**先导出真实 DOM 再校准**：`python scripts/dump-login-page.py --url <登录地址> [--click-text 密码登录]`，对照产出改 `src/collector/login/selectors.py`（改版只需改这一个文件）。同 id / 同 class 有两份时记得带 `:visible`。 |
+| 提示「未定位到账号/密码输入框」「未定位到「密码登录」页签」「已点击「密码登录」页签但密码框仍未出现」 | 登录页结构或文案变化。**先导出真实 DOM 再校准**：`python scripts/dump-login-page.py --url <登录地址> [--click-text 密码登录]`，对照产出改 `src/collector/login/selectors.py`（改版只需改这一个文件）。同 id / 同 class 有两份时记得带 `:visible`，并保留激活面板作用域锚点（`ACTIVE_PANEL` class 锚点 / `ACTIVE_PANEL_ARIA` aria 锚点）。 |
+| 提示「提交前自检失败：账号/密码输入框为空」 | 输入未真正落到框里（定位可能选到了隐藏副本）。先跑上面的 DOM 导出校准 `ACCOUNT_INPUTS` / `PASSWORD_INPUTS`；自检只统计字符数，**不会**打印密码值。 |
+| **提交后长期无跳转 / 「提交按钮被其它元素遮挡」/ 「N 条提交路径均未使登录生效」** | 提交走**多路径降级链**（A 回车 → B 真实点击 → C 强制点击 → D 合成点击），每条短超时并用可观测信号判定生效，日志逐条打印「尝试路径 X / 已生效 / 未生效降级」。四条全部未生效说明按钮被覆盖或页面结构变化：先导出 DOM 复核 `SUBMIT_BUTTONS` 与激活面板锚点，必要时上调 `login.submit_path_timeout_ms` / `submit_effect_probe_ms`（默认 4000 / 3000，全链总预算与 `submit_wait_ms` 对齐）。**严禁**把「点了没反应」当成功。 |
 | 提示密码框定位不到、但手机号框正常 | 目标站**默认停在「短信登录」**、密码框此时不可见。本项目走密码登录，登录流程会先点「密码登录」页签；若页签文案变了按上一行重新导出校准 `LOGIN_MODE_SWITCHERS`。 |
 | 提示「账号或密码错误」 | 凭据已失效。请站长确认后重跑 `init-local-secrets.ps1 ... -Force` 覆盖 `pdd` 段。 |
 | 提示「DPAPI 解密失败」 | 密文与当前 Windows 账户/机器不匹配。请在生成密文的**同一账户**下执行；跨机器/跨账户复制密钥文件无效。 |
@@ -211,7 +222,7 @@ python -m compileall -q src tests          # 语法编译
 python -m pytest tests -q                   # 纯逻辑单测（不连库、不开浏览器）
 ```
 
-测试覆盖：配置加载与环境变量覆盖、DPAPI 封装（打桩）、`PddAccount` 脱敏与校验、仿人工延时区间边界、repository 参数化 SQL 与幂等 upsert、建表语句切分、登录结果判定与挑战识别、选择器表的实测优先级与可见性约束（`:visible`）、登录方式页签切换的幂等判定与失败报错、日志脱敏。
+测试覆盖：配置加载与环境变量覆盖、DPAPI 封装（打桩）、`PddAccount` 脱敏与校验、仿人工延时区间边界、repository 参数化 SQL 与幂等 upsert、建表语句切分、登录结果判定与挑战识别、选择器表的实测优先级与可见性约束（`:visible`）与激活面板作用域锚点（class / aria）、登录方式页签切换的幂等判定与失败报错、**提交多路径降级链（顺序、短超时透传、单条失败不中断、全部未生效报错）与生效信号判定**、**填表自检（仅统计字符数、密码值不入日志/异常）**、日志脱敏。
 
 日志：`runtime/logs/collector.log`（滚动，全局脱敏）；凭据初始化日志：`runtime/logs/init-local-secrets.log`。
 

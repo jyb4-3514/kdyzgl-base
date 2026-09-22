@@ -51,9 +51,10 @@ def test_提交按钮首选实测的login_btn():
     assert (first.kind, first.value, first.verified) == ("css", "button.login-btn:visible", True)
 
 
-def test_实测条目共五条且依据写明采集机实测():
+def test_实测条目共八条且依据写明采集机实测():
+    # 页签 1 + 账号 2（class/aria 两种作用域）+ 密码 3（class×2 + aria）+ 提交 2（class/aria）
     measured = [candidate for group in _GROUPS for candidate in group if candidate.verified]
-    assert len(measured) == 5  # 页签 1 + 账号 1 + 密码 2 + 提交 1
+    assert len(measured) == 8
     for candidate in measured:
         assert "采集机实测" in candidate.basis
 
@@ -108,6 +109,58 @@ def test_新建候选的默认标记():
     assert candidate.verified is False
 
 
+# ---------------- 激活面板作用域（2026-09-22 采集机实测新增） ----------------
+def test_激活面板作用域取实测值且标记已核实():
+    assert selectors.ACTIVE_PANEL.kind == "css"
+    assert selectors.ACTIVE_PANEL.value == ".rocket-tabs-tabpane-active"
+    assert selectors.ACTIVE_PANEL.verified is True
+    assert "采集机实测" in selectors.ACTIVE_PANEL.basis
+
+
+def test_aria激活面板作用域取实测值且登记在锚点集合():
+    assert selectors.ACTIVE_PANEL_ARIA.value == 'div[role="tabpanel"][aria-hidden="false"]'
+    assert selectors.ACTIVE_PANEL_ARIA.verified is True
+    assert "采集机实测" in selectors.ACTIVE_PANEL_ARIA.basis
+    assert selectors.ACTIVE_PANEL_SCOPES == (selectors.ACTIVE_PANEL.value, selectors.ACTIVE_PANEL_ARIA.value)
+
+
+@pytest.mark.parametrize("candidates", _CSS_GROUP_PARAMS)
+def test_交互类实测候选都收窄到激活面板(candidates):
+    measured = [c for c in candidates if c.verified]
+    assert measured, "每组都应保留实测候选"
+    for candidate in measured:
+        assert candidate.scope in selectors.ACTIVE_PANEL_SCOPES, (
+            f"{candidate.value!r} 未收窄到激活面板：:visible 无法区分 aria-hidden 的另一份副本"
+        )
+        assert candidate.css_selector() == f"{candidate.scope} {candidate.value}"
+
+
+@pytest.mark.parametrize("candidates", _CSS_GROUP_PARAMS)
+def test_每组同时提供class锚点与aria锚点两种作用域(candidates):
+    # 两种锚点并列、互为兜底：class 锚点实测直接命中，aria 锚点抗 class 改名
+    scopes = {c.scope for c in candidates if c.kind == "css" and c.verified}
+    assert scopes == set(selectors.ACTIVE_PANEL_SCOPES), f"缺少 class/aria 任一种作用域写法：{scopes}"
+
+
+def test_aria作用域候选的最终css写法():
+    # aria 锚点 + 被测元素：等价于 div[role="tabpanel"][aria-hidden="false"] button.login-btn
+    aria_submit = next(
+        c for c in selectors.SUBMIT_BUTTONS if c.scope == selectors.ACTIVE_PANEL_ARIA.value
+    )
+    assert aria_submit.css_selector() == 'div[role="tabpanel"][aria-hidden="false"] button.login-btn:visible'
+
+
+def test_作用域只对css候选生效():
+    scoped = selectors.SelectorCandidate("role", "button:登录", "测试构造", scope=".rocket-tabs-tabpane-active")
+    assert scoped.css_selector() == "button:登录", "非 CSS 候选不应拼接作用域"
+
+
+def test_保留非作用域候选作为最后兜底():
+    # 该站日后调整激活面板 class 时，靠这些候选整体不失配
+    for candidates in (selectors.ACCOUNT_INPUTS, selectors.PASSWORD_INPUTS, selectors.SUBMIT_BUTTONS):
+        assert any(c.kind == "css" and not c.scope for c in candidates), "缺少非作用域 CSS 兜底候选"
+
+
 # ---------------- 未改动项 ----------------
 def test_工作台特征保持原样未改动():
     assert [c.value for c in selectors.WORKBENCH_MARKERS] == ['div[role="menuitem"]', "运单查询"]
@@ -115,4 +168,6 @@ def test_工作台特征保持原样未改动():
 
 def test_describe区分已核实与未核实():
     assert "已核实" in selectors.ACCOUNT_INPUTS[0].describe()
-    assert "未核实" in selectors.ACCOUNT_INPUTS[1].describe()
+    unverified = next(c for c in selectors.ACCOUNT_INPUTS if not c.verified)
+    assert "未核实" in unverified.describe()
+    assert "作用域=" in selectors.ACCOUNT_INPUTS[0].describe()
