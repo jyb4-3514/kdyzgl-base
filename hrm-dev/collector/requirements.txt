@@ -1,0 +1,30 @@
+# 二期采集端 · Python 依赖
+#
+# 版本策略：精确到次要版本（patch 允许浮动）；升级后须在采集机回归 login 流程再放行。
+#
+# 安装步骤（管理员或普通 PowerShell 均可）：
+#   python -m pip install -r requirements.txt
+#   python -m playwright install chromium
+#
+# 仅做纯逻辑单测的机器只需装最后一行 pytest。
+
+# ---------------- 运行时依赖 ----------------
+
+# 真实浏览器自动化。登录提交走页面自身流程，不构造 HTTP 请求、不注入 stealth/反检测脚本（红线 C3）。
+# License: Apache-2.0 | Python >= 3.10
+# 与 ADR §18.1 实机验证同一版本线（Playwright 1.63）。
+playwright==1.63.*
+
+# MySQL 驱动：纯 Python、无本地 C 扩展，便于审计。
+# 必须带 [rsa] 额外依赖（cryptography）：MySQL 8 默认认证插件 caching_sha2_password 在非 TLS
+# 连接下需要 RSA 公钥交换，缺了会在首次连接时报 "Authentication plugin 'caching_sha2_password' ..."。
+# License: MIT | Python >= 3.9
+PyMySQL[rsa]==1.2.*
+
+# DPAPI（Windows 数据保护 API）绑定，用于解密本地凭据密文（CurrentUser 作用域）。
+# License: PSF-2.0 | 仅 Windows
+pywin32==312
+
+# ---------------- 测试依赖（仅需纯逻辑单测时安装） ----------------
+# 版本次要号未逐条核实（仅开发期工具，不进入采集机运行链路）。
+pytest>=8.3,<10

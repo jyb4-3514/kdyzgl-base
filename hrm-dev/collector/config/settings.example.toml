@@ -1,0 +1,99 @@
+# 采集端非敏感配置模板
+#
+# 用法：复制本文件为同目录下的 settings.toml 后按采集机实际情况修改。
+#   Copy-Item config\settings.example.toml config\settings.toml
+#
+# 红线：本文件**只放非敏感配置**，严禁写入任何账号、密码、Cookie、密钥。
+#       敏感凭据一律走 config/local/local.secrets.json（DPAPI 密文，已被 .gitignore 排除）。
+#
+# 环境变量覆盖：任意键都可被 YIZHAN__<节>__<键> 覆盖（全大写），例如
+#   $env:YIZHAN__SITE__LOGIN_URL = "https://mdkd.pinduoduo.com/"
+#   $env:YIZHAN__BROWSER__HEADLESS = "false"        # 布尔：1/true/yes/on 为真
+#   $env:YIZHAN__BROWSER__EXTRA_ARGS = "arg1,arg2"  # 列表：逗号分隔
+#   $env:YIZHAN__HUMANIZE_MOUSE__ENABLED = "true"   # 嵌套节用下划线连接
+
+[site]
+# 登录入口地址。注意：ADR 已核实入口 mcmd 可能只是营销落地页、真实工作台为 mdkd，
+# 因此本值必须可配，首次实测时按实际情况调整（详见 README「已知限制与未验证项」）。
+login_url = "https://mcmd.pinduoduo.com/home"
+# 登录成功后的工作台地址，用于登录结果判定（结合 DOM 特征，不只看 URL 跳转）。
+workbench_url = "https://mdkd.pinduoduo.com/"
+# 允许的域名白名单：登录态探测与跳转判定只认这些主机，防止被异常跳转引导到其它站点。
+allowed_hosts = ["mcmd.pinduoduo.com", "mdkd.pinduoduo.com"]
+
+[browser]
+# Playwright 持久化上下文目录（相对采集端根目录）。登录态以此 profile 为权威载体。
+# 该目录被 .gitignore 排除，绝对禁止入库。
+user_data_dir = "runtime/browser-profile"
+# 采集端需要"人工可见"以便处理验证码/滑块，默认非无头。
+headless = false
+# 留空 = 使用 Playwright 自带 Chromium（python -m playwright install chromium）
+channel = ""
+executable_path = ""
+slow_mo_ms = 0
+default_timeout_ms = 30000
+navigation_timeout_ms = 45000
+locale = "zh-CN"
+viewport_width = 1366
+viewport_height = 768
+# 额外启动参数。**严禁**加入反检测参数（红线 C3）：
+# 代码会拒绝 --remote-debugging-address / --remote-allow-origins=* / --user-agent 等。
+extra_args = []
+
+[humanize]
+# 「仿人工」只允许体现为**节奏与停顿**（红线 C3：不做任何反检测伪装）。
+# 逐字符输入延时区间（毫秒），每个字符在区间内随机取值。
+char_delay_min_ms = 60
+char_delay_max_ms = 180
+# 字段之间的停顿区间（毫秒）。
+field_pause_min_ms = 300
+field_pause_max_ms = 900
+# 点击提交前的停顿区间（毫秒）。
+before_submit_pause_min_ms = 500
+before_submit_pause_max_ms = 1500
+# 随机种子：0 = 真随机；非 0 = 固定种子（仅用于测试复现）。
+random_seed = 0
+
+[humanize.mouse]
+# TODO(扩展): 鼠标自然移动当前仅实现"分段移动"，尚未做轨迹拟真；默认关闭。
+enabled = false
+steps_min = 5
+steps_max = 12
+
+[login]
+# 探测已有登录态的超时（毫秒）。
+probe_timeout_ms = 15000
+# 提交登录后等待跳转/可观测信号的上限（毫秒）。
+submit_wait_ms = 30000
+# 登录成功后是否导出 storage_state。
+# 注意：登录态的权威载体是 browser.user_data_dir 持久化 profile 的 contexts[0]；
+#      本开关仅用于导出摘要供诊断与登录态探测，文件落 runtime/storage-state/（被 gitignore 排除）。
+export_storage_state = true
+storage_state_rel_path = "runtime/storage-state/{account_hash}.json"
+# 是否允许自动登录。ADR §20.2.9 的四项生效条件未闭环的站点应置 false（回落人工登录）。
+auto_login_enabled = true
+# 会话预计有效期（小时）。**未实测**，仅用于估算 expire_at；待 V18 实测后回填。
+session_ttl_hours = 12
+
+[db]
+# 只允许本机；代码会拒绝其它 host（红线：仅连 127.0.0.1）。
+host = "127.0.0.1"
+port = 3306
+database = "yizhan_collector"
+connect_timeout_s = 5
+read_timeout_s = 10
+write_timeout_s = 10
+charset = "utf8mb4"
+retry_attempts = 3
+retry_backoff_s = 1.0
+
+[paths]
+runtime_dir = "runtime"
+log_dir = "runtime/logs"
+# 本地密钥文件（DPAPI 密文，被 .gitignore 的 config/local/* 排除）
+secrets_file = "config/local/local.secrets.json"
+
+[logging]
+level = "INFO"
+max_bytes = 5242880
+backup_count = 5

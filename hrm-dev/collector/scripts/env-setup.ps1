@@ -109,17 +109,31 @@ function Get-RealPython {
     return $null
 }
 function Download-File {
-    param([string]$Url, [string]$OutFile)
+    param([string]$Url, [string]$OutFile, [long]$MinBytes = 1MB)
     if (Test-Path $OutFile) {
-        Write-Log ('已存在，跳过下载：{0}' -f $OutFile)
-        return $true
+        $len = (Get-Item $OutFile).Length
+        if ($len -ge $MinBytes) {
+            Write-Log ('已存在且大小合规（{0} 字节），跳过下载：{1}' -f $len, $OutFile)
+            return $true
+        }
+        # 上次下载被中断会留下半成品。若不校验大小就沿用，会把损坏文件当"已下载"，
+        # 后续静默安装/解压必然失败且难定位 —— 故删除后重下。
+        Write-Log ('发现不完整下载（{0} 字节 < 下限 {1} 字节），删除后重新下载' -f $len, $MinBytes) 'WARN'
+        Remove-Item -Path $OutFile -Force -ErrorAction SilentlyContinue
     }
     Write-Log ('下载：{0}' -f $Url)
     try {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 1800
         $sw.Stop()
-        $sizeMb = [math]::Round((Get-Item $OutFile).Length / 1MB, 1)
+        # 下载后再次校验大小：HTTP 200 但连接中断同样会留下半成品
+        $len = (Get-Item $OutFile).Length
+        if ($len -lt $MinBytes) {
+            Write-Log ('下载后大小异常（{0} 字节 < 下限 {1} 字节），判定为失败并删除' -f $len, $MinBytes) 'ERROR'
+            Remove-Item -Path $OutFile -Force -ErrorAction SilentlyContinue
+            return $false
+        }
+        $sizeMb = [math]::Round($len / 1MB, 1)
         Write-Log ('下载完成：{0} MB，耗时 {1} 秒' -f $sizeMb, [math]::Round($sw.Elapsed.TotalSeconds, 1))
         return $true
     } catch {
@@ -150,7 +164,7 @@ if ($pyExe) {
 } else {
     Write-Log '未发现真实 Python 安装，开始安装'
     $pyInstaller = Join-Path $WorkDir "python-$PyVersion-amd64.exe"
-    if (-not (Download-File -Url $PyUrl -OutFile $pyInstaller)) {
+    if (-not (Download-File -Url $PyUrl -OutFile $pyInstaller -MinBytes 20MB)) {
         Fail-Setup 'python' 'Python 安装包下载失败'
     }
     Write-Log '静默安装 Python（InstallAllUsers=1，PrependPath=1，含 pip 与 py 启动器）'
@@ -189,7 +203,7 @@ if ($myInstalled) {
 } else {
     if (-not (Test-Path $MyRoot)) { New-Item -ItemType Directory -Path $MyRoot -Force | Out-Null }
     $zip = Join-Path $WorkDir "mysql-$MyVersion-winx64.zip"
-    if (-not (Download-File -Url $MyUrl -OutFile $zip)) {
+    if (-not (Download-File -Url $MyUrl -OutFile $zip -MinBytes 200MB)) {
         Fail-Setup 'mysql' 'MySQL 压缩包下载失败'
     }
     Write-Log ('解压到 {0}（约 236MB，请稍候）' -f $MyRoot)
