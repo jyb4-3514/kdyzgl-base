@@ -82,6 +82,11 @@ storage_state_rel_path = "runtime/storage-state/{account_hash}.json"
 auto_login_enabled = true
 # 会话预计有效期（小时）。**未实测**，仅用于估算 expire_at；待 V18 实测后回填。
 session_ttl_hours = 12
+# —— 人工介入登录（`login --manual`）——
+# 等待现场人工完成滑块/验证码的最长时长（分钟）。超时按退出码 2 结束并落库 MANUAL_REQUIRED。
+manual_wait_minutes = 10
+# 只读轮询检测间隔（秒）。轮询只读取页面状态，不点击/不输入/不滚动，避免干扰人工操作。
+manual_poll_interval_s = 5
 
 [db]
 # 只允许本机；代码会拒绝其它 host（红线：仅连 127.0.0.1）。

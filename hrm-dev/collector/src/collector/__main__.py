@@ -2,11 +2,12 @@
 """采集端 CLI 入口。
 
 子命令：
-- ``check-env``      自检：Python 版本、依赖、配置文件、本地凭据、MySQL 连通性
-- ``init-db``        按 schema.sql 幂等建表
-- ``login --check``  只探测当前登录态，不做登录动作
-- ``login --run``    执行登录（已登录则跳过）；遇挑战时退出码 2 并给出人工处置指引
-- ``session list``   列出最近的登录会话记录（脱敏输出）
+- ``check-env``          自检：Python 版本、依赖、配置文件、本地凭据、MySQL 连通性
+- ``init-db``            按 schema.sql 幂等建表
+- ``login --check``      只探测当前登录态，不做登录动作
+- ``login --run``        执行自动登录（已登录则跳过）；遇挑战时退出码 2 并指向 ``--manual``
+- ``login --manual``     人工介入登录：打开有头浏览器交给现场人工完成挑战，程序只读轮询登录态
+- ``session list``       列出最近的登录会话记录（脱敏输出）
 
 用法（在 hrm-dev/collector 目录下）：
     $env:PYTHONPATH = "src"
@@ -31,7 +32,11 @@ from collector.login.pdd import (
     LoginPageError,
     LoginPersistenceError,
     LoginResult,
+    ManualBrowserClosedError,
     ManualInterventionRequired,
+    ManualLoginConfigError,
+    ManualLoginTimeoutError,
+    ManualReadyInfo,
     PddLoginService,
 )
 from collector.logging_setup import redact_text, setup_logging
@@ -75,11 +80,21 @@ def build_parser() -> argparse.ArgumentParser:
     init_db.add_argument("--schema-file", type=Path, default=None, help="自定义建表脚本路径")
     init_db.set_defaults(func=cmd_init_db)
 
-    login = subparsers.add_parser("login", help="登录态探测与登录")
+    login = subparsers.add_parser("login", help="登录态探测、自动登录与人工介入登录")
     _add_common_options(login)
     mode = login.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true", help="只探测当前登录态，不做登录动作")
-    mode.add_argument("--run", action="store_true", help="执行登录（已登录则跳过）")
+    mode.add_argument("--run", action="store_true", help="执行自动登录（已登录则跳过）")
+    mode.add_argument(
+        "--manual",
+        action="store_true",
+        help="人工介入登录：打开有头浏览器交给现场人工完成挑战，程序只读轮询登录态",
+    )
+    login.add_argument(
+        "--no-prefill",
+        action="store_true",
+        help="仅用于 --manual：不预填账号密码，由现场人工全部手填",
+    )
     login.set_defaults(func=cmd_login)
 
     session = subparsers.add_parser("session", help="登录会话记录")
@@ -126,6 +141,38 @@ def _open_connection(settings: Settings, args: argparse.Namespace, required: boo
             raise SystemExit(1) from exc
         _print(f"[警告] 数据库不可用，本次不持久化会话记录：{exc}")
         return None
+
+
+def _login_args_error(args: argparse.Namespace) -> str | None:
+    """校验 ``login`` 子命令的参数组合；返回错误说明，None 表示合法。
+
+    ``--no-prefill`` 只对 ``--manual`` 有意义，与 ``--check``/``--run`` 同用属误用，直接拒绝
+    （而不是静默忽略：静默忽略会让操作人以为预填已关闭，实际仍在预填）。
+    """
+    if getattr(args, "no_prefill", False) and not getattr(args, "manual", False):
+        return "--no-prefill 仅用于 `login --manual`（自动登录与登录态探测都不涉及预填）"
+    return None
+
+
+def _print_manual_guidance(settings: Settings, info: ManualReadyInfo) -> None:
+    """人工介入登录启动后的现场指引（电脑前的人照着做即可）。"""
+    login = settings.login
+    _print("")
+    _print("[人工介入登录] 浏览器已打开，请勿关闭窗口（关闭即中止本轮）。")
+    _print("请在浏览器窗口中依次完成：")
+    _print("  1) 若当前停在「短信登录」，先点「密码登录」页签；")
+    _print("  2) 完成页面上的滑块 / 验证码等挑战；")
+    _print("  3) 点击「登录」按钮。")
+    if info.prefilled:
+        _print("账号与密码已自动预填（程序不会自动提交），你只需完成挑战并点「登录」。")
+    else:
+        _print(f"账号与密码未预填（{info.prefill_note or '未执行预填'}），请在窗口中手动填写完整。")
+    _print(
+        f"程序每 {login.manual_poll_interval_s} 秒只读检测一次登录态"
+        f"（不点击、不输入，不会干扰你的操作），最多等待 {login.manual_wait_minutes} 分钟。"
+    )
+    _print("登录成功后程序会自动保存会话并写库，无需任何额外操作。")
+    _print("若长时间无结果：查看日志 runtime/logs/collector.log（含每轮检测结论）。")
 
 
 # ---------------- 子命令实现 ----------------
@@ -215,6 +262,11 @@ def cmd_init_db(args: argparse.Namespace) -> int:
 
 
 def cmd_login(args: argparse.Namespace) -> int:
+    arg_error = _login_args_error(args)
+    if arg_error is not None:
+        _print(f"[参数错误] {arg_error}")
+        return 1
+
     settings = _load_settings_or_exit(args)
     account = _load_account_or_exit(settings, args)
     connection = _open_connection(settings, args, required=False)
@@ -223,8 +275,25 @@ def cmd_login(args: argparse.Namespace) -> int:
     try:
         if args.check:
             result = service.check()
+        elif args.manual:
+            # 人工介入登录：程序只打开有头浏览器并只读等待，挑战交给现场人工（红线不变）
+            result = service.manual(
+                prefill=not args.no_prefill,
+                on_ready=lambda info: _print_manual_guidance(settings, info),
+            )
         else:
             result = service.run()
+    except ManualLoginConfigError as exc:
+        _print(f"[配置错误] {exc}")
+        return 1
+    except ManualLoginTimeoutError as exc:
+        _print(f"[人工登录超时] 未在 {exc.waited_minutes} 分钟内检测到登录成功")
+        _print(f"[排查建议] {exc.guidance}")
+        return 2
+    except ManualBrowserClosedError as exc:
+        _print(f"[浏览器已关闭] {exc}")
+        _print("说明：本轮人工登录因窗口被关闭而中止，并非「未检测到登录」")
+        return 2
     except ManualInterventionRequired as exc:
         _print(f"[需人工介入] {exc.reason}")
         _print(f"[人工处置指引] {exc.guidance}")

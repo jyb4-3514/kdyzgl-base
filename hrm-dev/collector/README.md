@@ -92,19 +92,90 @@ print(account.masked_description())          # site=... account=166****9983 auth
 
 安全约定：任何日志、异常、`__repr__`/`__str__` 只出现脱敏账号；**绝不静默使用默认账号密码**。底层实现见 `src/collector/security/dpapi.py`（DPAPI CurrentUser 作用域）。
 
-## 5. CLI 用法
+## 5. 人工介入登录（首次接入 / 登录态失效后的标准操作）
+
+> **为什么需要它**：目标站登录页会弹滑块 / 验证码等挑战，采集端**不识别、不拖动、不破解**（红线 C2/C8），检出即停。
+> 但自动路径（`--run`）停下的同时会把浏览器一起关掉，现场无从在窗口中完成验证——**提示文案与真实行为不符**（已复现的流程缺陷）。
+> 因此**人工完成挑战必须走 `login --manual`**：它把窗口保持打开交给现场人工，程序只做**只读**轮询。
+> `--manual` 与 `--run` **互不调用**，也**不是**默认行为。
+
+**命令**：
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m collector login --manual                # 默认预填账号密码：人工只需完成挑战并点「登录」
+python -m collector login --manual --no-prefill   # 纯手工：连账号密码也由人工填
+```
+
+**参数**：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--manual` | 人工介入登录模式（与 `--check` / `--run` 三选一，互斥） |
+| `--no-prefill` | 仅用于 `--manual`：不预填账号密码，由人工全部手填（与 `--check`/`--run` 同用会被判为参数错误） |
+| `--settings` / `--secrets` | 公共参数，同其它子命令 |
+
+`[login]` 段配置项（见 `config/settings.example.toml`）：
+
+| 键 | 默认 | 说明 |
+| --- | --- | --- |
+| `manual_wait_minutes` | `10` | 等待现场人工完成挑战的最长分钟数，超时按退出码 2 结束 |
+| `manual_poll_interval_s` | `5` | 只读轮询间隔（秒） |
+
+**要求有头**：若 `browser.headless = true`，程序会直接以**明确错误**退出并提示改为 `false`（不会静默替你改配置）——人工看不到无头窗口，本模式无意义。
+
+**预期输出（节选）**：
+
+```text
+[人工介入登录] 浏览器已打开，请勿关闭窗口（关闭即中止本轮）。
+请在浏览器窗口中依次完成：
+  1) 若当前停在「短信登录」，先点「密码登录」页签；
+  2) 完成页面上的滑块 / 验证码等挑战；
+  3) 点击「登录」按钮。
+账号与密码已自动预填（程序不会自动提交），你只需完成挑战并点「登录」。
+程序每 5 秒只读检测一次登录态（不点击、不输入，不会干扰你的操作），最多等待 10 分钟。
+登录成功后程序会自动保存会话并写库，无需任何额外操作。
+...
+结论：LOGIN_SUCCEEDED（数据库登录态=SUCCESS）
+cookie 条数：12（仅计数，不输出内容）
+```
+
+**结束分支与退出码**：
+
+| 分支 | 退出码 | 提示要点 |
+| --- | --- | --- |
+| 登录成功 | `0` | 导出 `storage_state`、`pdd_login_session` 置 `SUCCESS`，打印脱敏摘要（cookie 计数 / 落盘路径 / 预计失效时间） |
+| 凭据错误 | `1` | 「账号或密码错误」不重试，提示站长重跑 `init-local-secrets.ps1 -Force` 更新凭据 |
+| 等满未成功（超时） | `2` | 「未在 N 分钟内检测到登录成功」+ 排查建议；落库 `MANUAL_REQUIRED` |
+| 人工关闭了窗口 | `2` | 「浏览器窗口已被关闭，本轮人工登录已中止」——**明确说明不是「未检测到登录」** |
+
+**失败排查**：
+
+| 现象 | 处理 |
+| --- | --- |
+| 提示 `browser.headless = true` | 把 `config/settings.toml` 的 `[browser] headless` 改为 `false`（或设 `YIZHAN__BROWSER__HEADLESS=false`）后重跑。 |
+| 提示「账号与密码未预填（预填失败：…）」 | 预填**不致命**：按提示在窗口中手动填写账号密码后继续完成挑战即可；并按提示里的原因检查 `selectors.py`（多为登录页改版）。以 `--no-prefill` 启动时该提示属**预期**。 |
+| 提示「未在 N 分钟内检测到登录成功」 | 确认是否已点「登录」、账号密码是否正确、窗口是否仍在登录页或已跳转工作台。仍无解时看 §9.2：`WORKBENCH_MARKERS` 尚未在采集机实测，成功后判定可能未命中，需先导出工作台 DOM 校准 `selectors.py`。 |
+| 提示「浏览器窗口已被关闭」 | 窗口被关导致本轮中止（**不是**超时），重跑 `login --manual` 即可。 |
+| 中途想放弃 | 直接关掉浏览器窗口即可，程序会识别并以退出码 2 结束，不会误报成超时。 |
+
+> 期间程序**只读**：只读取页面地址、可见性与正文，不点击、不输入、不滚动，不会与你的操作打架。
+> 挑战仍由人工完成，程序**不做**任何识别 / 模拟拖动 / 破解（红线不变）。
+
+## 6. CLI 用法
 
 | 命令 | 说明 | 退出码 |
 | --- | --- | --- |
 | `python -m collector check-env` | 自检：Python 版本、依赖、配置文件、本地凭据、MySQL 连通性 | 0 通过 / 1 有失败项 |
 | `python -m collector init-db` | 按 `src/collector/db/schema.sql` 幂等建表 | 0 / 1 |
 | `python -m collector login --check` | 只探测当前登录态，不做登录动作 | 0 已登录 / 1 未登录或失败 / 2 需人工介入 |
-| `python -m collector login --run` | 执行登录（已登录则跳过） | 同上 |
+| `python -m collector login --run` | 执行自动登录（已登录则跳过）；检出挑战即**停止自动化**并指向 `--manual` | 0 成功 / 1 失败 / 2 需人工介入 |
+| `python -m collector login --manual` | **人工介入登录**：有头浏览器交给现场人工，程序只读轮询登录态（见 §5） | 0 成功 / 1 凭据错误或失败 / 2 超时或窗口被关 |
 | `python -m collector session list --limit 20` | 列出最近的登录会话记录（脱敏） | 0 / 1 |
 
 公共参数：`--settings <路径>`、`--secrets <路径>`。
 
-## 6. MySQL 表结构要点
+## 7. MySQL 表结构要点
 
 建表脚本：`src/collector/db/schema.sql`（仅 DDL）。时间列一律 **UTC**（连接建立时执行 `SET time_zone='+00:00'`）。
 
@@ -125,7 +196,7 @@ print(account.masked_description())          # site=... account=166****9983 auth
 
 **`pdd_collect_cursor`（采集游标，为 P1-03 断点续采打地基）**：`station_code` / `task_key` / `cursor_value` / `last_run_at`，唯一键 `uk_pdd_collect_cursor_station_task(station_code, task_key)`。
 
-## 7. 登录模块设计要点
+## 8. 登录模块设计要点
 
 | 主题 | 决策 |
 | --- | --- |
@@ -139,9 +210,11 @@ print(account.masked_description())          # site=... account=166****9983 auth
 | 提交路径预算配置 | `login.submit_path_timeout_ms`（单条路径交互超时，默认 4000）与 `login.submit_effect_probe_ms`（单条路径生效观测预算，默认 3000）：默认「4 条 ×(4000+3000)=28000ms」≈ `login.submit_wait_ms`（30000），全链总预算与之一致，杜绝单条路径吃满 30s |
 | 异常收敛 | `run()` 全流程收敛：定位失败 / 超时 / 遮挡 / 浏览器错误 → 落库 `FAILED` 并返回失败结果（退出码 1）；挑战/风控 → 落库 `MANUAL_REQUIRED` 后抛 `ManualInterventionRequired`（退出码 2）。CLI 顶层兜底，**不输出裸 traceback**；堆栈只进 debug 级日志 |
 | 仿人工 | 仅限**节奏与停顿**（`src/collector/login/humanize.py`）：逐字符 60–180ms 随机、字段间停顿、提交前停顿；参数全部可配 |
-| 人工介入触发 | 页面文本命中挑战信号（验证码 / 滑块 / 短信验证 / 风控提示）→ 立即停止，抛 `ManualInterventionRequired`，登录态置 `MANUAL_REQUIRED`，退出码 2 并打印指引 |
+| 人工介入触发（`--run`） | 页面文本命中挑战信号（验证码 / 滑块 / 短信验证 / 风控提示）→ **立即停止自动化**，抛 `ManualInterventionRequired`，登录态置 `MANUAL_REQUIRED`，退出码 2 并打印指引。指引**只**指向 `login --manual`，**不再**声称"在浏览器窗口中手动完成"（检出后浏览器会随上下文关闭，窗口不存在） |
+| 人工介入登录（`--manual`） | `PddLoginService.manual`：`browser.headless=true` 时以 `ManualLoginConfigError` 明确报错（不静默改有头）；打开有头持久化上下文 → 可选预填（`--no-prefill` 则完全不触碰页面）→ `on_ready` 回调打印现场指引 → `poll_manual_login` **只读**轮询（复用 `judge_login_result`，不点击/不输入/不滚动）→ 成功导出会话并落库 `SUCCESS`。与 `run` 互不调用、非默认行为 |
+| 人工登录结束分支 | 成功 → 退出码 0；凭据错误 → 退出码 1（落库 `FAILED`）；超时 → `ManualLoginTimeoutError` 退出码 2（落库 `MANUAL_REQUIRED`）；人工关窗 → `ManualBrowserClosedError` 退出码 2（落库 `MANUAL_REQUIRED`，**不伪装**成"未检测到登录"）。关窗识别：`page.is_closed()` + 捕获 Playwright `TargetClosedError`（见 `pdd.is_browser_closed_error`） |
 | 凭据错误 | 明确「账号或密码错误」→ **不重试**，提示站长更新凭据（`init-local-secrets.ps1 -Force`） |
-| 自动登录开关 | `login.auto_login_enabled = false` 时直接回落人工（ADR §20.2.9 生效条件未闭环的站点应关闭） |
+| 自动登录开关 | `login.auto_login_enabled = false` 时直接回落人工（ADR §20.2.9 生效条件未闭环的站点应关闭）；`--manual` 不受该开关限制 |
 
 ### 红线（代码内已收口）
 
@@ -169,9 +242,9 @@ python scripts/dump-login-page.py --url https://mdkd.pinduoduo.com/login --settl
 - 脚本**只读**：不输入内容、不点击提交、不保存 Cookie 明文、不做任何验证码处理；产出落 `runtime/diagnostics/login-page-<时间>.json`（被 .gitignore 排除），控制台同步打印 input / button 与关键词命中摘要。
 - 校准规则：实测命中的条目把 `verified` 置 `True`、`basis` 写明**实测时间 + 地址 + 命中的真实属性**；未实测的保持 `verified=False`。**同 id / 同 class 存在两份时，交互候选必须带 `:visible`**（该文件头有完整说明与 Playwright 官方依据链接）。
 
-## 8. 已知限制与未验证项（如实声明）
+## 9. 已知限制与未验证项（如实声明）
 
-### 8.1 已由采集机实测确认（2026-09-22，PC-20260112CXLA / Win10 19045.4291）
+### 9.1 已由采集机实测确认（2026-09-22，PC-20260112CXLA / Win10 19045.4291）
 
 | 项 | 实测结论 |
 | --- | --- |
@@ -185,7 +258,7 @@ python scripts/dump-login-page.py --url https://mdkd.pinduoduo.com/login --settl
 | **账号框已填入** | 实测 traceback 的拦截者日志中出现 `<input id="mobile" ... value="16626369983" class="rocket-input"/>`，证明账号框已被逐字符填入（`humanize` 输入与页签切换均生效） |
 | 采集机环境 | Python 3.13.15 + MySQL 8.0.46，依赖已装、Chromium 已下载，`check-env` 全绿 |
 
-### 8.2 仍未实测（不得当作已验证）
+### 9.2 仍未实测（不得当作已验证）
 
 1. **密码框是否被正确填入**：本轮 traceback 只暴露了账号框（`#mobile`）的 `value`，**密码框的 value 未验证**（密码值也不应出现在日志中，故只能靠「提交前自检通过」这一信号间接确认）。
 2. **提交降级链未在采集机实跑**：新增的 A~D 四条路径与「提交是否生效」的信号判定目前**只有单测覆盖**（纯逻辑、假页面），尚未在真实 Chromium 上跑通；哪条路径最终生效、`Escape` 能否收起浮层均待实测。
@@ -198,12 +271,13 @@ python scripts/dump-login-page.py --url https://mdkd.pinduoduo.com/login --settl
 9. **版本与多实例**：本版为**单机单实例单账号**，未做多账号并发（代码内已标 `TODO(扩展)`）。
 10. **DPAPI 作用域约束**：密文为 CurrentUser 作用域，只能由生成它的同一 Windows 账户在同一台机器解密；若管理员**重置**该账户密码，旧密文可能不可恢复（ADR §20.3.1）。
 11. **PyMySQL 版本**：`PyMySQL[rsa]==1.2.*` 的次要版本号取自 PyPI 当前发布线，未在采集机实装验证。
+12. **人工介入登录（`login --manual`）未在采集机实跑**：轮询四分支（成功 / 超时 / 凭据错误 / 关窗）、只读契约、headless 报错、`--no-prefill`、预填降级脱敏**仅有纯逻辑单测覆盖**（假页面 / 假时钟）；真实 Chromium 上的关窗识别（`page.is_closed()` 与 Playwright `TargetClosedError`）、预填交互、`manual_wait_minutes` 实际等待**待采集机实测**。另：成功判定复用尚未实测的 `WORKBENCH_MARKERS`，若登录实际已成功却停在「未检测到登录成功」，需先导出工作台 DOM 校准 `selectors.py`。
 
-## 9. 故障处理
+## 10. 故障处理
 
 | 现象 | 处理 |
 | --- | --- |
-| **登录时出现验证码 / 滑块 / 短信验证** | 这是**预期行为**：采集端会立即停止并退出码 2。请在采集机浏览器窗口中**人工完成验证**，然后重跑 `python -m collector login --check` 确认登录态有效。**禁止**接入任何打码/识别服务（红线 C2/C8）。 |
+| **登录时出现验证码 / 滑块 / 短信验证** | 这是**预期行为**：自动路径（`--run`）会立即停止并退出码 2，**浏览器随上下文一并关闭**。要人工完成验证请改用 `python -m collector login --manual`（窗口保持打开、程序只读等待，见 §5）；成功后程序会自动保存会话，无需再跑 `--check`。**禁止**接入任何打码/识别服务（红线 C2/C8）。 |
 | 提示「未定位到账号/密码输入框」「未定位到「密码登录」页签」「已点击「密码登录」页签但密码框仍未出现」 | 登录页结构或文案变化。**先导出真实 DOM 再校准**：`python scripts/dump-login-page.py --url <登录地址> [--click-text 密码登录]`，对照产出改 `src/collector/login/selectors.py`（改版只需改这一个文件）。同 id / 同 class 有两份时记得带 `:visible`，并保留激活面板作用域锚点（`ACTIVE_PANEL` class 锚点 / `ACTIVE_PANEL_ARIA` aria 锚点）。 |
 | 提示「提交前自检失败：账号/密码输入框为空」 | 输入未真正落到框里（定位可能选到了隐藏副本）。先跑上面的 DOM 导出校准 `ACCOUNT_INPUTS` / `PASSWORD_INPUTS`；自检只统计字符数，**不会**打印密码值。 |
 | **提交后长期无跳转 / 「提交按钮被其它元素遮挡」/ 「N 条提交路径均未使登录生效」** | 提交走**多路径降级链**（A 回车 → B 真实点击 → C 强制点击 → D 合成点击），每条短超时并用可观测信号判定生效，日志逐条打印「尝试路径 X / 已生效 / 未生效降级」。四条全部未生效说明按钮被覆盖或页面结构变化：先导出 DOM 复核 `SUBMIT_BUTTONS` 与激活面板锚点，必要时上调 `login.submit_path_timeout_ms` / `submit_effect_probe_ms`（默认 4000 / 3000，全链总预算与 `submit_wait_ms` 对齐）。**严禁**把「点了没反应」当成功。 |
@@ -215,18 +289,18 @@ python scripts/dump-login-page.py --url https://mdkd.pinduoduo.com/login --settl
 | 启动浏览器报未安装 | `python -m playwright install chromium`。 |
 | MySQL 连接超时 | 确认服务 `MySQL80` 运行中且仅监听 `127.0.0.1:3306`：`Get-Service MySQL80`。 |
 
-## 10. 开发与自检
+## 11. 开发与自检
 
 ```powershell
 python -m compileall -q src tests          # 语法编译
 python -m pytest tests -q                   # 纯逻辑单测（不连库、不开浏览器）
 ```
 
-测试覆盖：配置加载与环境变量覆盖、DPAPI 封装（打桩）、`PddAccount` 脱敏与校验、仿人工延时区间边界、repository 参数化 SQL 与幂等 upsert、建表语句切分、登录结果判定与挑战识别、选择器表的实测优先级与可见性约束（`:visible`）与激活面板作用域锚点（class / aria）、登录方式页签切换的幂等判定与失败报错、**提交多路径降级链（顺序、短超时透传、单条失败不中断、全部未生效报错）与生效信号判定**、**填表自检（仅统计字符数、密码值不入日志/异常）**、日志脱敏。
+测试覆盖：配置加载与环境变量覆盖、DPAPI 封装（打桩）、`PddAccount` 脱敏与校验、仿人工延时区间边界、repository 参数化 SQL 与幂等 upsert、建表语句切分、登录结果判定与挑战识别、选择器表的实测优先级与可见性约束（`:visible`）与激活面板作用域锚点（class / aria）、登录方式页签切换的幂等判定与失败报错、**提交多路径降级链（顺序、短超时透传、单条失败不中断、全部未生效报错）与生效信号判定**、**填表自检（仅统计字符数、密码值不入日志/异常）**、日志脱敏、**人工介入登录（轮询四分支 / 只读不干扰 / headless 明确报错 / `--no-prefill` 不触碰页面 / 预填降级原因脱敏 / 与 `--run` 互斥且不互相调用）**。
 
 日志：`runtime/logs/collector.log`（滚动，全局脱敏）；凭据初始化日志：`runtime/logs/init-local-secrets.log`。
 
-## 11. 目录结构
+## 12. 目录结构
 
 ```text
 hrm-dev/collector/

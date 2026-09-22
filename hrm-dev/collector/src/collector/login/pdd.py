@@ -20,6 +20,12 @@
 登录态载体说明：本设计使用 ``launch_persistent_context`` 的 profile 作为登录态**权威载体**
 （ADR §20.2.5「登录态仍落在专用浏览器 profile」）。探测首个手段因此是**页面特征**，
 ``storage_state`` 导出仅作诊断留痕（内含 Cookie，属敏感物，落 runtime/ 且被 .gitignore 排除）。
+
+人工介入登录（``login --manual``）说明：自动路径检出挑战时**立即停止自动化**，浏览器随上下文关闭，
+现场无从在其窗口中完成验证（提示文案与真实行为不符，属已复现的流程缺陷）。故另设 ``--manual``：
+打开**有头**浏览器把控制权交给现场人工，程序只做**只读**轮询（不点击、不输入、不滚动），
+检出登录成功即导出会话并写库。该模式与 ``--run`` 互不调用，也**不是**默认行为
+（红线不变：挑战只做「识别到 → 交人工」，绝不识别/破解/模拟拖动）。
 """
 from __future__ import annotations
 
@@ -98,13 +104,57 @@ class LoginElementBlockedError(LoginPageError):
     """
 
 
+class ManualLoginConfigError(LoginError):
+    """人工介入登录的配置不满足要求（如要求有头却配成无头）。"""
+
+
+class ManualLoginTimeoutError(LoginError):
+    """人工介入登录在等待窗口内未检测到登录成功。
+
+    与「未检测到登录态」区分：本轮是**等满后仍无成功信号**，故单独给出等待时长与排查建议。
+    """
+
+    def __init__(self, waited_minutes: int, reason: str, guidance: str) -> None:
+        super().__init__(f"{reason}；排查建议：{guidance}")
+        self.waited_minutes = waited_minutes
+        self.reason = reason
+        self.guidance = guidance
+
+
+class ManualBrowserClosedError(LoginError):
+    """人工介入登录等待期间浏览器窗口/标签页被关闭。
+
+    必须与「超时」严格区分：关窗是**外部动作导致的中止**，不得伪装成「未检测到登录」。
+    """
+
+
+class BrowserClosedError(LoginError):
+    """页面/上下文已被关闭的**内部信号**（非对外终态异常）。
+
+    仅用于把「浏览器已被关闭」这一事实从只读探测（:func:`read_manual_snapshot`）传到轮询循环，
+    由 :func:`poll_manual_login` 归类为 :data:`ManualPollOutcome.BROWSER_CLOSED`；
+    对外的终态由 :class:`ManualBrowserClosedError` 表达。
+    """
+
+
 # 人工处置指引（出现挑战时打印给操作人）
+# 注意：自动路径检出挑战后会**立即停止自动化**，浏览器随上下文一并关闭，
+# 因此指引**不得**声称"请在浏览器窗口中手动完成"——那样窗口早没了，人工无从介入（已复现的流程缺陷）。
+# 正确指引是改用 `login --manual`（该模式会把窗口保持打开、只读等待）。
 _GUIDANCE_BY_CHALLENGE: dict[ChallengeType, str] = {
-    ChallengeType.CAPTCHA: "请在采集机浏览器窗口中手动完成图形验证码，完成后重跑 `login --check` 确认登录态",
-    ChallengeType.SLIDER: "请在采集机浏览器窗口中手动完成滑块验证，完成后重跑 `login --check` 确认登录态",
-    ChallengeType.SMS: "请在采集机浏览器窗口中手动输入收到的短信验证码，完成后重跑 `login --check` 确认登录态",
-    ChallengeType.RISK: "平台已提示风控/异常，请人工登录并核实账号状态；不要重复自动重试（ADR §20.4.3）",
+    ChallengeType.CAPTCHA: "自动化已停止且浏览器会随之关闭。请改用 `python -m collector login --manual` 打开窗口人工完成图形验证码",
+    ChallengeType.SLIDER: "自动化已停止且浏览器会随之关闭。请改用 `python -m collector login --manual` 打开窗口人工完成滑块验证",
+    ChallengeType.SMS: "自动化已停止且浏览器会随之关闭。请改用 `python -m collector login --manual` 打开窗口人工输入短信验证码",
+    ChallengeType.RISK: "平台已提示风控/异常：请人工核实账号状态，不要重复自动重试（ADR §20.4.3）；需要现场处理时改用 `python -m collector login --manual`",
 }
+
+# 人工登录超时的排查建议（打印给操作人；不含任何敏感信息）
+_MANUAL_TIMEOUT_GUIDANCE = (
+    "① 确认已在窗口中完成滑块/验证码并点击「登录」；"
+    "② 确认账号密码正确（凭据错误会被单独识别）；"
+    "③ 确认窗口仍停留在登录页或已跳转工作台；"
+    "④ 查看日志 runtime/logs/collector.log 确认每轮检测结论"
+)
 
 _SIGNAL_TYPE_TO_CHALLENGE: dict[str, ChallengeType] = {
     "captcha": ChallengeType.CAPTCHA,
@@ -226,6 +276,22 @@ def is_playwright_error(exc: BaseException) -> bool:
 def is_playwright_timeout(exc: BaseException) -> bool:
     """是否为 Playwright 的 ``TimeoutError``（点击/等待超时的底层类型）。"""
     return is_playwright_error(exc) and type(exc).__name__ == "TimeoutError"
+
+
+def is_browser_closed_error(exc: BaseException) -> bool:
+    """是否为「浏览器/页面已被关闭」类错误（人工中途关窗）。
+
+    判据（任一命中）：
+    1. 本项目 :class:`BrowserClosedError`（``page.is_closed()`` 命中时自行抛出）；
+    2. Playwright ``TargetClosedError``：类位于 ``playwright._impl._errors``，
+       默认消息 "Target page, context or browser has been closed"。
+       官方依据（页面关闭语义与判定入口）：https://playwright.dev/python/docs/api/class-page#page-is-closed
+
+    按**模块名 + 类名**判定，开发机未装 Playwright 时单测仍可用同名打桩类覆盖。
+    """
+    if isinstance(exc, BrowserClosedError):
+        return True
+    return is_playwright_error(exc) and type(exc).__name__ == "TargetClosedError"
 
 
 def _clip_text(text: str, limit: int = 200) -> str:
@@ -768,6 +834,107 @@ def verify_credentials_filled(account_element: Any, password_element: Any) -> tu
 
 
 # ==================================================================
+# 人工介入登录（login --manual）
+# 现场人工在浏览器窗口里完成挑战（程序全程不识别、不拖动、不点击挑战元素），
+# 程序只做**只读**轮询判定登录态。红线不变：挑战只做「识别到 → 交人工」。
+# ==================================================================
+def page_is_closed(page: Any) -> bool:
+    """页面是否已关闭（人工中途关窗的判定入口）。
+
+    优先用 Playwright ``page.is_closed()``：官方语义为「页面已关闭则返回 True」，
+    只读且不发协议请求（https://playwright.dev/python/docs/api/class-page#page-is-closed ）。
+    该接口不可用时，回落到一次只读的 ``title()`` 往返——页面已断开时 Playwright 会抛
+    ``TargetClosedError``，据此判定；其它异常不臆断（交由后续只读操作兜底）。
+    """
+    try:
+        return bool(page.is_closed())
+    except Exception:
+        pass
+    try:
+        page.title()
+        return False
+    except Exception as exc:
+        return is_browser_closed_error(exc)
+
+
+class ManualPollOutcome(str, Enum):
+    """人工登录只读轮询的终止原因。"""
+
+    LOGGED_IN = "LOGGED_IN"                # 检测到登录成功
+    CREDENTIAL_ERROR = "CREDENTIAL_ERROR"  # 页面提示账号或密码错误（不重试，走更新凭据分支）
+    TIMEOUT = "TIMEOUT"                    # 等满等待窗口仍无成功信号
+    BROWSER_CLOSED = "BROWSER_CLOSED"      # 人工中途关闭了浏览器窗口/标签页
+
+
+@dataclass(frozen=True)
+class ManualSnapshot:
+    """一轮只读检测的快照（由 :func:`read_manual_snapshot` 产出）。"""
+
+    logged_in: bool
+    credential_error: bool
+
+
+def poll_manual_login(
+    *,
+    observe: Callable[[], ManualSnapshot],
+    wait_seconds: float,
+    poll_interval_s: float,
+    now: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> ManualPollOutcome:
+    """按固定间隔只读轮询，返回终止原因（纯逻辑，时钟/休眠可注入以便单测）。
+
+    每轮只调用 ``observe`` 做**只读**检测，本函数自身**不触碰页面**（不点击、不输入、不滚动），
+    以免与现场人工操作打架。终止条件（先判成功、再判凭据错误、最后判超时）：
+
+    - 检出登录成功 → ``LOGGED_IN``（立即返回，不再多等一轮）；
+    - 页面提示凭据错误 → ``CREDENTIAL_ERROR``（继续等也没意义，交由上层走更新凭据分支）；
+    - ``observe`` 抛出「浏览器已关闭」类异常 → ``BROWSER_CLOSED``（不得归因为超时）；
+    - 等满 ``wait_seconds`` 仍无上述信号 → ``TIMEOUT``。
+    """
+    interval = max(poll_interval_s, 0.0)
+    deadline = now() + max(wait_seconds, 0.0)
+    while True:
+        try:
+            snapshot = observe()
+        except Exception as exc:
+            if is_browser_closed_error(exc):
+                return ManualPollOutcome.BROWSER_CLOSED
+            raise  # 其它异常不吞：交上层统一收敛
+        if snapshot.logged_in:
+            return ManualPollOutcome.LOGGED_IN
+        if snapshot.credential_error:
+            return ManualPollOutcome.CREDENTIAL_ERROR
+        if now() >= deadline:
+            return ManualPollOutcome.TIMEOUT
+        sleep(interval)
+
+
+def read_manual_snapshot(page: Any, settings: Settings) -> ManualSnapshot:
+    """人工等待期间的一轮**只读**检测，复用 :func:`judge_login_result` 判定。
+
+    只读页面地址、可见性、正文，**不点击、不输入、不滚动**任何元素，避免干扰人工操作。
+    判定逻辑**复用既有** :func:`judge_login_result`，不另起一套标准。
+    页面/上下文已被关闭时抛 :class:`BrowserClosedError`，由 :func:`poll_manual_login`
+    归类为 ``BROWSER_CLOSED``（与超时严格区分）。
+    """
+    if page_is_closed(page):
+        raise BrowserClosedError("人工登录等待期间浏览器窗口或标签页已被关闭")
+    text = _page_text(page, settings.login.probe_timeout_ms)
+    outcome = judge_login_result(
+        url=page.url,
+        allowed_hosts=settings.site.allowed_hosts,
+        has_workbench_marker=has_workbench_marker(page, 0),
+        has_login_form=has_login_form(page, 0),
+        challenge=detect_challenge_from_text(text),
+    )
+    return ManualSnapshot(
+        logged_in=outcome is LoginOutcome.LOGGED_IN,
+        credential_error=is_credential_error_text(text),
+    )
+
+
+# ==================================================================
 # 服务编排
 # ==================================================================
 @dataclass(frozen=True)
@@ -795,6 +962,14 @@ class LoginResult:
         )
 
     __str__ = __repr__
+
+
+@dataclass(frozen=True)
+class ManualReadyInfo:
+    """人工登录就绪信息（浏览器已打开、预填是否完成），供 CLI 打印现场指引。"""
+
+    prefilled: bool
+    prefill_note: str | None = None
 
 
 class PddLoginService:
@@ -876,6 +1051,163 @@ class PddLoginService:
                 return self._persist_failure(LoginOutcome.FAILED, str(mapped))
         finally:
             self._clear_secret_redaction()
+
+    def manual(
+        self,
+        *,
+        prefill: bool = True,
+        on_ready: Callable[[ManualReadyInfo], None] | None = None,
+    ) -> LoginResult:
+        """人工介入登录（``login --manual``）：有头浏览器交给现场人工，程序只读轮询登录态。
+
+        与 :meth:`run` 的边界：
+        - **互不调用**：``run`` 检出挑战即抛 :class:`ManualInterventionRequired`，绝不自动转入本模式；
+          本模式也不会自动提交或处理挑战（红线：挑战只做「识别到 → 交人工」）。
+        - **不是默认行为**：仅由 CLI 显式传 ``--manual`` 触发。
+
+        结束分支（与 CLI 退出码一一对应）：
+        - 检测到登录成功 → 导出 storage_state、落库 ``SUCCESS``、返回结果（退出码 0）；
+        - 页面提示凭据错误 → 落库 ``FAILED`` 并返回（退出码 1，提示更新凭据）；
+        - 等满 ``manual_wait_minutes`` → 落库 ``MANUAL_REQUIRED`` 后抛
+          :class:`ManualLoginTimeoutError`（退出码 2）；
+        - 人工中途关窗 → 落库 ``MANUAL_REQUIRED`` 后抛 :class:`ManualBrowserClosedError`（退出码 2）。
+        """
+        if self._settings.browser.headless:
+            # 人工看不到无头窗口，本模式必须有头；**不静默改配置**，直接以明确错误退出
+            raise ManualLoginConfigError(
+                "人工介入登录要求有头浏览器（人工需要看到窗口才能完成挑战），"
+                "但配置 browser.headless = true。请把 browser.headless 改为 false 后重跑"
+                "（或设置环境变量 YIZHAN__BROWSER__HEADLESS=false）"
+            )
+
+        self._register_secret_for_redaction()
+        try:
+            try:
+                return self._run_manual_flow(prefill=prefill, on_ready=on_ready)
+            except (ManualLoginTimeoutError, ManualBrowserClosedError):
+                # 已带明确结论且已落库，直达 CLI 按对应退出码处理
+                raise
+            except browser.BrowserLaunchError as exc:
+                logger.error("人工登录：浏览器启动/运行失败：%s；%s", self._account.masked_description(), exc)
+                return self._persist_failure(LoginOutcome.FAILED, f"浏览器启动/运行失败：{exc}")
+            except LoginError as exc:
+                logger.error("人工登录失败：%s；%s", self._account.masked_description(), exc)
+                return self._persist_failure(LoginOutcome.FAILED, str(exc))
+            except Exception as exc:
+                logger.debug("人工登录未预期异常", exc_info=True)
+                mapped = classify_browser_failure(exc, "人工登录流程")
+                logger.error("人工登录失败：%s；%s", self._account.masked_description(), mapped)
+                return self._persist_failure(LoginOutcome.FAILED, str(mapped))
+        finally:
+            self._clear_secret_redaction()
+
+    def _run_manual_flow(
+        self,
+        *,
+        prefill: bool,
+        on_ready: Callable[[ManualReadyInfo], None] | None,
+    ) -> LoginResult:
+        """人工介入登录主流程：有头浏览器 → 预填（可关）→ 交人工 → 只读轮询 → 落库。
+
+        上下文在 ``with`` 内保持打开：**只在**「登录成功 / 超时 / 浏览器被人工关闭」才退出并关闭，
+        等待期间绝不主动 close —— 这是修复「提示人工介入却已把窗口关掉」这一流程缺陷的关键。
+        """
+        with browser.persistent_context(self._settings) as context:
+            page = browser.open_page(context)
+            self._goto_login(page)
+
+            # 已有有效登录态则不必打扰人工
+            if probe_state(page, self._settings) is LoginOutcome.LOGGED_IN:
+                result = self._build_result(LoginOutcome.LOGGED_IN, context)
+                self._persist(result)
+                logger.info("人工登录：检测到已有有效登录态，无需人工操作：%s", self._account.masked_description())
+                return result
+
+            note = self._prepare_manual(page, prefill)
+            if on_ready is not None:
+                # 浏览器已打开、预填结论已定，此时告知操作人该做什么最准确
+                on_ready(ManualReadyInfo(prefilled=note is None, prefill_note=note))
+
+            outcome = poll_manual_login(
+                observe=lambda: read_manual_snapshot(page, self._settings),
+                wait_seconds=self._settings.login.manual_wait_minutes * 60,
+                poll_interval_s=self._settings.login.manual_poll_interval_s,
+            )
+
+            if outcome is ManualPollOutcome.BROWSER_CLOSED:
+                self._persist_manual_failure_quietly("人工登录等待期间浏览器窗口/标签页被关闭")
+                raise ManualBrowserClosedError(
+                    "浏览器窗口已被关闭，本轮人工登录已中止（**不是**「未检测到登录」）。"
+                    "请重新执行 `python -m collector login --manual`"
+                )
+
+            if outcome is ManualPollOutcome.CREDENTIAL_ERROR:
+                reason = (
+                    "账号或密码错误（人工登录期间页面提示），按 ADR §20.4.3 不重试，"
+                    "请站长更新凭据后重跑 init-local-secrets.ps1"
+                )
+                result = self._build_result(LoginOutcome.FAILED, None, fail_reason=reason)
+                self._persist(result)
+                logger.error("人工登录失败：%s；%s", self._account.masked_description(), reason)
+                return result
+
+            if outcome is ManualPollOutcome.TIMEOUT:
+                minutes = self._settings.login.manual_wait_minutes
+                reason = f"未在 {minutes} 分钟内检测到登录成功（人工登录超时）"
+                self._persist_manual_failure_quietly(reason)
+                raise ManualLoginTimeoutError(minutes, reason, _MANUAL_TIMEOUT_GUIDANCE)
+
+            result = self._build_result(LoginOutcome.LOGIN_SUCCEEDED, context)
+            self._persist(result)
+            logger.info("人工介入登录成功：%s", self._account.masked_description())
+            return result
+
+    def _prepare_manual(self, page: Any, prefill: bool) -> str | None:
+        """人工登录的预填步骤：返回 None 表示已预填，否则返回未预填的原因。
+
+        预填**不致命**：失败一律降级为「不预填 + 提示人工全部手填」，仅把原因（脱敏、截断）带回。
+        ``--no-prefill``（``prefill=False``）时**完全不触碰页面**，连账号密码框都不去定位。
+        """
+        if not prefill:
+            return "本次以 --no-prefill 启动，未执行预填"
+        try:
+            self._prefill_credentials(page)
+        except Exception as exc:
+            from collector import logging_setup
+
+            # 先整串脱敏再截断：截断后再脱敏会让被切断的密钥片段躲过替换
+            reason = _clip_text(logging_setup.redact_text(str(exc)), 160)
+            logger.warning("人工登录预填失败，降级为人工全部手填：%s", reason)
+            return f"预填失败：{reason}"
+        return None
+
+    def _prefill_credentials(self, page: Any) -> None:
+        """按人工节奏把账号密码预填进密码登录页签（**不提交**，提交交给现场人工）。
+
+        失败向上抛，由 :meth:`_prepare_manual` 统一降级；本方法不吞异常、也不记录任何输入值。
+        """
+        ensure_password_login_mode(page, self._settings, self._humanizer)
+
+        account_input = find_first_visible(page, selectors.ACCOUNT_INPUTS)
+        if account_input is None:
+            raise LoginPageError("未定位到账号输入框：ACCOUNT_INPUTS 与登录页结构不匹配。" + _SELECTOR_HINT)
+        self._type_like_human(page, account_input, self._account.account, "账号输入")
+
+        password_input = find_first_visible(page, selectors.PASSWORD_INPUTS)
+        if password_input is None:
+            raise LoginPageError("未定位到密码输入框：PASSWORD_INPUTS 与登录页结构不匹配。" + _SELECTOR_HINT)
+        self._type_like_human(page, password_input, self._account.password, "密码输入")
+
+        # 预填自检：两框都非空（只比对字符数，不读值），避免人工面对空框还得自己找问题
+        verify_credentials_filled(account_input, password_input)
+        logger.info("人工登录：账号与密码已预填（仅记录字符数，不记录内容），等待现场人工完成挑战并提交")
+
+    def _persist_manual_failure_quietly(self, reason: str) -> None:
+        """人工登录的失败结论落库；落库失败只告警，**不得**掩盖已确定的结论。"""
+        try:
+            self._persist_failure(LoginOutcome.MANUAL_REQUIRED, reason)
+        except LoginPersistenceError as exc:
+            logger.warning("人工登录结论未能落库（不影响结果判定）：%s", exc)
 
     def _run_flow(self) -> LoginResult:
         """登录主流程（探测 → 切页签 → 填表提交 → 结果判定）；异常由 :meth:`run` 统一收敛。"""

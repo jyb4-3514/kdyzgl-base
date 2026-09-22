@@ -130,6 +130,9 @@ class LoginConfig:
     storage_state_rel_path: str
     auto_login_enabled: bool
     session_ttl_hours: int
+    # 人工介入登录（login --manual）：等待现场人工完成挑战的时长与只读轮询间隔
+    manual_wait_minutes: int
+    manual_poll_interval_s: int
 
 
 @dataclass(frozen=True)
@@ -244,12 +247,21 @@ def _build(raw: dict, source_file: Path) -> Settings:
         ),
         auto_login_enabled=bool(_pick(raw, "login", "auto_login_enabled", True)),
         session_ttl_hours=int(_pick(raw, "login", "session_ttl_hours", 12)),
+        # 人工介入登录：等待现场人工完成滑块/验证码的时长，以及只读轮询间隔
+        manual_wait_minutes=int(_pick(raw, "login", "manual_wait_minutes", 10)),
+        manual_poll_interval_s=int(_pick(raw, "login", "manual_poll_interval_s", 5)),
     )
     # 超时必须为正：为 0 会让 Playwright 走「不限时」语义，反而把降级链的短超时初衷废掉
     if login.submit_path_timeout_ms <= 0 or login.submit_effect_probe_ms <= 0:
         raise ConfigError(
             "login.submit_path_timeout_ms / submit_effect_probe_ms 必须为正整数"
             f"（当前 {login.submit_path_timeout_ms} / {login.submit_effect_probe_ms}）"
+        )
+    # 人工登录的等待窗口与轮询间隔同为正值：0 会让等待立即超时或让轮询空转
+    if login.manual_wait_minutes <= 0 or login.manual_poll_interval_s <= 0:
+        raise ConfigError(
+            "login.manual_wait_minutes / manual_poll_interval_s 必须为正整数"
+            f"（当前 {login.manual_wait_minutes} / {login.manual_poll_interval_s}）"
         )
 
     db = DbConfig(
