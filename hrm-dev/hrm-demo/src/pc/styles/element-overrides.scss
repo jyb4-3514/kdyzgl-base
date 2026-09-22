@@ -75,6 +75,15 @@
   border-top: 1px solid var(--border-line);
 }
 
+/* 弹窗宽度兜底：项目内 el-dialog 一律写死固定 px 宽（420 / 460 / 480 / 520 / 560 / 640 六档，共 16 处），
+ * 实测 375 视口下 560px 弹窗右边界越出视口 185px，且被 .el-overlay-dialog 的横向滚动藏掉一半。
+ * 抽屉侧早已统一用 min(var(--drawer-w), 92vw) 兜底，弹窗缺同一层保护，故在此一次性补齐，
+ * 不逐组件改 width 属性。影响面：视口 ≥672px 不受约束（最宽 640 + 两侧各 16），820 档实测无变化。
+ * .is-fullscreen 除外：全屏弹窗按设计要铺满视口（Element 把 --el-dialog-width 置为 100%）。 */
+.el-dialog:not(.is-fullscreen) {
+  max-width: calc(100% - var(--sp-8));
+}
+
 /* 焦点可见（补齐 SC 2.4.7）：全端统一 2px 主色环，不再有 outline:none */
 :where(a, button, input, select, textarea, [tabindex]):focus-visible {
   outline: 2px solid var(--color-primary-icon);

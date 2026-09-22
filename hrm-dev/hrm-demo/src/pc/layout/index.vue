@@ -290,7 +290,13 @@ async function handleLogout() {
   align-items: center;
   justify-content: space-between;
   height: var(--header-h);
-  padding: 0 var(--sp-5);
+
+  /* 内边距随内容列一起让位：窄屏保持设计规范的 --sp-5，视口宽到 --content-max 开始居中后，
+   * 顶栏内容（面包屑、用户菜单）与内容列左右缘对齐。
+   * 不这么做时 1920 下内容区左缘比面包屑右移 131px（实测 15/15 页面一致），
+   * 视觉上等于「表头与页面标题不在同一条竖线上」。
+   * 用 max() 表达而不是媒体查询：阈值由 --content-max 与侧栏宽度推导，不写死断点 px。 */
+  padding: 0 max(var(--sp-5), calc((100% - var(--content-max)) / 2 + var(--sp-4)));
   background-color: var(--surface-card);
   border-bottom: 1px solid var(--border-line);
 
