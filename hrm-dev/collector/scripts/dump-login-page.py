@@ -86,6 +86,10 @@ _COLLECTOR_JS = r"""
     }
   }
 
+  const links = Array.from(document.querySelectorAll('a[href]'))
+    .slice(0, 80)
+    .map((el) => ({ text: clip((el.innerText || '').trim(), 40), href: clip(el.getAttribute('href'), 200) }));
+
   const bodyText = (document.body ? document.body.innerText : '').replace(/\s+/g, ' ').trim();
 
   return {
@@ -98,6 +102,7 @@ _COLLECTOR_JS = r"""
     buttons,
     forms,
     iframes,
+    links,
     keywordHits: hits,
     bodyTextSample: bodyText.slice(0, 1500)
   };
@@ -118,6 +123,7 @@ def _collect(frame, label: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description="导出目标站登录页结构（只读诊断）")
     parser.add_argument("--headless", action="store_true", help="强制无头（覆盖配置）")
+    parser.add_argument("--url", default="", help="覆盖登录地址（不改配置文件，用于试探真实入口）")
     parser.add_argument("--settle-ms", type=int, default=5000, help="页面加载后额外等待毫秒（默认 5000）")
     parser.add_argument("--out", default="", help="输出文件路径（默认 runtime/diagnostics/login-page-<时间>.json）")
     args = parser.parse_args()
@@ -125,6 +131,8 @@ def main() -> int:
     settings = load_settings()
     if args.headless:
         settings.browser.headless = True
+    if args.url:
+        settings.site.login_url = args.url
 
     out_path = (
         Path(args.out)
@@ -168,6 +176,12 @@ def main() -> int:
         print(f"  button text={b.get('text')!r} type={b.get('type')} id={b.get('id')} cls={b.get('class')}")
     kws = [h.get("text") for h in main.get("keywordHits", [])][:25]
     print(f"[诊断] 关键词命中文本：{kws}")
+    # 链接：优先看疑似登录/工作台入口，用于定位真实登录地址
+    hot = [l for l in main.get("links", []) if any(k in (l.get("text") or "") + (l.get("href") or "")
+                                                  for k in ("登录", "login", "work", "admin", "门店", "工作台"))]
+    print(f"[诊断] 疑似登录入口链接（{len(hot)} 条）：")
+    for l in hot[:25]:
+        print(f"  text={l.get('text')!r} href={l.get('href')}")
     print(f"[诊断] 可见文本片段：{(main.get('bodyTextSample') or '')[:400]}")
     print(f"[诊断] 已写出：{out_path}")
     return 0
