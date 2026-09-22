@@ -143,6 +143,29 @@ def is_allowed_url(url: str, allowed_hosts: Sequence[str]) -> bool:
     return any(host == allowed.lower() or host.endswith("." + allowed.lower()) for allowed in allowed_hosts)
 
 
+# 登录页自身控件文案：包含「验证码」字样但**不是**风控挑战提示，匹配前必须剔除。
+# 起因（2026-09-22 采集机实测）：mdkd 密码登录页有「获取验证码」按钮，被 CHALLENGE_SIGNALS 的
+# 通用模式「验证码」命中 → 一进页面即判 captcha → MANUAL_REQUIRED（退出码 2），登录永远走不通。
+# 这里选择「剔除自身控件文案」而非删掉通用模式：删模式会让真正的「验证码」提示漏检，
+# 而漏检的后果是"该停不停"，比"误停"更危险（红线 C2/C8 要求宁停不猜）。
+# 长短语排在前面，避免被短短语先部分替换掉。
+_BENIGN_PAGE_PHRASES: tuple[str, ...] = (
+    "重新获取验证码",
+    "获取短信验证码",
+    "获取验证码",
+    "重新获取",
+    "验证码登录",
+)
+
+
+def _strip_benign_phrases(page_text: str) -> str:
+    """剔除登录页自身控件文案，避免把「获取验证码」误判为图形验证码挑战。"""
+    text = page_text
+    for phrase in _BENIGN_PAGE_PHRASES:
+        text = text.replace(phrase, "")
+    return text
+
+
 def detect_challenge_from_text(page_text: str) -> ChallengeType | None:
     """从页面可见文本判定挑战类型；无命中返回 None。
 
@@ -151,8 +174,9 @@ def detect_challenge_from_text(page_text: str) -> ChallengeType | None:
     """
     if not page_text:
         return None
+    text = _strip_benign_phrases(page_text)
     for signal in selectors.CHALLENGE_SIGNALS:
-        if signal.pattern in page_text:
+        if signal.pattern in text:
             return _SIGNAL_TYPE_TO_CHALLENGE[signal.type]
     return None
 
