@@ -4,6 +4,22 @@
 > 适用对象：`hrm-dev/hrm-demo`（三端演示静态站）在云服务器上的测试环境部署
 > 授权档位：**C 档（主智能体三步授权）** —— 涉及改动在跑系统的现网 Nginx 配置
 
+> ## ⚠️ 状态变更登记（2026-09-23 补记）
+>
+> **本文档描述的 Basic Auth 网关在服务器上已被他方移除，且未同步仓库。**
+>
+> 实测服务器 `/data/www/hrm-demo/` 于 2026-09-22 23:50–23:55 被直接改动：
+> `nginx.conf` 移除全部 `auth_basic`（文件内留有理由「认证已收敛到站内登录页，避免两层验身」）、
+> `docker-compose.yml` 去掉 `env_file` 与 `BASIC_AUTH_*`、`.env` 删去认证两行、
+> `docker-entrypoint.d/10-basic-auth.sh` 删除。
+>
+> 因此：
+> 1. **当前线上演示站无网关鉴权，公网可直接访问**
+> 2. **本文档 §3/§4/§6 中与 Basic Auth 相关的步骤与验收项，与当前线上状态不符**，以实测为准
+> 3. 仓库内 `hrm-dev/deploy/docker-demo/**` 仍保留 Basic Auth 实现 → **按仓库重新部署会重新引入网关**，
+>    需先裁决「对齐仓库（采纳去网关）」还是「恢复网关」，再决定是否改写本节
+> 4. 原设计的测试网关账号 `16626369983` 现已不存在于任何位置
+
 ## 1. 目标与边界
 
 | 项 | 内容 |
@@ -11,7 +27,7 @@
 | 部署对象 | `hrm-demo` 三端演示站（`index` 端选择 / `pc` 网页端 / `mobile` 移动端），**纯前端 + Mock 假数据** |
 | 数据面 | **无后端、无数据库、无 Redis** → 无持久化卷，删容器即彻底回滚 |
 | 访问入口 | `kongzhen1.com` 根路径（HTTP 301 → HTTPS，由现网 Nginx 承载证书） |
-| 访问控制 | 容器内 Basic Auth 网关（口令只以哈希经环境变量注入，不入仓库/镜像） |
+| 访问控制 | **站内登录页**（纯「账号 + 密码」两字段；原容器内 Basic Auth 网关已移除） |
 | 现网影响 | **仅改现网 Nginx 两处 `location`**；现网容器、compose、数据面**零改动** |
 
 ## 2. 服务器现状（2026-09-22 实测）
@@ -115,10 +131,9 @@ docker exec courier-nginx nginx -s reload
 # 2) 服务器解包到 /data/www/hrm-demo
 mkdir -p /data/www/hrm-demo && tar -xzf /tmp/hrm-demo-deploy.tgz -C /data/www/hrm-demo
 
-# 3) 写真实参数（唯一存放明文口令哈希的位置，chmod 600，不入库）
+# 3) 参数（无凭据）：仅 DEMO_TAG / HOST_PORT，可直接复制模板
 cd /data/www/hrm-demo
-cp .env.example .env && vi .env        # BASIC_AUTH_USER / BASIC_AUTH_HASH / HOST_PORT
-chmod 600 .env
+cp .env.example .env
 
 # 4) 起服务（仅绑回环，公网入口经现网 Nginx）
 bash deploy-demo.sh up
@@ -129,9 +144,9 @@ bash deploy-demo.sh up
 ## 6. 验证清单
 
 **功能**
-- `curl -u <user>:<pwd> http://127.0.0.1:8090/` → 200，内容为端选择页
-- 未带凭据 → 401；`/healthz` → 200（不鉴权）
-- `https://kongzhen1.com/` → 200（带凭据），端选择页三入口可达
+- `curl http://127.0.0.1:8090/` → 200，内容为端选择页（免鉴权直连）
+- `/healthz` → 200；缺失资源 `/assets/not-exist-abcdefgh.js` → 404
+- `https://kongzhen1.com/` → 200，端选择页三入口可达（**无 Basic Auth 弹窗**）
 - PC 深链 `https://kongzhen1.com/dashboard` 刷新 → 落到 `pc.html`（**不得回退到端选择页**）
 - 缺失资源 `https://kongzhen1.com/assets/not-exist-abcdefgh.js` → **404**（不得回退成 HTML）
 - 登录演示账号后 15 个 PC 路由逐页无白屏；移动端三 Tab 正常
@@ -141,19 +156,18 @@ bash deploy-demo.sh up
 - 静态资源响应时间；带哈希资源命中 `immutable` 缓存头
 
 **安全**
-- 未鉴权访问整站一律 401
+- 站点对公网完全开放，认证由**站内登录页**承担（纯账号 + 密码）；站内仅演示 Mock 数据，无真实业务数据
 - 响应头无 `Server` 版本泄露（`server_tokens off`）
-- 仓库与镜像内 `grep` 不到明文口令；`.env` 权限 600
+- 仓库与镜像内无网关口令（Basic Auth 已移除）；`.env` 只含 `DEMO_TAG` / `HOST_PORT`，无凭据
 - 端口 8090 **仅绑 127.0.0.1**，公网不可直连（`ss -lntp` 复核）
 - 证书链有效、TLS 1.2/1.3
 
 ## 7. 已知限制与遗留
 
-1. **测试账号（用户名 `16626369983`）的权限落点**：当前仅作为 Basic Auth 网关账号使用（网关层无「权限」概念）。
-   站内登录仍用演示账号（`demo1234`）。若要求该手机号能在**站内**登录并带管理权限，需另改
-   `src/demo/accounts.js` 与 Mock 权限映射 —— 但纯静态站的账号口令会打进公开 JS bundle，
-   无法真正保密，**不建议**。
-2. 演示站是全公开 Mock 数据，Basic Auth 只是「不作公开索引」级别的闸门，**不等于**访问控制体系。
+1. **预留账号（用户名 `16626369983`）已落在站内**：作为 Mock 固定员工（管理员角色、`pwd_changed=1` 免首登改密）写入
+   `src/shared/mock/db.js` 的 `FIXED_EMPLOYEES`，登录页纯「账号 + 密码」校验，失败按错误码回文案。
+   **注意**：口令写在公开 JS bundle 里，无法真正保密，仅因演示站本就是全公开 Mock 数据才可接受。
+2. 演示站是全公开 Mock 数据，站内登录页只是演示流程的一环，**不等于**访问控制体系。
 3. 未启用 HTTPS 独立证书：复用现网证书与 443 入口，故依赖现网 Nginx 存活。
 4. `hrm-server`（一期生产后端）**不在本次部署范围**；其 B17/C11/D01–D05/E01–E06 仍未执行。
 5. 服务器 CPU 长期 79.7%、内存可用 1.9G：本服务为纯静态，占用可忽略；**禁止**在服务器上跑 Node 构建。
