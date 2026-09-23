@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@admin/stores/auth'
+import { APP_NAME } from '../constants/brand.js'
 
 /**
  * Demo 扩展路由表（T10，页面清单见 demo-design.md 5.1）
@@ -132,6 +133,13 @@ const routes = [
         component: () => import('../views/system/logs.vue'),
         meta: { title: '运行日志', icon: 'Document', group: 'sys', roles: ['ADMIN'] }
       },
+      // 系统设置：只读「关于本系统」信息页，与运行日志同组同口径（仅 ADMIN）
+      {
+        path: 'system/settings',
+        name: 'SystemSettings',
+        component: () => import('../views/system/settings.vue'),
+        meta: { title: '系统设置', icon: 'Tools', group: 'sys', roles: ['ADMIN'] }
+      },
       {
         path: 'parcel',
         name: 'Parcel',
@@ -248,7 +256,7 @@ router.beforeEach((to) => {
 })
 
 router.afterEach((to) => {
-  document.title = to.meta && to.meta.title ? `${to.meta.title} - 快递驿站智汇系统` : '快递驿站智汇系统'
+  document.title = to.meta && to.meta.title ? `${to.meta.title} - ${APP_NAME}` : APP_NAME
 })
 
 export default router

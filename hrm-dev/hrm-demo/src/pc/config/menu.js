@@ -36,10 +36,12 @@ export const MENU_GROUP_ICONS = {
  *
  * leave / logs 不进本表：二者已直接写入 MENU_WHITELIST 真源（设计规范 §3.2），
  * 再补一份会让「谁能看请假、谁能看日志」出现两个真源，权限口径迟早分裂。
- * TODO(扩展): shared 层解冻后把 attendance / schedule / kpi / hr / finance / onboard 并入 MENU_WHITELIST，删除本处补充
+ * settings 属本轮新增的只读信息页，同样因 shared 层本轮冻结而暂补在本表（口径与 logs 相同：仅 ADMIN），
+ * 待 shared 解冻后与上面几个键一起并入 MENU_WHITELIST，并删除本处补充。
+ * TODO(扩展): shared 层解冻后把 attendance / schedule / kpi / hr / finance / onboard / settings 并入 MENU_WHITELIST，删除本处补充
  */
 const EXTRA_MENU_KEYS = {
-  ADMIN: ['attendance', 'schedule', 'kpi', 'hr', 'finance', 'onboard'],
+  ADMIN: ['attendance', 'schedule', 'kpi', 'hr', 'finance', 'onboard', 'settings'],
   STATION_ADMIN: ['attendance', 'schedule']
 }
 
@@ -64,8 +66,9 @@ export const MENU_ITEMS = [
   { key: 'sync', path: '/parcel/sync', title: '同步任务', icon: 'Refresh', group: 'biz' },
   { key: 'workOrder', path: '/work-order', title: '工单管理', icon: 'Tickets', group: 'biz' },
   { key: 'notification', path: '/notification', title: '通知中心', icon: 'Bell', group: 'biz' },
-  // 系统：运行日志仅 ADMIN（移动端不做查看页，手机不适合读堆栈）
+  // 系统：运行日志与系统设置均仅 ADMIN（移动端不做查看页，手机上读堆栈和"关于本机"都无价值）
   { key: 'logs', path: '/system/logs', title: '运行日志', icon: 'Document', group: 'sys' },
+  { key: 'settings', path: '/system/settings', title: '系统设置', icon: 'Tools', group: 'sys' },
   { key: 'profile', path: '/profile', title: '个人中心', icon: 'UserFilled', group: 'sys' }
 ]
 

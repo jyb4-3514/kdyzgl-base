@@ -4,6 +4,10 @@ import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { fileURLToPath, URL } from 'node:url'
+import { readFileSync } from 'node:fs'
+
+/** package.json 的 version：注入为构建期常量 __APP_VERSION__，供系统设置页展示版本号 */
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 
 /**
  * 三端演示 Demo 构建配置
@@ -73,6 +77,14 @@ export default defineConfig(({ mode }) => ({
       }
     }
   ],
+  define: {
+    /**
+     * 版本号注入：来源是 package.json 的 version，唯一真源，不在代码里写死版本串。
+     * JSON.stringify 保证替换进去的是字符串字面量（"1.0.0"），而不是被当成表达式求值。
+     * 用法见 src/pc/views/system/model/settingsMeta.js（该文件用 ESLint 的 global 注释声明了这个全局）。
+     */
+    __APP_VERSION__: JSON.stringify(pkg.version)
+  },
   resolve: {
     /**
      * 依赖去重（必须保留，删掉即白屏）：

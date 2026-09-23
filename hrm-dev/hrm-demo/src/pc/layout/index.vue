@@ -4,7 +4,7 @@
     <el-aside :width="isCollapse ? 'var(--aside-w-collapsed)' : 'var(--aside-w)'" class="app-aside">
       <div class="app-logo">
         <el-icon :size="22" class="app-logo__icon"><Box /></el-icon>
-        <span v-show="!isCollapse" class="app-logo__title">快递驿站智汇</span>
+        <span v-show="!isCollapse" class="app-logo__title">{{ APP_NAME }}</span>
       </div>
       <el-menu
         :default-active="activeMenu"
@@ -88,6 +88,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@admin/stores/auth'
 import { ROLE_LABEL } from '@/shared/constants/role'
+import { APP_NAME } from '../constants/brand.js'
 import { useLogout } from '../composables/useLogout.js'
 import { buildMenus, MENU_GROUPS, MENU_ITEMS } from '../config/menu.js'
 import StatusTag from '../components/StatusTag.vue'
@@ -225,6 +226,11 @@ async function handleLogout() {
       font-weight: var(--fw-semibold);
       color: var(--text-inverse);
       white-space: nowrap;
+
+      /* 全名 10 字 @15px=150px，加图标 22+间距 8 = 180px，210px 下余量 30px；
+       * 不给 flex-shrink:0 时 flex 默认值为 1，字体渲染略宽就会压缩标题，
+       * 而 .app-aside{overflow:hidden} 会把末字裁成半截字。防御性固定，不改变当前视觉。 */
+      flex-shrink: 0;
     }
   }
 

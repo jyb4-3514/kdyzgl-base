@@ -5,7 +5,7 @@
         <div class="login-logo">
           <el-icon :size="36" color="#409eff"><Box /></el-icon>
         </div>
-        <h2 class="login-title">快递驿站智汇系统</h2>
+        <h2 class="login-title">快递驿站智慧管理系统</h2>
         <p class="login-subtitle">一期 · 员工管理平台</p>
       </div>
 
