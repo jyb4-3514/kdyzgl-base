@@ -43,7 +43,12 @@ build/
 .idea/
 .vscode/
 *.iml
-.trae/
+# .trae/ 默认忽略本机 AI 配置；但「项目规则」「智能体调度规则」「角色智能体配置」「技能」
+# 是团队规范载体，不入仓库会导致规范不可审计、换机需手工同步，故放行以下子目录。
+.trae/*
+!.trae/rules/
+!.trae/agents/
+!.trae/skills/
 .trae-cn/
 .settings/
 .classpath

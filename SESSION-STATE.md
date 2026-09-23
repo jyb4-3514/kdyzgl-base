@@ -1,9 +1,46 @@
 # 会话状态 — 三端 Demo（网页端 / 老板端 / 员工端）
 
-> 最后更新: 2026-09-19
+> 最后更新: 2026-09-23（本次追加「并行工作流 · 服务器存储与登录收敛」）
 > 状态：**需求 1–10 已全部实现并通过契约与构建验收，交付包已归档到桌面**
 > 分支：`feature/三端演示Demo`
 > 里程碑台账见 `hrm-dev/docs/demo-milestones.md`
+
+## 并行工作流 · 服务器存储与登录收敛（2026-09-23）
+
+> 与三端 Demo 主线并行，改动集中在部署态与服务器磁盘，**未触碰 Demo 源码主线**。
+> 分支：`feature/前端演示项目拆分与精细化`（工作区改动，**尚未 commit**）
+
+### A. Demo 登录收敛（删弹窗，只留站内登录）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 需求 | 移除全部额外验证步骤（验证码/双因素/安全问题），登录仅「账号 + 密码」；预留账号 `16626369983` |
+| 根因 | 生产站点弹窗来自 `hrm-demo-static` 容器内的 Basic Auth 网关（非 `courier-nginx` 现网栈） |
+| 改动 | 删 `auth_basic`（nginx.conf / Dockerfile / docker-compose.yml / deploy-demo.sh / .env.example），`docker-entrypoint.d/10-basic-auth.sh` 已删除；`hrm-demo/src/shared/mock/db.js` 新增预留账号（ADMIN、`pwdChanged=1`） |
+| 验证 | 线上 `https://kongzhen1.com/` HTTP/2 **200 且无 `WWW-Authenticate`**；Mock 内核直跑：正确口令 200+token、错误 1001、短账号/空密码 400、auth 路由仅 4 个且无 captcha/otp/mfa；`verify:mock` 879/879、单测 300/300 |
+| 代价（已知悉） | 站点完全公开；口令 `Aa16626369983..` 已进公开 JS 产物，**若与其他真实系统同口令须轮换** |
+| 文档 | `hrm-dev/docs/demo-docker-deploy.md` 已同步 5 处 |
+
+### B. 服务器存储策略落地（清理 → 装库 → 定策 → 验证）
+
+| 项 | 内容 |
+| ---- | ---- |
+| s1 清理 HIDS 日志 | 宝塔入侵检测日志 `/www/server/panel/data/hids_data/log` **4.7G → 1.8G**；先归档 `/data/backup/hids-log-backup-20260923144522.tgz`（185M，24 条目校验通过） |
+| s2 清理系统盘 | journal vacuum 释放 176M；`/www/backup/{panel,php56.Bak,php-fpm56.Bak}` 224M **移动**（非删）到 `/data/backup/www-server-backup-20260923144948/`；`docker builder prune -af` + 删无用镜像 `nginx:1.27-alpine`。**保留回滚镜像 `hrm-demo-static:20260922-1`**（78M，是既有回滚路径） |
+| s3 增长治理 | 新增 `hrm-dev/deploy/scripts/hids-log-rotate.{sh,cron}` → 服务器 `/usr/local/bin/hids-log-rotate.sh` + `/etc/cron.d/hids-log-rotate`，**每周日 03:30 轮转、只留近 7 日**；日志写 `/data/log/hids-log-rotate.log` |
+| s4 装宿主 MySQL | 先补 2G swap（`/data/swapfile`，`vm.swappiness=10`）→ apt 装 `mysql-server 8.0.46`；`rsync` 迁移初始 datadir → `/data/mysql-host`（180M）；配置文件 `hrm-dev/deploy/scripts/zz-kdyzgl-storage.cnf` → `/etc/mysql/mysql.conf.d/`；apparmor local 放行 `/data` 并重载；`systemctl enable --now mysql` |
+| s4 关键取舍 | **端口取 3307**（3306 被现网容器 `courier-mysql` 占用），**不停现网容器**；是否把 `courier-server` 切到宿主实例留作独立决策 |
+| s5 验证 | `is-active=active`/`is-enabled=enabled`；`@@datadir=/data/mysql-host/`、`@@port=3307`、`@@log_error=/data/log/mysql/error.log`、`@@tmpdir=/data/mysql-tmp`；探针库建表读写成功且 `t_probe.ibd` 落在 **`/dev/vdb1`**；`/var/lib/mysql` 4.0K / 0 文件、全盘无 `.ibd/.frm`；3307/33060 仅监听 127.0.0.1；探针库已 DROP；5 容器全 healthy；`kongzhen1.com → 200` |
+| 磁盘结果 | 系统盘 `13G/43% → 8.7G/31%`；数据盘 `/data` `2.8G/49G = 7%` |
+| 文档 | `hrm-dev/docs/deploy.md` 新增 **§0.5 存储策略（系统盘/数据盘分工）** + §0.3 端口表补 3307 行 |
+
+### 遗留待决策（勿擅自推进）
+
+1. 是否把 `courier-server` 从容器 MySQL(3306) 切到宿主实例(3307) —— **切换会中断现网**，需独立评估。
+2. 是否创建生产库 `kdyzgl` 与 `hrm_app` 账号（涉及凭据，须按项目规则 §7 由主智能体授权）。
+3. 上一轮 HTTPS 修复在服务器侧产生 commit `691c794`，因 DeployKey 只读未 push，需从服务器拉回本地再推 Gitee。
+4. 口令 `Aa16626369983..` 已进公开 JS 产物，若与其他系统同口令须轮换。
+5. `hrm-dev/deploy/docker-demo/.env.example` 被根 `.gitignore` 的 `.env.*` 规则挡住未跟踪，与规则 §4 要求不符。
 
 ## 交付物
 
@@ -597,6 +634,13 @@
   - 单测 **+42 例**（Chip 8 / Badge 7 / MiniChip 6 / ListItemCard 8 / ShiftCard 8 / PageState +5）
   - 门禁（主智能体独立复跑）：`lint` **0 error**、`verify:mock` **879/879**、`verify:mobile` **48/0**、`verify:tokens` **EXIT=0**、`test` **37 文件/300 用例全过**、`build` **EXIT=0**
   - ⚠️ **e2e 36/37**：见下方「待复验项」
+- [x] **附加批次（非 B1b）已完成并提交 `5181c20`**：员工端更名「驿站助手」+「我的」页标准精简
+  - 命名真源 `constants/appName.js` → `resolveAppName({ as, role })`（**登录后 role 优先于 as**）；消费方：`mobile.html` 静态 title（首屏兜底）、`App.vue`（**仅员工端**写 `document.title`，老板端交还并发会话的 `router/index.js` `afterEach`，`flush:'post'` 保证不被默认标题覆盖）、登录页 h1/副标题、门户入口卡片③。安卓壳 `app_name` **刻意不改**（三端共用载体）
+  - 「我的」页按 **方案 A** 拆分：员工端自组合壳 `views/staff/me.vue` + 跨端共享件 `components/{ProfileHero,AccountSecurityGroup,DemoIdentityGroup,LogoutAction}`；`MeSection.vue` 收为**仅服务老板端**（195→143 行），以 `MeSection.spec.js` 3 条护栏锁住老板端零变化
+  - IA（标准精简）：用户信息区吸收手机号/所属部门（删重复的「登录账号/所属驿站/最后登录」整块）→「我的数据」二次分群（薪酬与考核 / 考勤与流程）→ 演示身份（仅 Demo 态）→ 账号安全 →「关于」**原位替换**「运行环境」（零 router 改动）
+  - 门禁（主智能体独立复跑 7 项）：`lint` **0 error**（41 warn）/ `verify:tokens` EXIT=0 / `verify:mock` **887/0** / `verify:mobile` **48/0** / `test` **42 文件 336 用例全过** / `build` **EXIT=0**（首次 EPERM 失败系 `dist/index.html` 被占用的环境态，单跑即通过）/ `build:prod` EXIT=0；`hrm-admin`+`hrm-server` **零改动**
+  - 提交范围控制：`views/login/index.vue`、`src/portal/main.js` 与并发会话**同文件混改**，采用「备份 → 摘出他人 hunk → `git add` → 还原工作区」的**行级剥离**；提交后已还原并发会话残余 hunk（两文件工作区仍为 `M`，归属他人）。`SESSION-STATE.md` 因多方写入，本批次**未纳入提交**
+  - ⚠️ **待浏览器复核**：员工端 `document.title` 依赖 vue-router 路由对象引用变化触发 `watchEffect`，本机无可用浏览器走查 → 收敛到浏览器复核后才能声称已生效
 - [ ] B1b 考勤域页面拆分（`attendance.vue` 972 行 → 壳 + `ClockHero/PeriodCard/CheckSlotRow/CheckResultPanel/VerifyCard/MakeupPopup` + composables + model；另 3 页）
 - [ ] B2 工单域 / B3 包裹域 / B4 我的域 / B5 请假域 / B6 首页与消息域 / B7 同步域
 - [ ] B8 性能与门禁收口 + 视觉/无障碍走查
@@ -623,7 +667,7 @@ B1–B7 原本都要把页面改为 `views/staff/<域>/index.vue` 并同步改 `
 
 ## 批次门禁基线（随批次上调，不得弱化）
 
-`verify:mock` **879**（R5 后） / `verify:mobile` **48** / `test` **300**（B1a 后） / `e2e` **36 通过 + 1 待复验（B2-2，PC 侧）** / `lint` **0 error** / `verify:tokens` EXIT=0 / `build`+`build:prod` EXIT=0 / `hrm-admin`+`hrm-server` 零改动
+`verify:mock` **887**（附加批次后） / `verify:mobile` **48** / `test` **336**（42 文件，附加批次后） / `e2e` **36 通过 + 1 待复验（B2-2，PC 侧）** / `lint` **0 error** / `verify:tokens` EXIT=0 / `build`+`build:prod` EXIT=0 / `hrm-admin`+`hrm-server` 零改动
 
 ## 关键结论
 
@@ -768,3 +812,108 @@ B1–B7 原本都要把页面改为 `views/staff/<域>/index.vue` 并同步改 `
 4. `npm run format:check` 全仓红灯（既有 CRLF 与 `.prettierrc` `endOfLine: lf` 冲突，需专项裁决）
 5. 测试手机号仅在网关层生效；如需**站内**以该手机号登录并带管理权限，须改 `src/demo/accounts.js` 与 Mock 权限映射（口令将公开于 bundle，**不建议**）
 6. 文档漂移待修：项目规则写「生产 = 宝塔 + systemd `hrm-server.jar`、库名 `kdyzgl`」，实测为 Docker 栈 `courier-server` + 库名 `courier_station` + 另一仓库 `kdyzzhxt`
+
+***
+
+# 会话状态 — 网页端改名「快递驿站智慧管理系统」+ 新增系统设置页
+
+> 最后更新: 2026-09-23
+> 分支：`feature/前端演示项目拆分与精细化`
+> 状态：**改名完成并已同步线上；跨浏览器 × 多尺寸验证通过**
+
+## 进度
+
+| 项 | 结果 | commit |
+| --- | --- | --- |
+| 改名（仅网页端） | 名称收敛到 `src/pc/constants/brand.js` 单一真源；落点＝浏览器标题栏（`pc.html` + `router.afterEach`）、侧栏 logo、登录界面标题 | `3d85cd0` |
+| 侧栏 10 字适配 | 补 `flex-shrink: 0`（不补会被 flex 压缩 + `.app-aside{overflow:hidden}` 裁掉末字） | `3d85cd0` |
+| 「系统设置」页 | `/system/settings`，仅 ADMIN；四分区；唯一异步块承载四态；版本号经 `vite define` 注入 | `3d85cd0` |
+| 线上同步 | 重建 dist → 上传 → `docker compose up -d --build`；线上 `pc.html` title 已为新名 | — |
+
+## 门禁与验证（实测）
+
+`verify:mock` **879/879** · `test` **322 用例 / 39 文件** · `lint` **0 error** · `stylelint src/pc` **0 problem** · `build` **EXIT=0** · `e2e` **36 passed + 1 failed**
+
+- **e2e 唯一失败 = `B2-2` 负载抖动，非改名回归**：改名只改一个字符串、不改变登录页模块图；该用例 240s 预算在机器被并行任务拖慢（本轮 e2e 9.7m vs 基线 5.1m）时超时；**单独复跑 `07-network.spec.js` → 3 passed**。该用例此前已被登记为「待复验」（见 `0b12b4d`）。
+- **跨浏览器 × 多尺寸名称显示**：Chromium / Firefox / WebKit 三内核 ×（1280 / 1440 / 1920 / 1024 折叠 / 375），**本地与线上域名各跑一轮，`problems = []`、`EXIT=0`**。判据全为脚本实测数值：侧栏 `scrollWidth 150 === clientWidth 150`（不截断）、`flexShrink === '0'`、`aside 210`（折叠 64 + `display:none`）、`document.title` 全等、设置页展示系统名称、无横向滚动、无页面 JS 错误。
+- 脚本：`e2e/evidence/brand-crossbrowser.js`（gitignored，支持 `BASE_URL` + Basic Auth 环境变量）
+
+## 关键决策
+
+1. **改名范围＝仅网页端**（用户拍板）：移动端与端选择页仍为「快递驿站智汇系统」，属**已知且用户接受**的一系统两名
+2. **破例改一期源码**（用户明确授权）：`hrm-admin/src/views/login/index.vue:8` 标题文案，**仅 1 行**。影响——污染一期资产，删除 `hrm-demo` 不再能完全回滚该改名；且 `hrm-admin` 自身入口其余位置仍是旧名，一期独立运行时会出现「登录页新名 / 其余页旧名」
+3. **未新增 token、未新增组件**：系统设置页复用 `PageHeader / StateBlock / StatusTag / MetricCard`
+4. **权限收口走既有 `EXTRA_MENU_KEYS.ADMIN`**（与 `logs` 同口径），未改 `src/shared/constants/role.js`（本轮该目录禁改），已标 `TODO(扩展)` 待 shared 解冻后并入真源
+5. 设计规范把包裹总数契约字段写作 `total`，实测契约是 **`parcelTotal`** → 按真实契约取值，未按文档字面猜
+
+## ⚠️ 线上部署与仓库产物已不可信（他方改动，非本人）
+
+**另一会话/他人在 Sep 22 23:50–23:55 于服务器上直接改动了本服务，且未提交仓库：**
+
+| 服务端文件 | 变化 | mtime |
+| --- | --- | --- |
+| `nginx.conf` | **移除全部 `auth_basic`**，并写入理由「认证已收敛到站内登录页，避免两层验身」 | Sep 22 23:50 |
+| `docker-compose.yml` | 移除 `env_file` 与 `BASIC_AUTH_*` 环境变量 | Sep 22 23:50 |
+| `.env` | 只剩 `DEMO_TAG` / `HOST_PORT`（认证两行被删） | Sep 22 23:55 |
+| `docker-entrypoint.d/10-basic-auth.sh` | **已删除** | — |
+
+后果：
+1. **演示站自此对公网完全开放**（无网关鉴权）
+2. **仓库侧也已同步为同一无鉴权形态（未提交）**：`nginx.conf` / `docker-compose.yml` / `Dockerfile` / `deploy-demo.sh` 均已改、`10-basic-auth.sh` 已删 → 服务端与仓库**当前一致**，按仓库重新部署**不会**重新引入网关
+3. **测试手机号 `16626369983` 现在在任何地方都不存在**：网关已删除，且全仓 `grep` 无该账号（`src/demo/accounts.js` 未落）→ 原始需求「预先配置测试用账号」当前**未被满足**
+4. 此事属「直接在服务器改配置 + 仓库改动未提交」，与规则「服务器产物只来源于仓库」冲突，需登记为流程问题
+5. 已在本会话 `939ded2` 中把该状态登记进 `hrm-dev/docs/demo-docker-deploy.md`（含首版误判「仓库仍保留网关」的更正）
+
+## 未完成 / 遗留
+
+1. **`hrm-admin` 自身入口仍是旧名**：`layout/index.vue:7`（侧栏）、`router/index.js:105-106`（标题）未改（用户仅授权登录页那一行）。其中 layout 会经 `@admin/utils/request.js` 的 401 动态 import 被打进 demo 包，但演示里**永不渲染**（三内核侧栏实测为新名可证）。是否一并改需拍板。
+2. `B2-2` 在本机并行负载下会超 240s 预算 → 属环境敏感用例，建议单独复跑或放宽预算（已有他人登记）
+3. 系统设置页 S3 的 `empty` / `error` 两态**未做运行时触发**：Mock 在 axios adapter 层拦截、演示态恒返回 `parcelTotal=200000`，无自然失败路径；当前仅静态审查 + 纯逻辑单测覆盖
+4. 375 / 820 档「设置页」与折叠态以外布局未逐格实测（PC 不承诺区）
+5. `/admin/` 现网 500、`/api/` 403、`/photos/` 403、`/download` 404 仍为改动前既有行为（未见处置）
+
+***
+
+# 会话状态 — 智能体团队编制与调度规则（规范层，非代码）
+
+> 最后更新: 2026-09-23
+> 分支：`feature/前端演示项目拆分与精细化`（本轮全部改动**未提交**）
+> 状态：**设计 + 落盘完成；项目规则升 v2.2；9 角色编制；调度规则常驻生效**
+> 参照基线：MetaGPT（arXiv:2308.00352，ICLR 2024 Oral，`Code = SOP(Team)` + 带类型产物交接）
+
+## 交付物（全部未提交）
+
+| 交付物 | 路径 | 规模 |
+| --- | --- | --- |
+| **智能体调度规则（常驻生效）** | `.trae/rules/智能体调度规则.md` | 新建 265 行 |
+| 项目规则 **v2.2** | `.trae/rules/项目规则1.md` | 465→472 行 |
+| 第 9 角色 | `.trae/agents/express-station-security-engineer/SKILL.md` | 新建 104 行 |
+| 角色边界修订 | `.trae/agents/{test-engineer,ui-ux-designer,ops-engineer}/SKILL.md` | 3 个文件 |
+| 角色创建版 | `智能体配置.md` | 173→192 行（9 角色） |
+| 详设（论证与契约卡） | `hrm-dev/docs/agent-team-design.md` | v1.0→v1.1，540 行 |
+| 同源镜像 | `.github/CONTRIBUTING.md` | 187→474 行（= 项目规则 v2.2 全文镜像） |
+| 全局准则对齐 | `全局规则.md` | 96→102 行（§6 改四档、§4 凭据托管） |
+| 工程放行 | `.gitignore` | `.trae/{rules,agents,skills}` 解除忽略 |
+
+## 关键决策（用户拍板）
+
+1. **新增第 9 角色「网络安全工程师」**：拆分「安全技术评估」与「安全审批」——评估方＝网络安全工程师，决策与授权方＝主智能体。
+2. **主智能体不得无脑审批**：C 档授权必须以独立安全技术评估结论为依据；无结论不得授权；高风险升级用户裁定。
+3. **「视觉走查」正式划归 UI/UX 设计师**；测试工程师收敛为功能/接口/E2E/门禁实跑 + 响应式与可访问性可执行验收。
+4. **调度逻辑独立成文常驻加载**（不并入项目规则，避免每轮 token 膨胀）；详设论证留 `hrm-dev/docs/agent-team-design.md`。
+5. **「安全评估」两类口径消歧**：操作安全评估（影响范围/可逆/回滚）→ 主智能体 §10.3；技术安全评估（漏洞/攻击面/依赖/合规）→ 网络安全工程师；运维不承担任一类。
+6. `.trae/` 放行 rules/agents/skills 入仓库；**技能领域技能无安全类**，网络安全工程师暂挂 `code-review`（安全维度），已标 `TODO(扩展)`。
+
+## 实测澄清（子智能体纠错，避免误判）
+
+1. 8 个角色 SKILL.md 的父规则引用**原本已是 v2.1 编号**（非任务书假设的"全部失效"）；全仓仅运维文件存在失效引用「项目规则 12.3 节」，已修正。
+2. `CONTRIBUTING.md` 虽声明与项目规则同源，**正文实际停留在旧版**（PG 双库 / Vuex / 无 §10–§14）→ 本轮重写为 v2.2 镜像。
+3. 项目规则 §10.5 曾自称「与 `全局规则.md` §6 已对齐」，**该自述不成立**（全局 §6 仍写「高危操作必须人工确认」）→ 本轮已双向对齐。
+
+## 未完成 / 遗留
+
+1. **全部未提交**：`.trae/` 现为未跟踪（`?? .trae/`），`智能体配置.md`、`CONTRIBUTING.md` 为已修改。**提交前须先 `git branch --show-current` 确认分支并核对范围**（工作区另有并发会话改动）。
+2. **`.trae/skills/` 是否随仓库分发**：已放行，但 13 个技能中部分可能来自插件市场安装，**首次入库需人工确认无本机私有内容**。
+3. **协作方仍需补齐**：新增角色与调度规则会影响历史会话的既有习惯；`.trae/skills/{engineering-discipline,devops-pipeline}` 中「安全评估」仍用裸词，建议后续统一为「操作安全评估」（`TODO(扩展)`）。
+4. **文档漂移（历史遗留，本轮未处理）**：项目规则 §5 写「宝塔 + systemd `hrm-server.jar`、库名 `kdyzgl`」，实测生产为 Docker 栈 `courier-server` + 库名 `courier_station`（见本文件 PC 端小节遗留 6）。
+5. **算法/UI 两处落盘路径仍 `TODO(扩展)`**：Design Tokens 生产端路径、算法基准数据独立目录（详见 `agent-team-design.md` §10）。
