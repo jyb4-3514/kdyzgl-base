@@ -1,7 +1,8 @@
 <script setup>
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showSuccessToast } from 'vant'
+import { APP_NAME_STAFF, resolveAppName } from '../../constants/appName.js'
 import { roleLabel } from '../../constants/accounts.js'
 import { useAuthStore } from '../../stores/auth.js'
 
@@ -19,6 +20,13 @@ const loading = ref(false)
 const errorMsg = ref('')
 /** 密码明文/密文切换：只切 input type，不清空已输入内容，也不影响「一键体验」填充 */
 const showPassword = ref(false)
+
+/** 标题按登录态优先级命名（登录后 role > 入口参数 as）；只读 route.query.as，零新增数据源 */
+const appName = computed(() => resolveAppName({ as: route.query.as, role: auth.role }))
+/** 副标题在员工端点明「员工端」，老板端与无参数保持原文案 */
+const subtitle = computed(() =>
+  appName.value === APP_NAME_STAFF ? '员工端 · 移动端演示 · 纯 Mock 数据，无需后端' : '移动端演示 · 纯 Mock 数据，无需后端'
+)
 
 /** 演示账号与密码只在 Mock 态动态加载；关闭后「一键体验」整块不渲染（生产构建剔除 demo 资产） */
 const demoEnabled = import.meta.env.VITE_MOCK_ENABLED === 'true'
@@ -61,8 +69,8 @@ async function onSubmit() {
 <template>
   <div class="login">
     <header class="login__header">
-      <h1 class="login__title">快递驿站智汇系统</h1>
-      <p class="login__subtitle">移动端演示 · 纯 Mock 数据，无需后端</p>
+      <h1 class="login__title">{{ appName }}</h1>
+      <p class="login__subtitle">{{ subtitle }}</p>
     </header>
 
     <section class="login__card">

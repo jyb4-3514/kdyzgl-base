@@ -139,6 +139,21 @@ body {
   color: var(--text-3);
 }
 
+/* 二级群标题（员工端「我的数据」两群）：比一级标题轻一档。
+ * 颜色用 --text-2（7.04）而非 --text-3：--text-3 落在 --surface-page 上实算 4.5046、无余量（§3 C-2）。 */
+.section-title--sub {
+  margin-top: var(--sp-3);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+}
+
+/* 群②（第二个及之后的同组）：上距拉开一档到 24，与群①的 12 区分，避免两群连成一片（§10.2）。
+ * 用同组相邻选择器表达，不为单处差异再开一个类名。 */
+[role='group'] + [role='group'] > .section-title--sub {
+  margin-top: var(--sp-6);
+}
+
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

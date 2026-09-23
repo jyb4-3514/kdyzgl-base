@@ -33,7 +33,7 @@ const cards = [
   },
   {
     tag: 'Mobile / WebView',
-    name: '员工端（作业视角）',
+    name: '员工端 · 驿站助手（作业视角）',
     role: 'STATION_ADMIN / STAFF：取件核销、工单处理、本站包裹与同步状态',
     link: 'mobile.html#/login?as=station',
     note: '→ 进入移动端（已预填「站长」账号）'

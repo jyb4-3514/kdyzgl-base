@@ -785,3 +785,100 @@ const R = (a, b) => ((Math.max(L(a), L(b)) + 0.05) / (Math.min(L(a), L(b)) + 0.0
 ## 附录 C：待真机复核项汇总（6 项）
 
 U1 壳 `--status-bar-height` 实测值 / U2 `van-radio` Tab 可达性 / U3 四档宽度与安全区 / U4 渲染态半透明叠加后的对比度 / U5 2000 条长列表滚动帧率 / U6 键盘弹起与固定栏遮挡。
+
+---
+
+## 10. v1.2 修订（2026-09-23）· 员工端命名与「我的」页精简
+
+> 追加节，不改动本文档既有条款。依据来自本轮逐文件读码（行号可跳转）。硬约束：不改 `router/index.js`（含 `index.spec.js`）、不新增路由/二级页、`hrm-admin`/`hrm-server` 零改动、壳保持 `views/staff/me.vue` 原位。
+
+### 10.1 员工端应用命名命中矩阵（鉴权前无法判角色）
+
+应用名真源：**员工端 = 「驿站助手」**；**老板端 = 「快递驿站智汇系统」**（保持）。判据优先级：登录后 `auth.role`（`stores/auth.js:32-33`） > 登录前 `route.query.as`（`views/login/index.vue:33`；取值仅 `boss|station|staff`，见 `src/demo/accounts.js:8-12`）。
+
+| 载体 | as=staff / as=station（员工端） | as=boss（老板端） | 无参数 |
+| --- | --- | --- | --- |
+| `<h1>` `views/login/index.vue:64` | 驿站助手 | 快递驿站智汇系统 | 快递驿站智汇系统 |
+| 副标题 `views/login/index.vue:65` | 员工端 · 移动端演示 · 纯 Mock 数据，无需后端 | 移动端演示 · 纯 Mock 数据，无需后端 | 移动端演示 · 纯 Mock 数据，无需后端 |
+| 浏览器标题 | 驿站助手 | 快递驿站智汇系统 | 快递驿站智汇系统 |
+| TabbarLayout 标题 | 「我的」等，**不含应用名 → 不改** | 同左 | 同左 |
+
+- **登录页不动 `router`**：仅把 `views/login/index.vue:64-65` 的静态文案改为按 `route.query.as` 计算的 `computed`（`as` 已在 `:33` 读取，零新增数据源）。
+- **浏览器标题运行时覆盖**：`mobile.html:16` 静态标题保留为首屏/无 JS 兜底；在 `src/mobile/App.vue` 加 `watchEffect`（`App.vue:14` 已有 `route`、`:16` 已有 `auth`），按上表优先级写 `document.title`。**不改 `router/index.js`**（标题不依赖 `meta`）。
+- **确认点**：站内导航栏标题取 `route.meta.title`（`layout/TabbarLayout.vue:30` = `route.meta.title || ''`），值为「我的」「工作台」等，**不含应用名 → 本轮不动**；页内标题由各页显式传入（如 `staff/kpi.vue:59`），同样不含应用名。
+- **本轮不改的共享命名点**：
+
+| 位置 | 值 | 不改理由 | 若需改的改法 |
+| --- | --- | --- | --- |
+| `hrm-android-shell…/values/strings.xml:3` | `快递驿站` | 壳是三端移动端**共用载体**（老板/员工同一 `mobile.html`），非员工端专属 | 不改（改则波及老板端） |
+| `src/portal/main.js:19-41` 卡片名 | 员工端（作业视角） | 属**端选择入口**的「端」名，非「应用名」；范围仅员工端视图 | 仅改卡片③ `name` 为「员工端 · 驿站助手（作业视角）」，`link`/`role` 不动（单字段，零风险） |
+| `package.json:5` description | 快递驿站智汇系统 · 三端演示 Demo | 三端共用描述 | 不改 |
+
+### 10.2 「我的」页新信息架构（员工端）
+
+区块顺序与保留/移除逐项对照 `components/MeSection.vue`：
+
+| 序 | 区块 | 处置 | 现状依据 |
+| --- | --- | --- | --- |
+| 1 | 用户信息 Hero 卡 | **保留并吸收手机号/所属部门**（副信息改两行） | `MeSection.vue:56-62` |
+| 2 | 「我的数据」两群 | **二次分群（P1-13）** | `MeSection.vue:67-95` |
+| 3 | 「切换演示身份」（Demo 态） | 保留，行为与位置不变（数据区之后、账号安全之前） | `MeSection.vue:117-120` |
+| 4 | 「账号安全」修改密码 | 保留 | `MeSection.vue:122-125` |
+| 5 | 「关于」 | **原位替换「运行环境」** | 替换 `MeSection.vue:127-132` |
+| 6 | 退出登录 | 保留 | `MeSection.vue:134-136` |
+| — | 「账号信息」5 行整块 | **删除**（登录账号/所属驿站与 Hero `:61` 重复；最后登录低价值） | `MeSection.vue:97-115` |
+
+群名与群内项序（**一级标题「我的数据」保留**；群为二级）：
+
+| 群 | 项序 | 路由 |
+| --- | --- | --- |
+| ① 薪酬与考核 | 我的 KPI → 我的工资单 → 我的档案 | `/staff/kpi`、`/staff/payroll`、`/staff/profile` |
+| ② 考勤与流程 | 我的排班 → 打卡记录 → 我的补卡申请 → 我的请假 → 我的入离职 → 请假初审（站长）→ 同步状态（`canSeeSync`） | `/staff/schedule`、`/staff/attendance/records`、`/staff/attendance/makeup`、`/staff/leave`、`/staff/flow`、`/staff/leave/review`、`/staff/sync` |
+
+- 附加项条件原样保留：请假初审 `v-if="auth.role === 'STATION_ADMIN'"`、同步状态 `v-if="auth.canSeeSync"`（`MeSection.vue:86-94`）；二者置于群②**末**（严格按拍板）——若更重语义相邻，可把请假初审前移至「我的请假」之后（**可复判点**）。
+- 层级（全用既有 Token）：一级标题沿用 `.section-title`（`mobile.scss:125`，`--fs-h3`/`--fw-semibold`，上距 `--sp-5`、下距 `--sp-2`）；新增二级群标题修饰类 `.section-title--sub`（落 `mobile.scss`）＝ `--fs-caption`/`--fw-medium`/`--text-2`，群①上距 `--sp-3`、**群②上距 `--sp-6`**（§5.7.1）。**注意**：`--text-3` 不得落在 `--surface-page`（§3 C-2，实算 4.5046 无余量），故群标题用 `--text-2`（7.04）。
+- `inset` 已统一（`MeSection.vue:69,77,109,123,129` 均 `inset`，P1-8 已满足），新结构与「关于」沿用 `inset`。
+
+### 10.3 拆分方案：**采纳方案 A**（员工端自组合壳）
+
+**裁决：方案 A**。理由：① 员工端删「账号信息」块与「运行环境」、老板端二者全保留——差异是**整块级**而非字段级，组件边界是最显式的表达（§2.3 禁止隐式分支）；② 方案 B 需在 `MeSection.vue`（现约 195 行）内塞两套 IA 与多个 `v-if="view==='self'"`，必然破 §4.2「单文件 ≤300 行」，且**老板端将持续暴露在员工端 diff 中**，与「老板端零变化」硬约束相悖；③ 约束 4 已为 `views/staff/me/components/`、`views/staff/me/composables/` 预留落点。取舍：方案 A 需抽共享块并等价改写 `MeSection.vue`（内联块→引用共享组件，**DOM 与类名保持一致**），老板端零变化的验收方式是**逐项视觉/行为比对**——本方案唯一风险点。
+
+新组件清单（共享块落 `src/mobile/components/`，员工端专属落 `views/staff/me/`）：
+
+| 组件 | 分层 | 落点 | 职责 | 行数上限 |
+| --- | --- | --- | --- | --- |
+| `ProfileHero.vue` | Organism | `components/` | 用户信息 Hero 卡；props `name`/`role`/`lines: string[]`（每条一行 `.hero__sub`），输出与 `MeSection.vue:56-62` 等价 | ≤70 |
+| `AccountSecurityGroup.vue` | Molecule | `components/` | 「账号安全」标题 + `inset` cell-group + 修改密码 cell；props `to`（默认 `/staff/me/password`） | ≤50 |
+| `DemoIdentityGroup.vue` | Molecule | `components/` | 「切换演示身份」区（`VITE_MOCK_ENABLED==='true'` 才渲染 + 标题 + `IdentitySwitcher`） | ≤40 |
+| `LogoutAction.vue` | Molecule | `components/` | 退出按钮 + 二次确认 + 登出跳转（与 `IdentitySwitcher.vue` 同型，可持 store/router） | ≤70 |
+| `MyDataGroups.vue` | Organism | `views/staff/me/components/` | 员工端「我的数据」两群（群内项与站长附加项 `v-if`） | ≤90 |
+| `AboutGroup.vue` | Molecule | `views/staff/me/components/` | 「关于」区（见 10.4） | ≤50 |
+
+- composable：**需要 1 个** → `views/staff/me/composables/useMyProfile.js`，暴露 `{ state, retry }`（`state ∈ loading|error|ready`，`retry` 走 `auth.refreshMe()`，与 `MeSection.vue:26-39` 同口径）。**新增理由**：员工端删「账号信息」块后，Hero 成为唯一取数区块，三态必须由 Hero 承担（§0.1）；否则 `auth.userError` 在员工端**无处回显**。
+- `views/staff/me.vue` 壳（≤120 行）：`<PageState :loading :error @retry>` 包 `ProfileHero`（仅 Hero 取数，群导航静态不包）→ `MyDataGroups` → `DemoIdentityGroup` → `AccountSecurityGroup` → `AboutGroup` → `LogoutAction`。
+- `MeSection.vue` 改为**仅服务老板端**：保留「账号信息」5 行块与其 `meState` 骨架/错误（`:99-115`）、「运行环境」块（`:127-132`）；Hero/演示/账号安全/退出改引用上述共享组件（等价替换）。
+
+### 10.4 「关于」区规格（替换原「运行环境」）
+
+| 字段 | 值 / 文案 | 说明 |
+| --- | --- | --- |
+| 分组标题 | 关于 | `.section-title` |
+| 应用名称 | 驿站助手 | 员工端应用名（10.1） |
+| 版本 | v1.0.0（演示版） | **零风险替代**，见下 |
+| 数据来源 | 全量 Mock，不发起真实请求 | 与 `portal/main.js:12` 口径一致 |
+
+- **版本号取值（零风险）**：**不新增构建期变量**。固定文案 `v1.0.0`（与 `package.json:3` `version` 同值），加注释 `TODO(扩展): 后续由 vite define 注入 package.json version，消除硬编码`。
+- **若改用 `import.meta.env.VITE_APP_VERSION` 的评估**：需在 `hrm-demo/.env.demo` 与 `.env.production` 各加一行（该两文件仅含演示参数、随仓库提交，无凭据风险），`build`(demo)/`build:prod`(production) 均可读到，`verify:mock`/`verify:mobile` 不受影响 —— **可行，但超出本轮「只改一个 md」范围**，故本轮给零风险替代。
+- **视觉/inset 口径**：`van-cell-group inset`（P1-8）；沿用原「运行环境」的 Caption 降级 —— Vant 变量覆盖 `--van-cell-font-size: var(--fs-caption)` / `--van-cell-text-color: var(--text-3)` / `--van-cell-value-color: var(--text-3)`（现状 `MeSection.vue:186-190` `.env`）。**已核算**：`inset` cell-group 底为 `--surface-card`(#FFFFFF)，`--text-3` 实算 **4.83:1** 达 AA（§8.1），合规。
+
+### 10.5 无障碍与响应式
+
+| 项 | 规范 |
+| --- | --- |
+| 焦点顺序 | = DOM 顺序（Hero 不可聚焦 → 群① cell 链 → 群② cell 链 → 演示身份按钮 → 修改密码 → 关于（只读不可聚焦）→ 退出按钮）；**不加 `tabindex`**（§8.3） |
+| `aria-*` | 群用 `<section role="group" :aria-label="群名">` 暴露分组；装饰图标 `aria-hidden="true"`；「关于」只读行不设 `tabindex` |
+| 触控 | 全部 cell 行高 ≥48（`tokens.scss:125` 派生）；修改密码 cell 与退出按钮 ≥ `--touch-min`(44px)；`ProfileHero` 内 chip 非交互 |
+| 320px | Hero 副信息两行、群标题与 cell label 允许换行；无横向滚动（`mobile.scss:17` 兜底）；「数据来源」≤2 行（§6.5） |
+| 375px | 基准宽度 |
+| 414px | 内容不超容器（页面左右 padding 固定 `--sp-3`，见 `tokens.scss:130`） |
+| `prefers-reduced-motion` | 已全局覆盖（`tokens.base.scss:244-253`）；新区块无动效，无需重复声明 |
