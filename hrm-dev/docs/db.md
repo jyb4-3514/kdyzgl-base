@@ -1,13 +1,25 @@
-# 快递驿站智汇系统 · 一期数据库设计文档
+# 快递驿站智汇系统 · 数据库设计文档（一期 4 表 → 145 接口 38 表）
 
 | 项目 | 内容 |
 | ---- | ---- |
-| 文档版本 | v1.0 |
-| 编写日期 | 2026-09-06 |
-| 状态 | 待评审 |
-| 数据库 | MySQL 8.0（默认）+ PostgreSQL（双 schema 同步维护） |
-| 库名 | `kdyzgl`（MySQL 字符集 utf8mb4 / PostgreSQL encoding UTF8） |
-| 关联文档 | [requirement.md](requirement.md)、[api.md](api.md)、[plan.md](plan.md) |
+| 文档版本 | v2.1（v1.0 = 一期 4 表；v2.0 = 第 8 章 P1~P10 共 33 表；v2.1 = 第 10 章 登录体系改造 1 表 + `hr_flow` 补列） |
+| 编写日期 | 2026-09-06（v1.0）/ 2026-09-24（v2.0）/ 2026-09-24（v2.1） |
+| 状态 | 第 1~7 章（一期）已评审；第 8 章（二期扩展）已落库（V3~V13 全部执行成功）；第 10 章（登录改造）待主智能体 Review |
+| 数据库 | **MySQL 8.0 单库**（决策：`postgresql/` 目录冻结不再维护，保留不删避免历史引用断裂） |
+| 库名 | `kdyzgl`（utf8mb4 / utf8mb4_0900_ai_ci） |
+| 关联文档 | [requirement.md](requirement.md)、[api.md](api.md)、[plan.md](plan.md)、[server-architecture.md](server-architecture.md)、[algo-hrm-server.md](algo-hrm-server.md)、[multi-client-architecture.md](multi-client-architecture.md)、[security-auth-review.md](security-auth-review.md) |
+| 迁移落位 | `hrm-server/src/main/resources/db/migration/mysql/V1..V15`；快照 `sql/schema/mysql/init.sql` |
+
+> **v2.0 变更范围**：第 1~7 章为一期权威基准，**字段与语义保持冻结不改**；第 8 章按
+> `server-architecture.md` §4（表清单/字段与索引策略/Flyway 版本规划/P10 大表策略）与
+> `algo-hrm-server.md`（参数外置与 S7 索引建议）产出 P1~P10 共 33 张新表的结构定义，
+> 字段真源为 `hrm-demo/src/shared/mock/` 各 store（前端 VO 驼峰值由后端 Java 转换，库内 snake_case）。
+> 批次与 Flyway 版本号 1:1 对应（P1→V3 … P10→V13）。
+>
+> **v2.1 变更范围**：新增第 10 章「登录体系改造表结构设计」，按 `multi-client-architecture.md` §4.2.1
+> （设备信任模型）与 `security-auth-review.md` §3/§4.2（服务端持有信任态）产出 **V14**（`hr_flow` 补
+> `operator_id` / `operator_name` 两列）与 **V15**（`auth_trusted_device` 1 表）。**V1~V13 未改动**；
+> 表总数 37 → **38**。本章同时登记「哪些敏感数据不建表（走 Redis）」的取舍（§10.4）。
 
 ***
 
@@ -384,7 +396,11 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 
 ### 5.3 sql/schema 快照同步（仓库规范 6.1）
 
-`hrm-dev/sql/schema/mysql/init.sql` 与 `postgresql/init.sql` 存放「当前最新结构的完整快照（含注释）」，供评审与 DBA 查看；**执行来源唯一为 Flyway 目录**。约束：任何 Flyway 新增结构脚本（V3+）必须同步刷新快照（任务 A05 落实，后续变更沿用）。
+`hrm-dev/sql/schema/mysql/init.sql` 存放「当前最新结构的完整快照（含注释）」，供评审与 DBA 查看；**执行来源唯一为 Flyway 目录**。约束：任何 Flyway 新增结构脚本（V3+）必须同步刷新快照（一期由任务 A05 落实，后续变更沿用）。
+
+- **当前状态（v2.0）**：`mysql/init.sql` == Flyway `V1 + V2(种子) + V3..V13` 的最终结构态（共 37 张表）；V3~V13 已随第 8 章同步落库。
+- **`postgresql/init.sql` 冻结**：不再维护、不再随变更刷新，仅保留避免历史引用断裂（`spring.flyway.locations={vendor}` 只会选中 `mysql/`）。
+- **快照与迁移一致性核对结论（v2.0）**：`mysql/init.sql` 既有 4 表与 `V1__init_schema.sql` 逐列一致，无差异；未发现既有快照与 V1/V2 的不一致处。
 
 ***
 
@@ -397,6 +413,9 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 3. 员工逻辑删除保留 id 稳定性，二期包裹表引用的取件员工 id 不因离职而失联。
 
 ### 6.2 二期新增表预告（概要，届时专项设计评审）
+
+> **v2.0 更新**：本节预告已在第 8 章正式落地（`parcel` / `sync_task` / `sync_log` 等）。
+> 本章保留为设计演进记录；**具体字段与索引以第 8 章为准**。
 
 | 预告表 | 用途 | 关键设计要点（初步） |
 | ---- | ---- | ---- |
@@ -449,4 +468,770 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 `id / time / level / source / employee_id NULL / route / message / stack / method / path / status / code / duration / ua / count / first_time / last_time`；
 索引 `idx_client_log_time (time)`、`idx_client_log_level (level)`。
 **写入前必须白名单脱敏**：token / 密码 / 身份证 / 手机号全量 / 银行卡 / 请求响应体原文一律不入库（见 api.md 7.5）。
+
+***
+
+## 8. 二期扩展表结构设计（P1~P10，共 33 表）
+
+> 权威依据：[server-architecture.md](server-architecture.md) §4.1（表清单）、§4.2（字段与索引策略）、
+> §4.3（`parcel` 大表策略）、§4.4（Flyway 版本规划）、§4.6（面向频繁迭代的 ADR-04）、§5.2（入库可热改）；
+> [algo-hrm-server.md](algo-hrm-server.md) §11（参数外置）、§13（S7 索引建议）。
+> 字段真源：`hrm-dev/hrm-demo/src/shared/mock/` 各 store + `constants/dict.js`。
+> DDL 落位：`hrm-server/src/main/resources/db/migration/mysql/V3..V13`；快照 `sql/schema/mysql/init.sql`。
+
+### 8.0 通用约定（本章所有表适用）
+
+1. **命名**：表 / 字段 `snake_case`；主键统一 `id`（`BIGINT AUTO_INCREMENT`）；索引 `idx_表名_字段`；
+   时间 `create_time` / `update_time`；逻辑删除 `is_deleted`（0=否，1=是）。
+2. **不建物理外键**（决策 D6）：本章「逻辑关系」一律为 Service 层校验；**不建数据库唯一索引**（决策 D7），
+   「活跃唯一」由 Service 层查重 + 普通索引加速（架构 §4.6(2)）。
+3. **时间填充**（决策 D8）：`create_time` / `update_time` 仅 `DEFAULT CURRENT_TIMESTAMP` 兜底，
+   由应用层 `MetaObjectHandler` 填充，不使用 `ON UPDATE CURRENT_TIMESTAMP`。
+4. **追加型日志 / 留痕表例外**：`client_log`、`hr_salary_log`、`leave_log`、`work_order_timeline`、
+   `work_order_transfer`、`sync_task_log` **不设 `is_deleted` / `update_time`**（不可变数据无更新与删除语义，
+   沿用 `login_log` 的例外约定）；其业务时间字段为 `time` / `create_time` / `log_time` / `transfer_time`。
+5. **面向频繁迭代（ADR-04）**：只加列不删列、不改列类型；新列可空或带默认值；加列优先
+   `ALGORITHM=INSTANT/INPLACE`；索引变更附回滚脚本；不用存储过程 / 触发器 / 物理外键。
+6. **JSON 列使用边界**：仅用于「低频读取、结构多变」字段，**高频筛选 / 排序 / 聚合字段一律显式列 + 索引**。
+   本章 JSON 列全集：`attendance_rule.wifi_list`、`attendance_rule.check_periods`、`kpi_score.metric_detail`、
+   `hr_salary.allowances`、`hr_salary_log.allowances`、`payroll.rule_snapshot`、`payroll_rule_item.params`、
+   `leave_request.counted_days_snapshot`、`leave_log.before/after`（§7.2 既有）、`sync_config_item.constraints`、
+   `sync_config_option.extra_attrs`、`sync_config_option.legacy_codes`（后两者为本章新增，见 §8.12 核对项）。
+7. **禁止 `SELECT *` 友好化**：列表 / 统计查询所需字段均落入对应索引（见 §8.11 覆盖映射），
+   禁止把核心字段塞 JSON、禁止为模糊搜索滥引全文索引。
+
+### 8.1 P1 · 运行日志
+
+#### 8.1.1 `client_log`（V3）— 前端运行日志
+
+**用途**：三端上报、仅 ADMIN 查看的排障日志；支持指纹去重聚合（`count` / `first_time` / `last_time`）。
+**字段与语义**：见 §7.3（既有定义，本章不重复）；DDL 见 `V3__client_log.sql`。
+**索引**：`idx_client_log_time (time)`、`idx_client_log_level (level)`。
+**逻辑关系**：`employee_id` → `employee.id`（逻辑外键，未登录为空；历史留痕不校验）。
+**查询走索引**：列表按 `time` 倒序 + `level` 筛选（`idx_client_log_time` / `idx_client_log_level`）；
+`source` / `employeeId` / 时间区间为附加过滤；`keyword` 为 `message` 前缀模糊 `LIKE`，不建索引（日志表量级可控）。
+**例外**：追加型，只插不改（`count` 累加）不删（清空=物理删除），无 `is_deleted` / `update_time`。
+
+### 8.2 P2 · 通知
+
+#### 8.2.1 `notification`（V4）— 站内通知
+
+**用途**：站内信（系统联动 + 手工发布）。系统联动含工单指派/流转、同步失败、请假（type 5/6）；手工发布由 ADMIN 按范围扇出。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| employee_id | BIGINT | 否 | - | 接收人（逻辑外键 employee.id） |
+| type | TINYINT | 否 | - | 通知类型：1=工单指派 2=工单流转 3=同步失败 4=系统公告 5=请假申请 6=请假结果 |
+| title | VARCHAR(100) | 否 | - | 标题（1-100 字） |
+| content | VARCHAR(500) | 否 | '' | 内容（1-500 字） |
+| biz_type | VARCHAR(32) | 是 | NULL | 跳转类型：`work_order` / `sync_task` / `leave`（公告为空） |
+| biz_id | BIGINT | 是 | NULL | 跳转对象 ID |
+| is_read | TINYINT | 否 | 0 | 是否已读：0=未读，1=已读 |
+| read_time | DATETIME | 是 | NULL | 已读时间 |
+| is_published | TINYINT | 否 | 0 | 来源：0=系统联动，1=手工发布 |
+| publisher_id | BIGINT | 是 | NULL | 发布人（手工发布，逻辑外键 employee.id） |
+| publisher_name | VARCHAR(50) | 是 | NULL | 发布人姓名快照 |
+| publish_scope | VARCHAR(10) | 是 | NULL | 发布范围：`ALL` / `STATION` / `EMPLOYEE`（系统联动为空） |
+| is_deleted | TINYINT | 否 | 0 | 逻辑删除：0=否，1=是 |
+| create_time / update_time | DATETIME | 否 | CURRENT_TIMESTAMP | 应用层维护 |
+
+**索引**：
+
+| 索引名 | 字段 | 用途 |
+| ---- | ---- | ---- |
+| idx_notification_employee_read | (employee_id, is_read) | 本人未读计数 + 列表 isRead 筛选 |
+| idx_notification_employee_time | (employee_id, create_time) | 本人列表按创建时间倒序 |
+
+**逻辑关系**：`employee_id` / `publisher_id` → `employee.id`；`biz_id` 指向 `work_order` / `sync_task` / `leave_request` 的 id（前端点击跳转，非外键）。
+**查询走索引**：`GET /notifications`（employee_id + create_time）、`unread-count`（employee_id + is_read）、`read-all`（employee_id + is_read）。
+
+### 8.3 P3 · 考勤与排班
+
+#### 8.3.1 `attendance_rule`（V5）— 打卡规则（一驿一条）
+
+**用途**：驿站打卡规则；`check_periods`（时段明细）是打卡时间判定的唯一真源，`check_frequency` 只给段数，`work_start_time/work_end_time` 为派生值。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| station_id | BIGINT | 否 | - | 驿站（逻辑外键 station.id，一驿一条，活跃唯一） |
+| rule_name | VARCHAR(50) | 否 | - | 规则名称 |
+| enable_wifi / enable_location / enable_time_window | TINYINT | 否 | 1 | 启用 WiFi / 定位 / 时间窗校验：0/1 |
+| match_mode | VARCHAR(10) | 否 | 'ALL' | 校验项组合：`ALL`=全部满足，`ANY`=任一满足 |
+| wifi_list | JSON | 是 | NULL | WiFi 白名单 `[{ssid,bssid}]`（低频读取） |
+| longitude / latitude | DECIMAL(10,6) | 是 | NULL | 电子围栏中心经纬度 |
+| radius | INT | 是 | NULL | 围栏半径（米） |
+| check_frequency | INT | 否 | 2 | 每日打卡次数：2=单时段，4=双时段 |
+| check_periods | JSON | 是 | NULL | 时段明细 `[{name,startTime,endTime}]`（唯一真源） |
+| allow_early_min / allow_late_min | INT | 否 | 30 / 60 | 时间窗提前量 / 延后量（分钟） |
+| work_start_time / work_end_time | VARCHAR(5) | 是 | NULL | 派生：首段开始 / 末段结束（HH:mm，可 24:00） |
+| late_threshold_min / early_leave_threshold_min | INT | 否 | 30 | 迟到 / 早退判定阈值（分钟） |
+| status | TINYINT | 否 | 1 | 状态：0=停用，1=启用 |
+| is_deleted / create_time / update_time | — | — | — | 通用约定 |
+
+**索引**：`idx_attendance_rule_station (station_id)`（规则定位 + 活跃唯一查重）。
+**逻辑关系**：`station_id` → `station.id`（1:1）。
+**查询走索引**：按 `station_id` 取规则（`idx_attendance_rule_station`）。
+
+#### 8.3.2 `attendance_shift`（V5）— 班次
+
+**用途**：驿站班次（早/中/晚），供排班与打卡判定引用；`end_time` 允许 `24:00` 表示跨零点收班。
+**字段**：`id` / `station_id`(逻辑外键 station.id) / `shift_name` VARCHAR(20) / `start_time` VARCHAR(5) / `end_time` VARCHAR(5) / `color` VARCHAR(20) NULL / `rest_minutes` INT(默认60) / `status` TINYINT(0=停用,1=启用) / `is_deleted` / `create_time` / `update_time`。
+**索引**：`idx_attendance_shift_station (station_id)`。
+**逻辑关系**：`station_id` → `station.id`；被 `attendance_schedule.shift_id` 引用（删除前 Service 校验是否被排班引用）。
+**查询走索引**：按 `station_id` 列班次（`idx_attendance_shift_station`）。
+
+#### 8.3.3 `attendance_schedule`（V5）— 排班
+
+**用途**：按周排班矩阵（员工 × 日期 × 班次）。
+**字段**：`id` / `station_id`(逻辑外键 station.id) / `employee_id`(逻辑外键 employee.id) / `work_date` DATE / `shift_id`(逻辑外键 attendance_shift.id) / `is_deleted` / `create_time` / `update_time`。
+**索引**：
+
+| 索引名 | 字段 | 用途 |
+| ---- | ---- | ---- |
+| idx_attendance_schedule_station_date | (station_id, work_date) | 按驿站取周排班矩阵 |
+| idx_attendance_schedule_emp_date | (employee_id, work_date) | 员工排班查询 + 活跃唯一查重（员工+日期） |
+
+**逻辑关系**：`station_id`→`station.id`；`employee_id`→`employee.id`；`shift_id`→`attendance_shift.id`。
+**查询走索引**：周矩阵按 `(station_id, work_date)`；「我的排班」与计薪天数逐日查排班按 `(employee_id, work_date)`。
+
+#### 8.3.4 `attendance_record`（V5）— 打卡记录（打卡事实）
+
+**用途**：打卡事实；出勤口径（应到=排班人数、实到=非 ABNORMAL 上班卡）在 Service 聚合。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| employee_id / station_id | BIGINT | 否 | - | 员工 / 驿站（逻辑外键） |
+| work_date | DATE | 否 | - | 工作日期 |
+| period_index | INT | 否 | 0 | 时段序号（从 0 起） |
+| period_name | VARCHAR(20) | 是 | NULL | 时段名快照 |
+| check_type | VARCHAR(5) | 否 | - | 打卡类型：`ON`=上班卡，`OFF`=下班卡 |
+| check_time | DATETIME | 否 | - | 打卡时间 |
+| status | VARCHAR(16) | 否 | - | 打卡状态：`NORMAL` / `LATE` / `EARLY_LEAVE` / `ABNORMAL` |
+| source | VARCHAR(10) | 否 | 'NORMAL' | 来源：`NORMAL`=正常打卡，`MAKEUP`=补卡补录 |
+| check_mode | VARCHAR(20) | 是 | NULL | 命中校验项：`WIFI` / `LOCATION` / `WIFI+LOCATION`（补卡为空） |
+| wifi_ssid | VARCHAR(64) | 是 | NULL | 打卡时 WiFi SSID |
+| wifi_matched | TINYINT | 是 | NULL | WiFi 是否命中：0/1（补卡为空） |
+| longitude / latitude | DECIMAL(10,6) | 是 | NULL | 打卡经纬度 |
+| distance | DECIMAL(10,1) | 是 | NULL | 距围栏中心距离（米） |
+| location_matched | TINYINT | 是 | NULL | 定位是否命中：0/1（补卡为空） |
+| remark | VARCHAR(255) | 是 | NULL | 备注（迟到/早退/异常原因） |
+| is_deleted / create_time / update_time | — | — | — | 通用约定 |
+
+**索引**：
+
+| 索引名 | 字段 | 用途 |
+| ---- | ---- | ---- |
+| idx_attendance_record_emp_date | (employee_id, work_date) | 员工考勤记录 / 逐日统计 + 槽位去重 |
+| idx_attendance_record_station_date | (station_id, work_date) | 按驿站取记录（列表/概况） |
+
+**逻辑关系**：`employee_id`→`employee.id`；`station_id`→`station.id`。
+**查询走索引**：记录列表按 `(station_id|employee_id, work_date)` + `status` 附加过滤；`check_type`/`period_index` 为去重槽位判定，由 `(employee_id, work_date)` 覆盖。
+
+#### 8.3.5 `attendance_makeup`（V5）— 补卡申请
+
+**用途**：补卡申请与审批；通过后回写 `attendance_record`（`source=MAKEUP`）。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| employee_id / station_id | BIGINT | 否 | - | 申请人 / 驿站（逻辑外键） |
+| work_date | DATE | 否 | - | 补卡日期 |
+| period_index | INT | 否 | 0 | 时段序号 |
+| period_name | VARCHAR(20) | 是 | NULL | 时段名快照 |
+| check_type | VARCHAR(5) | 否 | - | 打卡类型：`ON` / `OFF` |
+| reason | VARCHAR(200) | 否 | - | 补卡理由 |
+| status | VARCHAR(16) | 否 | 'PENDING' | 状态：`PENDING` / `APPROVED` / `REJECTED` |
+| apply_time | DATETIME | 否 | CURRENT_TIMESTAMP | 申请时间 |
+| approver_id | BIGINT | 是 | NULL | 审批人（ADMIN，逻辑外键 employee.id） |
+| approve_time | DATETIME | 是 | NULL | 审批时间 |
+| approve_remark | VARCHAR(200) | 是 | NULL | 审批意见 |
+| is_deleted / create_time / update_time | — | — | — | 通用约定 |
+
+**索引**：`idx_attendance_makeup_emp_status (employee_id, status)`、`idx_attendance_makeup_station_status (station_id, status)`。
+**逻辑关系**：`employee_id` / `station_id` / `approver_id` → 相应 id（逻辑外键）。
+**查询走索引**：员工端（employee_id + status）、管理端（station_id + status）；日期区间为附加过滤。
+
+### 8.4 P4 · KPI 考核
+
+#### 8.4.1 `kpi_metric`（V6）— 指标配置（业务口径可热改）
+
+**用途**：KPI 指标配置（权重 / 目标 / 评分规则 / 适用角色 / 启用）；算分时快照进 `kpi_score.metric_detail`。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| metric_key | VARCHAR(40) | 否 | - | 指标键（活跃唯一） |
+| metric_name | VARCHAR(50) | 否 | - | 指标名 |
+| metric_type | VARCHAR(20) | 否 | - | 类型：`PARCEL` / `PICKUP` / `COMPLAINT` / `ATTENDANCE` / `SERVICE` / `WORK_ORDER` / `TRAINING` / `OTHER` |
+| weight | INT | 否 | 0 | 权重（启用指标合计须 100） |
+| target_value | DECIMAL(12,2) | 是 | NULL | 目标值 |
+| unit | VARCHAR(10) | 是 | NULL | 单位 |
+| direction | VARCHAR(5) | 否 | 'UP' | 方向：`UP`=越高越好，`DOWN`=越低越好 |
+| score_mode | VARCHAR(10) | 否 | 'LINEAR' | 评分规则：`LINEAR` / `TIERED` / `BINARY` |
+| full_score | DECIMAL(6,2) | 否 | 100 | 单项满分 |
+| role_scope | VARCHAR(60) | 是 | NULL | 适用角色，逗号分隔（`ADMIN` / `STATION_ADMIN` / `STAFF`），空=全员 |
+| enabled | TINYINT | 否 | 1 | 启用：0=停用，1=启用 |
+| sort_order | INT | 否 | 0 | 排序 |
+| remark | VARCHAR(255) | 是 | NULL | 备注 |
+| is_deleted / create_time / update_time | — | — | — | 通用约定 |
+
+**索引**：`idx_kpi_metric_key (metric_key)`（查重）、`idx_kpi_metric_enabled_sort (enabled, sort_order)`（列指标按序）。
+**逻辑关系**：被 `kpi_score.metric_detail` 快照引用（metricKey/metricId 冗余进 JSON，不建外键）。
+**查询走索引**：列表按 `(enabled, sort_order)`；键查重按 `metric_key`。
+**设计说明**：`score_mode`+`full_score` 由 Mock `scoreRule{mode,fullScore}` 拆列；`role_scope` 由数组串化为逗号串（低频，Service 与数组互转）——避免核心配置进 JSON（架构 §4.6(3)）。
+
+#### 8.4.2 `kpi_score`（V6）— 月度评分（一员工一账期一行，含算分快照）
+
+**用途**：按月按员工汇总；`metric_detail` 快照逐指标算分（目标/实际/达成率/单项分/加权分/评分规则），支持明细页逐项解释。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| employee_id | BIGINT | 否 | - | 员工（逻辑外键 employee.id） |
+| station_id | BIGINT | 是 | NULL | 统计时归属驿站（范围收敛/排行用，逻辑外键 station.id） |
+| month | CHAR(7) | 否 | - | 考核月份 `yyyy-MM` |
+| total_score | DECIMAL(5,1) | 否 | 0 | 加权总分 |
+| achievement_rate | DECIMAL(6,4) | 否 | 0 | 平均达成率 |
+| level | VARCHAR(16) | 是 | NULL | 等级：`EXCELLENT` / `GOOD` / `PASS` / `IMPROVE` |
+| metric_count | INT | 否 | 0 | 参与指标数 |
+| weight_sum | INT | 否 | 0 | 参与权重合计 |
+| metric_detail | JSON | 是 | NULL | 逐指标算分快照（低频读取） |
+| calculate_time | DATETIME | 是 | NULL | 算分时间 |
+| is_deleted / create_time / update_time | — | — | — | 通用约定 |
+
+**索引**：
+
+| 索引名 | 字段 | 用途 |
+| ---- | ---- | ---- |
+| idx_kpi_score_emp_month | (employee_id, month) | 员工月度明细 + 活跃唯一查重（员工+月份） |
+| idx_kpi_score_month_station | (month, station_id) | 月度列表 / 非 ADMIN 静默收敛 |
+| idx_kpi_score_month_score | (month, total_score) | 排名榜按总分排序 |
+
+**逻辑关系**：`employee_id`→`employee.id`；`station_id`→`station.id`。
+**查询走索引**：`scores`（month + station）、`ranking`（month + total_score DESC）、`{employeeId}`（employee_id + month）。
+**设计说明**：`station_id` 为范围收敛所需必要列（架构 §4.2 未列，见 §8.12 核对项）。
+
+### 8.5 P5 · 人事
+
+#### 8.5.1 `hr_profile`（V7）— 人事档案（员工 1:1）
+
+**用途**：合同 / 试用期 / 社保基数 / 学历 / 紧急联系人 / 银行卡；**离职判定以 `leave_date` 为准**（非 `employee.status`）。
+**字段**：`id` / `employee_id`(逻辑外键 employee.id，1:1，活跃唯一) / `education` VARCHAR(20)（`MASTER`/`BACHELOR`/`COLLEGE`/`HIGH_SCHOOL`）/ `contract_type` VARCHAR(20)（`FIXED_TERM`/`NON_FIXED_TERM`/`INTERN`/`DISPATCH`）/ `contract_start` DATE NULL / `contract_end` DATE NULL / `probation_months` INT(0) / `probation_end` DATE NULL / `regular_date` DATE NULL / `social_security_base` DECIMAL(12,2) NULL / `emergency_contact_name` VARCHAR(50) NULL / `emergency_contact_phone` VARCHAR(20) NULL（脱敏）/ `emergency_contact_relation` VARCHAR(20) NULL / `bank_name` VARCHAR(50) NULL / `bank_account` VARCHAR(32) NULL（脱敏）/ `leave_date` DATE NULL / `is_deleted` / `create_time` / `update_time`。
+**索引**：`idx_hr_profile_employee_id (employee_id)`（详情 + 活跃唯一查重）。
+**逻辑关系**：`employee_id` → `employee.id`（1:1）。
+**查询走索引**：按 `employee_id` 取档案（`idx_hr_profile_employee_id`）。
+
+#### 8.5.2 `hr_salary`（V7）— 当前定薪（员工 1:1）
+
+**用途**：当前定薪（基本工资 / 岗位工资 / 绩效基数 / 津贴项），是财务 FIXED 规则项的唯一取数来源。
+**字段**：`id` / `employee_id`(1:1，活跃唯一) / `basic_salary` DECIMAL(12,2)(0) / `post_salary` DECIMAL(12,2)(0) / `performance_base` DECIMAL(12,2)(0) / `allowances` JSON(`[{key,name,amount}]`) / `allowances_total` DECIMAL(12,2)(0) / `total_salary` DECIMAL(12,2)(0) / `effective_date` DATE NULL / `is_deleted` / `create_time` / `update_time`。
+**索引**：`idx_hr_salary_employee_id (employee_id)`。
+**逻辑关系**：`employee_id` → `employee.id`（1:1）；被财务 `payroll_item`（FIXED/KPI 项）取数。
+**查询走索引**：按 `employee_id` 取当前定薪。
+
+#### 8.5.3 `hr_salary_log`（V7）— 调薪留痕（追加型）
+
+**用途**：调薪与入职定薪留痕，只增不改；当前定薪 = 最新生效一条。
+**字段**：`id` / `employee_id` / `change_type` VARCHAR(20)（`ENTRY`=入职定薪，`ADJUST`=调薪）/ `basic_salary` / `post_salary` / `performance_base` / `allowances` JSON / `allowances_total` / `total_salary`（均 DECIMAL(12,2)）/ `effective_date` DATE NULL / `reason` VARCHAR(200) NULL / `operator_id` BIGINT NULL / `operator_name` VARCHAR(50) NULL（快照）/ `create_time`。
+**索引**：`idx_hr_salary_log_emp (employee_id, effective_date)`。
+**逻辑关系**：`employee_id` / `operator_id` → `employee.id`。
+**查询走索引**：某员工调薪历史按 `(employee_id, effective_date)` 倒序。
+**例外**：追加型，无 `is_deleted` / `update_time`。
+
+#### 8.5.4 `hr_flow`（V7）— 入职/离职流程（flow_type 区分）
+
+**用途**：入职（`ONBOARDING`）与离职（`OFFBOARDING`）共用一张表；`steps` 拆到 `hr_flow_step`，出参 Service 组装回 `steps[]`。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| flow_type | VARCHAR(16) | 否 | - | `ONBOARDING` / `OFFBOARDING` |
+| flow_no | VARCHAR(40) | 否 | - | 流程编号（活跃唯一） |
+| candidate_name | VARCHAR(50) | 是 | NULL | 候选人姓名（入职） |
+| employee_id | BIGINT | 是 | NULL | 员工（离职；入职建档后回填） |
+| phone | VARCHAR(20) | 是 | NULL | 联系电话（入职） |
+| gender | TINYINT | 是 | NULL | 0=未知，1=男，2=女 |
+| education | VARCHAR(20) | 是 | NULL | 学历（入职） |
+| dept_id / station_id | BIGINT | 是 | NULL | 部门 / 驿站（逻辑外键） |
+| position | VARCHAR(50) | 是 | NULL | 岗位 |
+| role | VARCHAR(20) | 是 | NULL | `STAFF` / `STATION_ADMIN` |
+| expected_entry_date | DATE | 是 | NULL | 预计入职日期（入职） |
+| type | VARCHAR(20) | 是 | NULL | 离职类型：`RESIGN` / `DISMISS` / `RETIRE`（契约字段 type） |
+| reason | VARCHAR(200) | 是 | NULL | 离职原因 |
+| last_work_date | DATE | 是 | NULL | 最后工作日（离职） |
+| settlement_payroll_id | BIGINT | 是 | NULL | 结算单 ID（SETTLEMENT 回填，逻辑外键 payroll.id） |
+| settlement_payroll_no | VARCHAR(40) | 是 | NULL | 结算单号快照 |
+| settlement_amount | DECIMAL(12,2) | 是 | NULL | 结算金额快照 |
+| leave_date | DATE | 是 | NULL | 离岗日期（LEAVE 步骤写入） |
+| status | VARCHAR(16) | 否 | 'IN_PROGRESS' | `IN_PROGRESS` / `COMPLETED` / `REJECTED` |
+| reject_reason | VARCHAR(200) | 是 | NULL | 驳回原因 |
+| rejected_by | VARCHAR(50) | 是 | NULL | 驳回人姓名快照 |
+| rejected_time | DATETIME | 是 | NULL | 驳回时间 |
+| current_step_key | VARCHAR(30) | 是 | NULL | 当前待办步骤键 |
+| remark | VARCHAR(255) | 是 | NULL | 备注 |
+| operator_id | BIGINT | 是 | NULL | 创建人（逻辑外键 employee.id；**V14 补列**） |
+| operator_name | VARCHAR(50) | 是 | NULL | 创建人姓名快照（**V14 补列**） |
+| is_deleted / create_time / update_time | — | — | — | 通用约定；V14 两列以列尾追加，列序在 `update_time` 之后 |
+
+**索引**：`idx_hr_flow_no (flow_no)`、`idx_hr_flow_type_status (flow_type, status)`、`idx_hr_flow_employee (employee_id)`。
+**逻辑关系**：`employee_id` / `dept_id` / `station_id` → 相应 id；`settlement_payroll_id` → `payroll.id`（逻辑外键，结算单由领域事件创建）；`operator_id` → `employee.id`（创建人，逻辑外键）。
+**查询走索引**：入职/离职列表按 `(flow_type, status)` + 编号/姓名关键字；员工查在职流程按 `employee_id`。
+**V14 变更（表结构缺口修复）**：V7 建表漏建创建人两列，`HrFlow.operatorId/operatorName` 原以 `@TableField(exist = false)` 规避（见 `docs/update-log.md`「服务端编译修复」条目）。V14 `ALTER TABLE ... ADD COLUMN` 可空补列（INSTANT，无锁无重建），语义对齐 `hr_flow_step.operator_id/operator_name` 与 Mock `hrStore.js`（`createOnboarding/createOffboarding` 写入 `operator.id`/`operator.real_name`，`toFlowVO` 回填出参）。**联动项**：补列后由后端工程师移除 `HrFlow` 两字段的 `exist = false`（含 2 处 `TODO(扩展)` 注释），本角色不改 Java 源码。
+
+#### 8.5.5 `hr_flow_step`（V7）— 流程步骤（子表）
+
+**用途**：入职/离职步骤条；`status`（`PENDING`/`DONE`）按序推进。
+**字段**：`id` / `flow_id`(逻辑外键 hr_flow.id) / `step_key` VARCHAR(30) / `step_name` VARCHAR(50) / `step_order` INT(0) / `status` VARCHAR(10)('PENDING') / `operator_id` BIGINT NULL / `operator_name` VARCHAR(50) NULL / `operate_time` DATETIME NULL / `remark` VARCHAR(200) NULL / `create_time` / `update_time`。
+**索引**：`idx_hr_flow_step_flow (flow_id, step_order)`。
+**逻辑关系**：`flow_id` → `hr_flow.id`；`operator_id` → `employee.id`。
+**查询走索引**：按 `(flow_id, step_order)` 组装步骤条。
+**例外**：子表随主表，无 `is_deleted`（in-place 更新状态）。
+
+### 8.6 P6 · 财务
+
+#### 8.6.1 `payroll_rule`（V8）— 计薪规则（表驱动）
+
+**字段**：`id` / `rule_name` VARCHAR(50) / `remark` VARCHAR(255) NULL / `status` TINYINT（0=停用,1=启用）/ `is_deleted` / `create_time` / `update_time`。
+**索引**：`idx_payroll_rule_status (status)`。
+**逻辑关系**：被 `payroll.rule_id` 引用（删除前 Service 校验是否被工资单引用）；含 `payroll_rule_item`。
+**查询走索引**：取启用规则按 `status`。
+
+#### 8.6.2 `payroll_rule_item`（V8）— 计薪规则项
+
+**用途**：规则项声明「来源 + 参数」，新增来源不改代码（算法 S2 注册表）。
+**字段**：`id` / `rule_id`(逻辑外键 payroll_rule.id) / `item_key` VARCHAR(40) / `item_name` VARCHAR(50) / `item_type` VARCHAR(16)（`ADDITION`=增项，`DEDUCTION`=扣项）/ `source` VARCHAR(16)（`FIXED` / `ATTENDANCE` / `KPI` / `MANUAL`）/ `params` JSON（结构随来源）/ `enabled` TINYINT(1) / `sort_order` INT(0) / `is_deleted` / `create_time` / `update_time`。
+**索引**：`idx_payroll_rule_item_rule (rule_id, sort_order)`。
+**逻辑关系**：`rule_id` → `payroll_rule.id`。
+**查询走索引**：按 `(rule_id, sort_order)` 取规则项。
+
+#### 8.6.3 `payroll`（V8）— 工资单
+
+**用途**：月度工资单 / 离职结算单；六态状态机；`rule_snapshot` 存算薪时的规则快照（历史可解释）。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| payroll_no | VARCHAR(40) | 否 | - | 工资单号（活跃唯一） |
+| employee_id | BIGINT | 否 | - | 员工（逻辑外键 employee.id） |
+| station_id | BIGINT | 是 | NULL | 归属驿站（范围收敛，逻辑外键 station.id） |
+| month | CHAR(7) | 否 | - | 账期 `yyyy-MM` |
+| bill_type | VARCHAR(16) | 否 | 'MONTHLY' | `MONTHLY`=月度工资单，`SETTLEMENT`=离职结算单 |
+| rule_id | BIGINT | 是 | NULL | 计薪规则（逻辑外键 payroll_rule.id） |
+| rule_name | VARCHAR(50) | 是 | NULL | 规则名快照 |
+| rule_snapshot | JSON | 是 | NULL | 算薪时的规则快照 |
+| addition_total / deduction_total | DECIMAL(12,2) | 否 | 0 | 增项 / 扣项合计 |
+| gross_amount | DECIMAL(12,2) | 否 | 0 | 应发合计（=增项合计） |
+| net_amount | DECIMAL(12,2) | 否 | 0 | 实发净额（应发-扣项） |
+| status | VARCHAR(20) | 否 | 'DRAFT' | `DRAFT` / `PENDING_APPROVAL` / `APPROVED` / `REJECTED` / `PUBLISHED` / `CONFIRMED` |
+| remark / approve_remark | VARCHAR(255) | 是 | NULL | 备注 / 审核意见 |
+| approver_id / approver_name / approve_time | — | 是 | NULL | 审核信息 |
+| publisher_id / publisher_name / publish_time | — | 是 | NULL | 发布信息 |
+| confirm_time | DATETIME | 是 | NULL | 员工确认时间 |
+| objection_reason / objection_time | VARCHAR · DATETIME | 是 | NULL | 员工异议 |
+| offboarding_id | BIGINT | 是 | NULL | 离职流程（结算单来源，逻辑外键 hr_flow.id） |
+| is_deleted / create_time / update_time | — | — | — | 通用约定 |
+
+**索引**：
+
+| 索引名 | 字段 | 用途 |
+| ---- | ---- | ---- |
+| idx_payroll_payroll_no | (payroll_no) | 单号查重 / 定位 |
+| idx_payroll_emp_month_bill | (employee_id, month, bill_type) | 员工单 / 生成幂等（员工+月份+类型） |
+| idx_payroll_month_status | (month, status) | 列表 + 状态计数 |
+| idx_payroll_month_station | (month, station_id) | 驿站范围收敛 |
+
+**逻辑关系**：`employee_id`→`employee.id`；`station_id`→`station.id`；`rule_id`→`payroll_rule.id`；`offboarding_id`→`hr_flow.id`；含 `payroll_item`。
+**查询走索引**：`payrolls`（month + status / station）、`my`（employee_id + status + month）、`generate` 幂等（employee_id + month + bill_type）。
+
+#### 8.6.4 `payroll_item`（V8）— 工资单明细（子表）
+
+**用途**：逐项金额与取数解释（替代 Mock 内嵌 `items[]`），Service 组装回 `items[]`。
+**字段**：`id` / `payroll_id`(逻辑外键 payroll.id) / `item_key` VARCHAR(40) / `item_name` VARCHAR(50) / `item_type` VARCHAR(16)（`ADDITION`/`DEDUCTION`）/ `source` VARCHAR(16)（`FIXED`/`ATTENDANCE`/`KPI`/`MANUAL`）/ `amount` DECIMAL(12,2)(0，正数，增/扣由 item_type 承载) / `detail` VARCHAR(255) NULL / `sort_order` INT(0) / `is_deleted` / `create_time` / `update_time`。
+**索引**：`idx_payroll_item_payroll (payroll_id, sort_order)`。
+**逻辑关系**：`payroll_id` → `payroll.id`。
+**查询走索引**：按 `(payroll_id, sort_order)` 取明细。
+
+### 8.7 P7 · 请假
+
+`leave_request`（§7.1）、`leave_log`（§7.2）字段与索引已在一期文档定义，V9 按其口径落 DDL，本章不重复；本节补充 `leave_setting`。
+
+#### 8.7.1 `leave_setting`（V9）— 请假全局设置（单行开关）
+
+**用途**：全局开关 `leaveDeductEnabled`（默认 false）。
+**字段**：`id` / `leave_deduct_enabled` TINYINT(0)（0=不扣（默认），1=请假按缺勤计）/ `create_time` / `update_time`。
+**索引**：无（单行表）。
+**逻辑关系**：无。
+**例外**：单行配置，无删除语义，不设 `is_deleted`。
+
+### 8.8 P8 · 工单
+
+#### 8.8.1 `work_order`（V10）— 工单
+
+**用途**：工单主表；处理时间线拆到 `work_order_timeline`（替代 Mock `handle_log` 内嵌 JSON，出参 Service 组装回 `handleLog[]`）。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| order_no | VARCHAR(40) | 否 | - | 工单号（活跃唯一） |
+| type | TINYINT | 否 | - | 类型：1=包裹异常 2=设备故障 3=客户投诉 4=其他 |
+| status | TINYINT | 否 | 0 | 状态：0=待处理 1=处理中 2=已解决 3=已关闭 |
+| priority | TINYINT | 否 | 1 | 优先级：0=低 1=中 2=高 |
+| title | VARCHAR(100) | 否 | - | 标题（1-100 字） |
+| content | VARCHAR(500) | 是 | NULL | 描述（≤500 字） |
+| source | VARCHAR(16) | 否 | 'MANUAL' | 来源：`MANUAL`=手工，`AUTO_WECHAT`=企微自动派发 |
+| station_id | BIGINT | 否 | - | 驿站（逻辑外键 station.id） |
+| parcel_id | BIGINT | 是 | NULL | 关联包裹（逻辑外键 parcel.id） |
+| waybill_no | VARCHAR(50) | 是 | NULL | 关联运单号 |
+| reporter_id | BIGINT | 是 | NULL | 上报人（企微自动派发为空） |
+| assignee_id | BIGINT | 是 | NULL | 处理人（无候选为空=转人工） |
+| sla_deadline | DATETIME | 是 | NULL | SLA 截止时间 |
+| resolved_time / closed_time | DATETIME | 是 | NULL | 解决 / 关闭时间 |
+| is_deleted / create_time / update_time | — | — | — | 通用约定 |
+
+**索引**：`idx_work_order_order_no (order_no)`、`idx_work_order_station_status (station_id, status)`、`idx_work_order_assignee_status (assignee_id, status)`、`idx_work_order_sla (sla_deadline)`。
+**逻辑关系**：`station_id`→`station.id`；`reporter_id`/`assignee_id`→`employee.id`；`parcel_id`→`parcel.id`；含 `work_order_timeline` / `work_order_transfer`。
+**查询走索引**：列表（station_id + status(+type/priority/assignee 附加)）；超时筛选（sla_deadline）；详情/查重（order_no）。
+
+#### 8.8.2 `work_order_timeline`（V10）— 处理时间线（追加型）
+
+**字段**：`id` / `work_order_id`(逻辑外键 work_order.id) / `action` VARCHAR(20)（`create`/`accept`/`resolve`/`close`/`reopen`/`assign`/`transfer`/`auto_dispatch`）/ `operator_id` BIGINT NULL / `operator_name` VARCHAR(50) NULL / `content` VARCHAR(500) NULL / `time` DATETIME。
+**索引**：`idx_work_order_timeline_order (work_order_id, time)`。
+**逻辑关系**：`work_order_id`→`work_order.id`；`operator_id`→`employee.id`。
+**例外**：追加型，无 `is_deleted` / `update_time`。
+
+#### 8.8.3 `work_order_transfer`（V10）— 转单留痕（追加型）
+
+**字段**：`id` / `work_order_id` / `from_employee_id` BIGINT NULL / `from_employee_name` VARCHAR(50) NULL / `to_employee_id` BIGINT / `to_employee_name` VARCHAR(50) NULL / `reason` VARCHAR(200) / `operator_id` BIGINT NULL / `operator_name` VARCHAR(50) NULL / `transfer_time` DATETIME。
+**索引**：`idx_work_order_transfer_order (work_order_id, transfer_time)`。
+**逻辑关系**：`work_order_id`→`work_order.id`；`from/to/operator`_id → `employee.id`。
+**例外**：追加型，无 `is_deleted` / `update_time`。
+
+#### 8.8.4 `work_order_dispatch_rule`（V10）— 企微自动派单规则（可热改）
+
+**字段**：`id` / `keyword` VARCHAR(20) / `work_order_type` TINYINT（1-4）/ `priority` TINYINT(1)（0-2）/ `default_assignee_id` BIGINT NULL / `enabled` TINYINT(1) / `is_deleted` / `create_time` / `update_time`。
+**索引**：`idx_work_order_dispatch_rule_keyword (keyword)`。
+**逻辑关系**：`default_assignee_id` → `employee.id`。
+**查询走索引**：命中规则扫描按 `keyword`（低容量，Service 顺序判定）。
+
+### 8.9 P9 · 同步与配置中心
+
+#### 8.9.1 `sync_task`（V11）— 同步任务（状态机四态）
+
+**字段**：`id` / `station_id`(逻辑外键 station.id) / `batch_no` VARCHAR(40)（活跃唯一，对接键）/ `status` TINYINT(0)（0=待领取 1=执行中 2=成功 3=失败）/ `parcel_total` INT(0) / `success_count` INT(0) / `fail_count` INT(0) / `retry_count` INT(0) / `error_msg` VARCHAR(255) NULL / `assign_time` DATETIME NULL / `start_time` DATETIME NULL / `finish_time` DATETIME NULL / `is_deleted` / `create_time` / `update_time`。
+**索引**：`idx_sync_task_batch_no (batch_no)`、`idx_sync_task_station_status (station_id, status)`、`idx_sync_task_create_time (create_time)`。
+**逻辑关系**：`station_id`→`station.id`；含 `sync_task_log`；被 `parcel.sync_batch_no` 关联（按批次号，非外键）。
+**查询走索引**：列表按 `(station_id, status)` + `create_time` 倒序；批次查重/定位按 `batch_no`。
+
+#### 8.9.2 `sync_task_log`（V11）— 同步任务日志（追加型）
+
+**字段**：`id` / `task_id`(逻辑外键 sync_task.id) / `batch_no` VARCHAR(40) NULL / `level` TINYINT(0)（0=INFO 1=WARN 2=ERROR）/ `message` VARCHAR(1000) / `log_time` DATETIME。
+**索引**：`idx_sync_task_log_task (task_id, log_time)`。
+**例外**：追加型，无 `is_deleted` / `update_time`。
+
+#### 8.9.3 `sync_station_config`（V12）— 驿站采集配置（一驿一行）
+
+**字段**：`id` / `station_id`(一驿一行，活跃唯一) / `enabled` TINYINT(0)（采集开关）/ `frequency` VARCHAR(20) NULL（旧码 `HOURLY`/`EVERY_2H`/`EVERY_4H`/`DAILY` → 迁移后选项 Key）/ `data_source` VARCHAR(50) NULL（迁移后选项 Key；未配置为空）/ `collect_start_time` VARCHAR(5) NULL / `collect_end_time` VARCHAR(5) NULL / `last_collect_time` DATETIME NULL / `last_collect_status` VARCHAR(20)('NEVER')（`SUCCESS`/`FAILED`/`NEVER`）/ `status` TINYINT(1)（配置行：0=停用,1=启用）/ `is_deleted` / `create_time` / `update_time`。
+**索引**：`idx_sync_station_config_station (station_id)`。
+**逻辑关系**：`station_id` → `station.id`（1:1）。
+**查询走索引**：按 `station_id` 取配置。
+
+#### 8.9.4 `sync_config_item`（V12）— 配置项定义
+
+**字段**：`id` / `item_key` VARCHAR(40)（活跃唯一）/ `name` VARCHAR(20) / `description` VARCHAR(100) NULL / `value_type` VARCHAR(20)（`SINGLE_SELECT`/`NUMBER`/`TEXT`/`TIME`/`TIME_RANGE`）/ `required` TINYINT(0) / `default_value` VARCHAR(255) NULL / `unit` VARCHAR(8) NULL / `constraints` JSON / `option_set_key` VARCHAR(40) NULL / `scope` VARCHAR(10)('STATION')（`GLOBAL`/`STATION`）/ `sort` INT(0) / `enabled` TINYINT(1) / `builtin` TINYINT(0)（0=可删，1=仅停用）/ `is_deleted` / `create_time` / `update_time`。
+**索引**：`idx_sync_config_item_key (item_key)`、`idx_sync_config_item_sort (sort)`。
+**逻辑关系**：`option_set_key` → `sync_config_option.set_key`（逻辑关联，非外键）。
+**查询走索引**：列表按 `sort`；键查重按 `item_key`。
+
+#### 8.9.5 `sync_config_option`（V12）— 选项集选项
+
+**字段**：`id` / `set_key` VARCHAR(40)（`data_source`/`collect_frequency`/`time_template`）/ `option_key` VARCHAR(40)（集合内活跃唯一）/ `label` VARCHAR(40) / `extra_attrs` JSON（按选项集约定）/ `sort` INT(0) / `enabled` TINYINT(1) / `builtin` TINYINT(0) / `source` VARCHAR(16)('MANUAL')（`BUILTIN`/`MANUAL`/`MIGRATED`）/ `legacy_codes` JSON / `remark` VARCHAR(100) NULL / `is_deleted` / `create_time` / `update_time`。
+**索引**：`idx_sync_config_option_set_key (set_key, option_key)`。
+**逻辑关系**：被 `sync_config_item.option_set_key` 引用。
+**查询走索引**：按 `(set_key, option_key)` 查重/取选项。
+
+#### 8.9.6 `sync_config_global`（V12）— 全局默认值
+
+**字段**：`id` / `item_key` VARCHAR(40)（活跃唯一）/ `value` VARCHAR(255) NULL / `is_deleted` / `create_time` / `update_time`。
+**索引**：`idx_sync_config_global_item_key (item_key)`。
+**逻辑关系**：`item_key` → `sync_config_item.item_key`（逻辑关联）。
+**查询走索引**：按 `item_key` 取全局默认值。
+
+#### 8.9.7 `sync_config_station_override`（V12）— 驿站覆盖值
+
+**字段**：`id` / `station_id`(逻辑外键 station.id) / `item_key` VARCHAR(40) / `value` VARCHAR(255) NULL / `is_deleted` / `create_time` / `update_time`。
+**索引**：`idx_sync_override_station_item (station_id, item_key)`。
+**逻辑关系**：`station_id`→`station.id`；`item_key`→`sync_config_item.item_key`。
+**查询走索引**：按 `(station_id, item_key)` 取覆盖值 + 活跃唯一查重。
+
+### 8.10 P10 · 包裹（20 万级大表）
+
+#### 8.10.1 `parcel`（V13）— 包裹数据
+
+**用途**：包裹主数据，按驿站划分数据可见范围；列表默认按入库时间倒序（游标分页，ADR-06）。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| station_id | BIGINT | 否 | - | 驿站（逻辑外键 station.id，可见范围核心维度） |
+| waybill_no | VARCHAR(50) | 否 | - | 运单号（与 station_id 组合活跃唯一，Service 查重） |
+| status | TINYINT | 否 | 0 | 状态：0=待入库 1=在库待取 2=已取件 3=异常 4=已退回 |
+| receiver_name | VARCHAR(50) | 是 | NULL | 收件人姓名（出参脱敏） |
+| receiver_phone | VARCHAR(20) | 是 | NULL | 收件人手机号（出参脱敏） |
+| shelf_code | VARCHAR(20) | 是 | NULL | 货架位编码 |
+| inbound_time | DATETIME | 否 | - | 入库时间（列表默认排序键） |
+| pickup_employee_id | BIGINT | 是 | NULL | 取件员工（逻辑外键 employee.id） |
+| pickup_time | DATETIME | 是 | NULL | 取件时间 |
+| sync_batch_no | VARCHAR(40) | 是 | NULL | 来源同步批次号（逻辑外键 sync_task.batch_no） |
+| remark | VARCHAR(255) | 是 | NULL | 备注（异常件说明） |
+| is_deleted / create_time / update_time | — | — | — | 通用约定 |
+
+**索引**（架构 §4.3 四条 + 算法 §13；**已联评：算法 §13**）：
+
+| 索引名 | 字段 | 用途 |
+| ---- | ---- | ---- |
+| idx_parcel_station_waybill | (station_id, waybill_no) | 防重复入库（Service 活跃查重 + 普通索引） |
+| idx_parcel_station_status | (station_id, status) | 按驿站/状态筛选 |
+| idx_parcel_station_status_inbound | (station_id, status, inbound_time DESC) | 列表默认排序 + 状态筛选一次走索引 |
+| idx_parcel_station_inbound | (station_id, inbound_time DESC) | 趋势 / 近 N 天聚合 |
+
+**逻辑关系**：`station_id`→`station.id`；`pickup_employee_id`→`employee.id`；`sync_batch_no`→`sync_task.batch_no`。
+**查询走索引**：`parcels` 列表（`idx_parcel_station_status_inbound`，须 `type=range/ref`、无 `Using filesort`，收敛服务器实测）；`summary`/`trend`/`ranking` 聚合走 `idx_parcel_station_inbound`；运单号精确查走 `idx_parcel_station_waybill`。
+**大表纪律**：`CREATE TABLE` + 独立 `CREATE INDEX`；分页默认游标；禁止 `SELECT *`；结构变更须数据库 + 算法联评；加索引附回滚脚本并优先 `ALGORITHM=INPLACE`。容量：20 万行约 106 MB（算法 S7），落 `/data` 数据盘不足 0.3%。
+
+### 8.11 覆盖索引与查询映射（禁止 `SELECT *` 友好化）
+
+| 查询场景 | 目标表 | 命中索引 |
+| ---- | ---- | ---- |
+| 站内信列表 / 未读数 / 全部已读 | notification | idx_notification_employee_time / idx_notification_employee_read |
+| 打卡记录列表 / 概况 | attendance_record | idx_attendance_record_station_date / idx_attendance_record_emp_date |
+| 排班周矩阵 / 我的排班 | attendance_schedule | idx_attendance_schedule_station_date / idx_attendance_schedule_emp_date |
+| 补卡列表（管理端 / 员工端） | attendance_makeup | idx_attendance_makeup_station_status / idx_attendance_makeup_emp_status |
+| KPI 明细 / 列表 / 排行 | kpi_score | idx_kpi_score_emp_month / idx_kpi_score_month_station / idx_kpi_score_month_score |
+| 调薪历史 | hr_salary_log | idx_hr_salary_log_emp |
+| 工资单列表 / 我的 / 幂等 | payroll | idx_payroll_month_status / idx_payroll_emp_month_bill / idx_payroll_month_station |
+| 请假待办 / 日期相交 | leave_request | idx_leave_request_station_status / idx_leave_request_date |
+| 工单列表 / 超时 / 详情 | work_order | idx_work_order_station_status / idx_work_order_assignee_status / idx_work_order_sla / idx_work_order_order_no |
+| 同步任务列表 / 日志 | sync_task / sync_task_log | idx_sync_task_station_status / idx_sync_task_log_task |
+| 配置中心读写 | sync_config_* | idx_sync_config_item_key / idx_sync_config_option_set_key / idx_sync_config_global_item_key / idx_sync_override_station_item |
+| 包裹列表 / 聚合 / 运单查 | parcel | idx_parcel_station_status_inbound / idx_parcel_station_inbound / idx_parcel_station_waybill |
+
+### 8.12 与架构/算法的一致性核对与差异（守契约）
+
+| 核对项 | 依据口径 | 本章处置 | 结论 |
+| ---- | ---- | ---- | ---- |
+| 表数量 | 架构 §4.1「约 36 张」 | 既有 4 + 新增 33 = **37 张**（leave/client_log 计入） | 与「约 36」同量级，差异为**计数口径**，非结构冲突 |
+| `parcel` 唯一索引命名 | 架构 §4.3 写 `uk_parcel_station_waybill` | 按决策 D7 + 架构 §4.6(2)「Service 查重 + 普通索引」落为 **`idx_parcel_station_waybill`（普通索引）** | **命名纠正**：`uk_` 前缀与「不建唯一索引」冲突，改 `idx_`；见 §9.1 待确认 |
+| `parcel` 字段名 | 架构 §4.2 写 `shelf_no` / `batch_no` | 按 Mock 真源落为 **`shelf_code` / `sync_batch_no`** | **命名以 Mock 为准**（任务字段真源优先），语义一致 |
+| `payroll` 金额字段 | 架构 §4.2 写 `total_amount` / `net_amount` | 按 Mock 真源落为 **`gross_amount`（应发）** / `net_amount` | **字段名纠正**：`total_amount` → `gross_amount`（=增项合计） |
+| `kpi_score` 结构 | 架构 §4.2 列 `total_score` / `level` / `metric_detail` | 落为一员工一账期一行 + `metric_detail` JSON 快照 | 一致；另补 `station_id`（范围收敛/排行所需，见下条） |
+| `kpi_score` / `kpi_metric` 附加列 | 架构 §4.2 未列 | 补 `kpi_score.station_id`（范围收敛）、`kpi_metric.score_mode/full_score/role_scope`（替代 JSON） | **必要补充**，非语义冲突 |
+| JSON 列边界 | 架构 §4.2 列举 8 类 JSON 字段 | 新增 `sync_config_option.extra_attrs` / `legacy_codes` 两个同类 JSON | **新增 2 列**（同属「低频读取、结构多变」），登记见 §9.1 待确认 |
+| 参数外置承载 | 算法 §11（`hrm.algo.*` 超参） | 算法超参**不入库**（走配置，重启生效）；业务口径入库（`kpi_metric` / `payroll_rule(_item)` / `attendance_rule` / `work_order_dispatch_rule` / 配置中心四层 / `leave_setting`） | 与架构 §5.2 ADR-05 一致 |
+| `parcel` 索引 | 算法 §13 追加两条建议 | 全部采纳（业务加 `idx_parcel_station_status_inbound` 与 `idx_parcel_station_inbound`） | **已联评：算法 §13**，不冲突 |
+| `leave_request` / `leave_log` / `client_log` | db.md §7.1/7.2/7.3 | 字段与索引沿用，V9/V3 按其口径落 DDL，不新增语义 | 一致 |
+
+### 8.13 迁移与回滚索引
+
+| 版本 | 文件 | 表 |
+| ---- | ---- | ---- |
+| V3 | [V3__client_log.sql](../../hrm-server/src/main/resources/db/migration/mysql/V3__client_log.sql) | client_log |
+| V4 | [V4__notification.sql](../../hrm-server/src/main/resources/db/migration/mysql/V4__notification.sql) | notification |
+| V5 | [V5__attendance.sql](../../hrm-server/src/main/resources/db/migration/mysql/V5__attendance.sql) | attendance_rule / attendance_shift / attendance_schedule / attendance_record / attendance_makeup |
+| V6 | [V6__kpi.sql](../../hrm-server/src/main/resources/db/migration/mysql/V6__kpi.sql) | kpi_metric / kpi_score |
+| V7 | [V7__hr.sql](../../hrm-server/src/main/resources/db/migration/mysql/V7__hr.sql) | hr_profile / hr_salary / hr_salary_log / hr_flow / hr_flow_step |
+| V8 | [V8__payroll.sql](../../hrm-server/src/main/resources/db/migration/mysql/V8__payroll.sql) | payroll_rule / payroll_rule_item / payroll / payroll_item |
+| V9 | [V9__leave.sql](../../hrm-server/src/main/resources/db/migration/mysql/V9__leave.sql) | leave_request / leave_log / leave_setting |
+| V10 | [V10__work_order.sql](../../hrm-server/src/main/resources/db/migration/mysql/V10__work_order.sql) | work_order / work_order_timeline / work_order_transfer / work_order_dispatch_rule |
+| V11 | [V11__sync_task.sql](../../hrm-server/src/main/resources/db/migration/mysql/V11__sync_task.sql) | sync_task / sync_task_log |
+| V12 | [V12__sync_config_center.sql](../../hrm-server/src/main/resources/db/migration/mysql/V12__sync_config_center.sql) | sync_station_config / sync_config_item / sync_config_option / sync_config_global / sync_config_station_override |
+| V13 | [V13__parcel.sql](../../hrm-server/src/main/resources/db/migration/mysql/V13__parcel.sql) | parcel |
+| V14 | [V14__hr_flow_operator_columns.sql](../../hrm-server/src/main/resources/db/migration/mysql/V14__hr_flow_operator_columns.sql) | hr_flow（补 operator_id / operator_name 两列） |
+| V15 | [V15__auth_trusted_device.sql](../../hrm-server/src/main/resources/db/migration/mysql/V15__auth_trusted_device.sql) | auth_trusted_device |
+
+- **回滚**：每个脚本尾部自带 `-- 回滚:` 注释段（`DROP TABLE` / `DROP COLUMN` / `DROP INDEX`），人工执行；不使用 Flyway undo（社区版不支持）。
+- **版本单调性**：V3 < V4 < … < V15；V3~V13 与批次 P1~P10 顺序一致（未发生**版本顺延**，`employee` 无需补索引，见 §9.2）；V14/V15 为登录体系改造（M3）与前置修复，不与 P 批次冲突。
+- **迁移执行**：属 C 档（结构变更），须主智能体三步授权后由运维执行；上线前备份库。
+
+***
+
+## 9. 静态自检、待确认项与未验证项
+
+> 本机无 JDK / MySQL / Redis，**未实跑迁移**；以下为静态核对结论与需服务器复核项。
+
+### 9.1 待主智能体/相关方确认项（本体无法单方裁定）
+
+| # | 事项 | 现状与依据 | 建议处置 |
+| - | ---- | ---- | ---- |
+| Q-DB-1 | `parcel` 查重索引命名 | 架构 §4.3 写 `uk_parcel_station_waybill`，但 §4.6(2) 与决策 D7 要求「Service 查重 + 普通索引」 | 已落 `idx_parcel_station_waybill`（普通索引）；如确认可用数据库唯一索引，需用户裁定（架构开放问题 8-12）后另立新版本 |
+| Q-DB-2 | `sync_config_option.extra_attrs` / `legacy_codes` 使用 JSON | 架构 §4.2 列举的 JSON 字段未含二者，但同属「低频读取、结构多变」 | 已按 JSON 落地；如要求严格收敛到列举集，可改为显式列（`interval_minutes` / `template_start_time` / `template_end_time` + `legacy_codes` 串化） |
+| Q-DB-3 | `hr_flow.type` 列名 | 契约字段为 `type`（离职类型），与 `flow_type` 并存 | 已按契约用 `type`；如后端希望更表意的 `offboarding_type`，需前端/后端同步确认后另立版本 |
+| Q-DB-4 | `kpi_score` 一员工一账期 vs 一员工一账期一指标 | 架构 §4.2 为一员工一账期 + `metric_detail` JSON；Mock 为逐指标行 | 已按架构落聚合行；如需明细可查，`metric_detail` 已含逐项快照 |
+| Q-DB-5 | `auth_trusted_device` 建**唯一索引** vs 决策 D7 | 决策 D7 要求「Service 查重 + 普通索引」，但架构 §4.2.1 对设备信任表明确要求 `(employee_id, device_fingerprint)` **唯一、幂等 upsert** | 已按架构落 **`uk_auth_trusted_device_emp_fp`（唯一键）**，为 D7 的**显式例外**：本表用业务标志 `revoked`（非 `is_deleted`）表达撤销，撤销后复用同一行重信，与 D7 担心的「逻辑删除后唯一键阻止复用」场景不冲突（论证见 §10.2）。如主智能体/相关方要求严格回到 D7，则需放弃 DB 唯一约束、改为 Service 查重 + 普通索引，并另立新版本 |
+| Q-DB-6 | `auth_sms_log`（架构 §4.2.1 表2「短信发送审计，可选但建议」）是否纳入本轮 | 本期任务范围为「设备信任表 + `hr_flow` 补列」两个变更；§4.2.1 将 `auth_sms_log` 标为可选 | **本轮未纳入**（不建表、不出脚本）。如需审计短信发送（频控/降级/失败归因），属可落库审计表（脱敏手机号、不含验证码明文），建议由主智能体排期另立 **V16**；`security-auth-review.md` §4.4 的「验证码绝不入日志/审计」红线不变 |
+
+### 9.2 `employee` 是否需要补索引（P0 备注「如需」的核对结论）
+
+**结论：不需要补索引，不新增 `V3__employee_role_index.sql`，版本号为 V3~V13（未顺延）。** 依据：
+
+1. `employee` 现有索引 `idx_employee_username / idx_employee_phone / idx_employee_dept_id / idx_employee_station_id / idx_employee_create_time` 已覆盖一期与二期全部查询模式：
+   - **数据范围收敛（L1）** 只覆盖 query 参数 `stationId` → SQL `WHERE station_id = ?`，由 `idx_employee_station_id` 支撑；
+   - **部门归属统计 / 删除前置校验** 由 `idx_employee_dept_id` 支撑；
+   - **关键字筛选** `real_name / username LIKE '%x%'` 为前模糊，不建索引是**主动取舍**（一期已论证）；
+   - **默认排序** `create_time` 倒序由 `idx_employee_create_time` 支撑。
+2. **三角色门槛属端点级（Interceptor 注解），不是 SQL `WHERE role = ?`**：角色判定在 `RequireRolesInterceptor` 用 `UserContext.getRole()` 比对，不落到 `employee` 表查询；唯一按 `role` 过滤的「最后一个管理员」计数（`role='ADMIN' AND status=1`）是低频 COUNT，且表 < 5000 行，全扫 < 1 ms。
+3. **`role` 单列区分度极低（仅 3 值）**，为它建索引属滥加索引（写入成本换不到查询收益），与一期「索引克制」原则冲突。
+4. 若后续出现「按角色分页列表」的**高频**端点，届时按 ADR-04「只加不删、新版本号」补 `idx_employee_role` 或复合索引即可。
+
+### 9.3 静态自检清单（逐项）
+
+| 检查项 | 方法 | 结论 |
+| ---- | ---- | ---- |
+| MySQL 8 语法 | 逐脚本核对：`CREATE TABLE ... ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`、注释 `COMMENT`、JSON 列可空、`CREATE INDEX ... DESC`（8.0 支持降序索引） | 通过（未实跑） |
+| 表名 / 索引名唯一性 | 全库检索：**38** 表名无重复；索引名全局无跨表冲突（V14/V15 新增索引均带表名前缀，与既有 37 表索引名无交集） | 通过 |
+| 字段名唯一性（表内） | 逐表核对无重复列；`hr_flow` 补列后表内 31 列无重名；`auth_trusted_device` 18 列无重名 | 通过 |
+| 枚举取值与 Mock 一致 | 对照 `dict.js`：notification.type 1-6、parcel.status 0-4、sync.status 0-3、work_order.type/status/priority、payroll.status 6 态、hr.flow/step、leave.status/leave_type/action、kpi 类型/等级、attendance.status/source/check_type 等；V15 `platform` 取值对照架构 §4.1.3（ANDROID/IOS/H5/WEB） | 通过（逐条比对 store 与 dict） |
+| 批次 / 版本号单调 | V3→V15；V3~V13 与 P1→P10 一致，V14/V15 为登录改造批次，无跳号/回填/复用 | 通过 |
+| 索引变更附回滚 | V13 `CREATE INDEX` 附 `DROP INDEX` 回滚注释；V14 附 `DROP COLUMN`；V15 附 `DROP TABLE`（内联索引随表删）；其余脚本附 `DROP TABLE` 回滚段 | 通过 |
+| 未改历史脚本 | `V1`~`V13` 未触碰（git 校验）；V14 仅 `ALTER TABLE hr_flow ADD COLUMN`，未 `DROP`/`MODIFY` 既有列 | 通过 |
+| 新增列可空 / 带默认值 | V14 两新列均可空（`DEFAULT NULL`）；V15 非空列均带 `DEFAULT` 或为业务必填（`employee_id`/`device_fingerprint`/`device_token_hash`/`platform`/`first_seen_time`/`last_seen_time`），无「无默认 NOT NULL 新列」误用 | 通过 |
+| 敏感值不落库 | V15 全文检索无 `token` 明文列、无正则/验证码列；仅存 `device_token_hash`（摘要）；`last_ip` 出参脱敏由应用层实现 | 通过（静态检索） |
+| 无存储过程 / 触发器 / 物理外键 | 全文检索 `PROCEDURE` / `TRIGGER` / `FOREIGN KEY` | 通过（0 命中） |
+| 快照与迁移一致 | `init.sql` == V1+V3..V15 表/列/索引逐项比对（含 `hr_flow` 两新列、`auth_trusted_device` 表与 3 索引） | 通过（表 **38**、逐列核对） |
+| 无真实数据 / 凭据 | 脚本仅 DDL 与中文注释；无 INSERT（业务数据）、无 IP / 口令 / 密钥 / 令牌明文 | 通过 |
+| 中文注释覆盖 | 每列均有 `COMMENT`，每表均有表注释与设计说明头 | 通过 |
+
+### 9.4 未验证项清单（收敛到服务器阶段）
+
+| # | 项 | 复核方法 | 通过标准 |
+| - | -- | ---- | ---- |
+| U-1 | Flyway 迁移可执行性 | 服务器 `mvn` 启动触发 V3~V15，`flyway_schema_history` 逐条 success | V1~V15 共 15 条迁移无失败；checksum 稳定；V14/V15 为新增最新两条 |
+| U-2 | 表 / 索引真实结构 | `SHOW CREATE TABLE` 逐表比对快照 | 与 `init.sql` 一致 |
+| U-3 | `parcel` 索引命中 | `EXPLAIN` 列表查询（按驿站+状态，入库时间倒序） | `type=range/ref`，无 `Using filesort`，命中 `idx_parcel_station_status_inbound` |
+| U-4 | `parcel` 分页性能 | 首页 / 第 1000 页 `EXPLAIN ANALYZE` | 游标首页 <20 ms；深分页不达标签发 TODO-1（算法 §12.3） |
+| U-5 | `parcel` 落盘容量 | `SHOW TABLE STATUS LIKE 'parcel'` 取 `Data_length`+`Index_length` | 与估算约 106 MB 同量级（±50%） |
+| U-6 | 建库字符集 / 排序规则 | `SHOW CREATE DATABASE kdyzgl` | utf8mb4 / utf8mb4_0900_ai_ci |
+| U-7 | 应用账号权限（不授 DROP） | `SHOW GRANTS FOR 'hrm_app'@'%'` | 仅 `kdyzgl` 的 DML/DDL（无 DROP、无全局） |
+| U-8 | `JSON` 列读写与 MyBatis-Plus 映射 | 服务器冒烟：配置中心增删改、KPI 快照、考勤时段 | 读写正常、无乱码 |
+| U-9 | 时间填充行为（应用层） | 服务器验证 `MetaObjectHandler` 填充 `create_time`/`update_time` | 插入/更新均被填充 |
+| U-10 | 落盘路径 | 确认 `datadir=/data/mysql-host`、临时目录落 `/data` | 无系统盘写入 |
+| U-11 | `hr_flow` 补列后与 Java 映射一致 | 服务器 `SHOW CREATE TABLE hr_flow` 比对 + 后端移除 `HrFlow` 两字段 `exist = false` 后冒烟创建流程 | `operator_id`/`operator_name` 正常落库与回读；出参 `operatorId`/`operatorName` 非空 |
+| U-12 | `auth_trusted_device` 唯一键与 upsert 行为 | 服务器 `SHOW CREATE TABLE auth_trusted_device`；同员工同 `device_fingerprint` 重复登记 | 唯一键生效、不产生重复行、`last_seen_time` 被刷新 |
+
+***
+
+## 10. 登录体系改造表结构设计（V14 / V15）
+
+> 权威依据：[multi-client-architecture.md](multi-client-architecture.md) §4.1.3（设备信息采集字段）、§4.2（设备信任模型）、§4.3（会话与时效）；
+> 安全依据：[security-auth-review.md](security-auth-review.md) §3（信任态必须由服务端持有）、§4.2（服务端签发 `device_token`，指纹仅弱信号）、§4.4（验证码不入日志/审计）。
+> DDL 落位：`V14__hr_flow_operator_columns.sql`、`V15__auth_trusted_device.sql`；快照 `sql/schema/mysql/init.sql`。
+> 归属批次：登录体系改造 **M3**（设备信任表 + 指纹）；M1（会话多端化地基）/ M2（配置命名空间 + 适配器端口）均不改表结构。
+
+> **文档定位纠正**：任务背景称设备信任模型在 `multi-client-architecture.md` **§3.2**——实测该文档
+> **§3 为「服务器拆分方案」**，设备信任模型实为 **§4.2**（含 §4.2.1 表清单 / §4.2.2 与现有表关系 /
+> §4.3 会话与时效）。本章及 V15 依据一律按 §4.2 落地。
+
+### 10.1 本章新增概览
+
+| 版本 | 变更 | 对象（域） | 表数变化 |
+| ---- | ---- | ---- | ---- |
+| **V14** | `hr_flow` 补 2 列（`operator_id` / `operator_name`） | 人事域（修复 V7 建表缺口） | +0 表，+2 列 |
+| **V15** | 新建 `auth_trusted_device`（受信设备） | 认证域（登录体系改造） | +1 表 |
+
+- 表总数 **37 → 38**；`V1`~`V13` 未改动；`init.sql` 快照随之刷新（== V1+V3..V15）。
+- 两文件**一文件一职责**：V14 只做补列（不动结构），V15 只建认证域新表。
+
+### 10.2 `auth_trusted_device`（V15）— 受信设备（服务端持有信任态）
+
+**用途**：记录「员工 ↔ 已信任设备」绑定，承载登录免二次验证的**信任态**。核心设计原则（安全报告 §4.2 高危缺陷整改）：
+**信任态由服务端持有**——登录/二次验证通过后由服务端签发 `device_token`，本表仅存其**摘要**（`device_token_hash`，SHA-256 hex）；
+前端采集的设备属性仅为**弱信号**，经服务端外置盐 HMAC 后落 `device_fingerprint`，用于幂等登记与审计，**不作放行依据**。
+
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| employee_id | BIGINT | 否 | - | 归属员工（逻辑外键 employee.id） |
+| device_fingerprint | CHAR(64) | 否 | - | 服务端设备指纹摘要（HMAC-SHA256 hex；弱信号，幂等键，非放行依据） |
+| device_token_hash | CHAR(64) | 否 | - | 服务端签发 device_token 的摘要（SHA-256 hex；仅存摘要，绝不存明文） |
+| device_id | VARCHAR(64) | 是 | NULL | 前端上报设备ID（仅展示/排障，不作放行依据） |
+| platform | VARCHAR(16) | 否 | - | 端平台：ANDROID/IOS/H5/WEB |
+| model | VARCHAR(64) | 是 | NULL | 设备型号（弱信号快照，仅审计） |
+| os_version | VARCHAR(32) | 是 | NULL | 系统版本（弱信号快照，仅审计） |
+| app_version | VARCHAR(32) | 是 | NULL | 壳版本（H5 为空；弱信号快照，仅审计） |
+| last_ip | VARCHAR(45) | 是 | NULL | 最近来源 IP（IPv4/IPv6；出参脱敏） |
+| first_seen_time | DATETIME | 否 | - | 首次受信时间（信任建立时刻，重信不复位；= 任务语义 `trusted_at`） |
+| last_seen_time | DATETIME | 否 | - | 最近活跃时间（每次成功校验刷新；= 任务语义 `last_seen_at`） |
+| expires_at | DATETIME | 是 | NULL | 信任有效期截止（到期须重新验证；NULL=由配置周期决定） |
+| trusted | TINYINT | 否 | 1 | 是否受信：0=否，1=是 |
+| revoked | TINYINT | 否 | 0 | 是否已撤销：0=否，1=是（软撤销，保留审计） |
+| revoked_at | DATETIME | 是 | NULL | 撤销时间（改密/强制下线/自助撤销时写入，审计） |
+| create_time / update_time | DATETIME | 否 | CURRENT_TIMESTAMP | 应用层填充（D8；不使用 ON UPDATE） |
+
+**索引**：
+
+| 索引名 | 类型 / 字段 | 用途 |
+| ---- | ---- | ---- |
+| uk_auth_trusted_device_emp_fp | UNIQUE (employee_id, device_fingerprint) | 幂等 upsert（同员工同设备只一行）；最左前缀支撑「按员工列设备」 |
+| idx_auth_trusted_device_fp | (device_fingerprint) | 登录按指纹反查信任态 |
+| idx_auth_trusted_device_token | (device_token_hash) | 客户端持 device_token 时按其摘要校验 |
+
+**枚举取值**：`platform` ∈ {ANDROID, IOS, H5, WEB}（架构 §4.1.3）；`trusted` ∈ {0,1}；`revoked` ∈ {0,1}。
+
+**逻辑关系**：`employee_id` → `employee.id`（逻辑外键，D6，不建物理外键）；设备列表（C1）、撤销（C2）严格限本人（`employee_id` 归属校验，安全报告 §4.2）。
+**查询走索引**：设备列表按 `employee_id`（唯一键最左前缀）；登录判定先按 `(employee_id, device_fingerprint)` 命中唯一键、再比对 `device_token_hash`；独立持令牌时走 `idx_auth_trusted_device_token`。
+
+**偏离 db.md §8.0 的两点例外（显式登记，非疏漏）**：
+
+1. **不设 `is_deleted`，改用业务标志 `revoked` + `revoked_at`**。理由：撤销信任是**业务状态**而非逻辑删除——已撤销设备仍需在设备列表中可查、可审计（对应错误码 1107「设备已被撤销」），逻辑删除会使其对用户不可见；且撤销后**复用同一行重新受信**（upsert），若用 `is_deleted` 会与 MyBatis-Plus 全局逻辑删除过滤及唯一键复用语义冲突。
+2. **建数据库唯一索引**（`uk_auth_trusted_device_emp_fp`），为决策 D7「不建唯一索引」的**显式例外**。依据：架构 §4.2.1 对该表明确要求 `(employee_id, device_fingerprint)` **唯一、幂等 upsert**；又因第 1 点（撤销≠逻辑删除、行可复用），D7 担心的「逻辑删除后唯一键阻止复用」场景在此**不成立**。若相关方要求严格回到 D7，须放弃 DB 唯一约束、改 Service 查重 + 普通索引并另立版本（见 §9.1 Q-DB-5）。
+
+### 10.3 `hr_flow` 补列（V14）
+
+见 §8.5.4「V14 变更」与 §8.13 迁移索引。要点：`ALTER TABLE hr_flow ADD COLUMN operator_id BIGINT / operator_name VARCHAR(50)`，均可空、列尾追加（INSTANT，无锁无重建），只加不删不改类型（ADR-04）。语义对齐 `hr_flow_step` 与 Mock `hrStore.js`；**联动项**为后端移除 `HrFlow` 两字段的 `@TableField(exist = false)`。
+
+### 10.4 为什么不建表（敏感 / 短生命周期数据一律走 Redis）
+
+| 数据 | 承载方式 | 为什么不落库 |
+| ---- | ---- | ---- |
+| **短信验证码**（6 位） | Redis `hrm:sms:code:{scene}:{phone}`，TTL 300s，校验成功即删（一次性） | ① **敏感明文红线**：验证码明文落库违反「敏感值不落库明文」（安全报告 §4.4 ⑥/⑦）；② 生命周期极短（≤5min）、高频读写、需原子 TTL 与一次性删除，落库产生海量无用写入与清理负担 |
+| 验证码**校验失败计数** | Redis `hrm:sms:attempt:{scene}:{phone}`，TTL 300s | 同属短时状态；达上限即作废验证码（错误码 1103），无需持久化 |
+| **二次验证票据** `twoFactorTicket` | Redis（短 TTL，如 5min） | 仅衔接「密码登录 → 短信二次验证」的一次性凭据，流转即失效；落库无审计价值且扩大泄露面 |
+| **`device_token` 明文** | 仅服务端签发 → 下发客户端（HttpOnly Cookie 或独立 claim） | 库中**只存摘要** `device_token_hash`；明文落库=泄露即等价长期信任凭证 |
+| **登录会话**（含 `sid`/`jti`/`role`/`stationId`） | Redis `hrm:session:{sid}` + 索引 `hrm:session:idx:{employeeId}`（M1） | 会话为可容忍丢失的短时状态（丢失=重登），且需 TTL 双控与高频读写；落库会拖慢认证主链路 |
+| **设备指纹盐** `hrm.auth.device-fingerprint-salt` | 服务器外置配置（主智能体托管） | 密钥/盐的安全红线：不入库、不进仓库、不进日志 |
+
+> 上述「不建表」均为**主动取舍**，与 `security-auth-review.md` §4.4 的验证码红线一致；Redis 键规范见架构 §2.3.2 / §4.4.3。
+
+### 10.5 与架构 / 安全报告的一致性核对（守契约）
+
+| 核对项 | 依据口径 | 本章处置 | 结论 |
+| ---- | ---- | ---- | ---- |
+| 表名 / 字段 | 架构 §4.2.1 表1 `auth_trusted_device` | 表名与字段逐个沿用架构定义 | 一致 |
+| 唯一索引 | 架构 §4.2.1 写 `uk_auth_device_emp_fp (employee_id, device_fingerprint)` | 落 `uk_auth_trusted_device_emp_fp`（**命名纠正**：按 §1.5 / skill 规范「索引名带**完整表名**前缀，双库可对照」，架构用缩写 `auth_device` 与 db.md「`idx_表名_字段`」冲突，此处以 db.md 为准） | **命名纠正**，语义一致（唯一、幂等 upsert） |
+| 次级索引 | 架构 §4.2.1 写 `idx_auth_device_fp` | 落 `idx_auth_trusted_device_fp`（同名纠正，同上） | 命名纠正 |
+| 新增令牌摘要列 | 任务要求「服务端签发设备标识/令牌摘要，仅存摘要」；架构 §4.2.1 未列 | 新增 `device_token_hash` CHAR(64)（+ `idx_auth_trusted_device_token`） | **必要补充**（安全报告 §4.2 核心整改：信任态服务端持有），非语义冲突 |
+| 时效字段 | 任务列的 `trusted_at` / `last_seen_at` | 沿用架构 `first_seen_time` / `last_seen_time`（语义一一对应）；并按安全报告 §4.2「设有效期」补 `expires_at` | 命名以架构为准 + 必要补充 |
+| 撤销字段 | 任务列 `revoked_at`（或 status）；架构 §4.2.1 列 `trusted` / `revoked` | 沿用 `trusted` / `revoked`，并补 `revoked_at`（审计时间） | 一致 + 必要补充 |
+| 敏感值不落库 | 安全报告「指纹仅弱信号、不得作放行依据」 | `device_fingerprint` 标注弱信号/审计用；`device_token_hash` 仅摘要；验证码等走 Redis（§10.4） | 一致 |
+| `auth_sms_log` | 架构 §4.2.1 表2「可选但建议」 | 本轮**未纳入**（超出「两个变更」范围），登记为待裁定（§9.1 Q-DB-6），可另行 V16 | 已登记差异，非遗漏 |
+
+***
+
+> **收敛声明**：本章 DDL 与快照均为**静态产出**，本机无 MySQL，**未实跑迁移**；`SHOW CREATE TABLE` 逐表比对、
+> Flyway `flyway_schema_history` 校验、唯一键 upsert 行为验证**收敛到服务器阶段**（见 §9.4 U-1/U-2/U-11/U-12）。
+> **迁移执行属 C 档**，须主智能体三步授权后由运维执行，上线前备份库。
 

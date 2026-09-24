@@ -56,7 +56,8 @@
 | 22 | SSH | 放行（建议改用密钥登录 + fail2ban，见 2.4） |
 | 80 / 443 | HTTP / HTTPS | 放行 |
 | 8080 | hrm-server | **禁止放行**（仅 Nginx 本机反代） |
-| 3306 | MySQL | **禁止放行**（仅 127.0.0.1 访问） |
+| 3306 | MySQL（容器 `courier-mysql`，2026-09-23 起停用） | **禁止放行**（容器已停，端口不再监听） |
+| 3307 | MySQL（宿主实例，**现网生产库**） | **禁止放行**（仅监听 127.0.0.1 / 172.17.0.1 / 172.19.0.1，见 0.5） |
 | 6379 | Redis | **禁止放行**（仅 127.0.0.1 访问） |
 
 ### 0.4 安全红线（摘自项目规则，部署全程遵守）
@@ -65,6 +66,39 @@
 2. 服务器代码只来源于 `git pull`，禁止在生产服务器直接编辑源码；
 3. 真实 IP、密钥、密码严禁写入 Git 仓库与文档；
 4. AI 生成的默认密钥（`change_me_*`）必须全部替换为自建强密钥后方可上线（D05 验收项）。
+
+### 0.5 存储策略（系统盘 / 数据盘分工）
+
+挂载：系统盘 30G（`/`，`/dev/vda1`）、数据盘 50G（`/data`，`/dev/vdb1`）。
+**所有业务数据一律落数据盘 `/data`；系统盘只放操作系统、系统级程序与配置**，避免业务增长把根分区吃满、连带 SSH 与服务异常。
+
+| 存储位置 | 承载内容 | 落点 |
+| ---- | ---- | ---- |
+| `/data/mysql-host/` | **宿主 MySQL 8 数据目录**（datadir，端口 3307）——**现网生产库**，`courier-app` 经 `host.docker.internal` 连此实例 | 数据盘 |
+| `/data/log/mysql/` | 宿主 MySQL 错误日志 | 数据盘 |
+| `/data/mysql-tmp/` | 宿主 MySQL 临时文件（大排序等） | 数据盘 |
+| `/data/mysql/` | 已停用的容器 MySQL（`courier-mysql`）datadir（2026-09-23 切换后保留，供回滚） | 数据盘 |
+| `/data/www/` | 站点与仓库（`kongzhen1`、`hrm-demo`、`kdyzzhxt`） | 数据盘 |
+| `/data/ssl/`、`/data/le-challenges/` | 证书与 ACME 验证目录 | 数据盘 |
+| `/data/backup/` | 备份归档（数据库 / 配置 / HIDS 日志 / 宝塔旧备份） | 数据盘 |
+| `/data/log/` | 运维脚本日志（如 HIDS 轮转） | 数据盘 |
+| `/data/swapfile` | 2G swap（宿主内存仅 3.8G，防 OOM 波及容器） | 数据盘 |
+| `/www/`、`/var/`、`/usr/` | 宝塔面板、Docker 数据根、系统程序 | 系统盘（系统级，属例外） |
+
+**宿主 MySQL 落盘配置**：`/etc/mysql/mysql.conf.d/zz-kdyzgl-storage.cnf`（仓库留档 `hrm-dev/deploy/scripts/zz-kdyzgl-storage.cnf`），要点 `datadir=/data/mysql-host`、`port=3307`、`log_error`/`tmpdir` 指向 `/data`。Ubuntu 的 apparmor profile 需经 `/etc/apparmor.d/local/usr.sbin.mysqld` 放行 `/data` 路径后重载，否则服务起不来。
+
+**宿主 MySQL 与容器的连通（2026-09-23 切换后新增，缺一即连不上）**：
+
+| 项 | 配置 | 说明 |
+| ---- | ---- | ---- |
+| 多地址绑定 | `bind-address = 127.0.0.1,172.17.0.1,172.19.0.1` | MySQL 8.0.13+ 支持逗号分隔。`172.17.0.1`（docker0）与 `172.19.0.1`（`courier-net`）供容器访问；实测容器内 `host.docker.internal` 解析为 **172.17.0.1** |
+| UFW 定向放行 | `ufw allow from 172.19.0.0/16 to any port 3307 proto tcp`（`172.17.0.0/16` 同） | UFW 的 INPUT 默认 DROP，仅改 bind-address 不够 |
+| 账号授权 | `root@'172.19.%'`（`caching_sha2_password`，口令 = `.env` 的 `DB_PASSWORD`） | 容器侧认证；宿主本地管理走 `root@localhost`（unix socket，空口令，用 `mysql -uroot` 不加 `-p`） |
+| systemd drop-in | `/etc/systemd/system/mysql.service.d/zz-kdyzgl.conf`：`After/Wants=docker.service` + `StartLimitIntervalSec=0` | 防开机 dockerd 未起时绑定 172.19.0.1 失败即放弃启动 |
+
+**生产库切换事实（2026-09-23）**：生产库已由容器实例（`courier-mysql`，3306）切至宿主实例（3307），容器与 `/data/mysql` 保留供秒级回滚；应用连库串为 `jdbc:mysql://host.docker.internal:3307/courier_station`，`app` 增 `extra_hosts`，`docker-compose.yml` 已移除 `mysql` 服务定义。**注意 `docker compose up -d` 会自动加载 `docker-compose.override.yml`（dev profile），现网必须显式 `-f docker-compose.yml`。** 详见 `KDYZZHXT/update-log.md` 的 2026-09-23 条目。
+
+**已知增长点与治理**：宝塔入侵检测日志 `/www/server/panel/data/hids_data/log` 按天写 JSON（实测单日 240M+）且面板无内置保留策略，曾 19 天累积 4.7G。已部署 `/usr/local/bin/hids-log-rotate.sh`（仓库 `hrm-dev/deploy/scripts/hids-log-rotate.sh`）+ `/etc/cron.d/hids-log-rotate`，**每周日 03:30 轮转，只保留近 7 日**。新机器初始化时必须重复该步骤，否则系统盘会被持续吃满。
 
 ***
 

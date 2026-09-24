@@ -1,7 +1,7 @@
-# 移动端「老板端」模块化拆分方案（结构与依赖边界）
+# 移动端「管理端」模块化拆分方案（结构与依赖边界）
 
 > 文档类型：架构方案（先方案后实现，本轮不落代码）
-> 范围：`hrm-dev/hrm-demo/src/mobile/` 内的**老板端域**（`src/mobile/views/boss/`，21 页）
+> 范围：`hrm-dev/hrm-demo/src/mobile/` 内的**管理端域**（`src/mobile/views/boss/`，21 页）
 > 编写方式：全部结论基于**实际读码**，逐条给 `文件:行号`；未取证项显式标注「存疑」
 > 配套文档：`demo-boss-ui-spec.md`（UI/UX 设计师 · 视觉/交互/组件规范）。本文负责**结构与依赖**，两者互补。
 > 硬约束来源：项目规则 §12「演示与隔离工程硬约束」
@@ -10,8 +10,8 @@
 
 ## 0. 结论先行
 
-1. 老板端当前**没有独立的物理边界**：21 个页面平铺在 `src/mobile/views/boss/`，166 条 import 里有 **107 条是跨层的深层相对路径直引**（`../../components|x`），模块边界全靠目录名口头表达。
-2. 老板端**当前 0 个专属组件、0 个专属 composable、0 个专属常量、0 个专属 util**——所有依赖都落在移动端共享内核里。真正"跨域"的只有一处：路由把 `/boss/kpi/:employeeId` 指向了 `views/staff/kpi.vue`（`router/index.js:109-114`）。
+1. 管理端当前**没有独立的物理边界**：21 个页面平铺在 `src/mobile/views/boss/`，166 条 import 里有 **107 条是跨层的深层相对路径直引**（`../../components|x`），模块边界全靠目录名口头表达。
+2. 管理端**当前 0 个专属组件、0 个专属 composable、0 个专属常量、0 个专属 util**——所有依赖都落在移动端共享内核里。真正"跨域"的只有一处：路由把 `/boss/kpi/:employeeId` 指向了 `views/staff/kpi.vue`（`router/index.js:109-114`）。
 3. 因此本次拆分的实质是三件事：① 页面迁入模块目录；② 把路由从单文件拆成「模块子表 + 聚合点」；③ 用 ESLint `no-restricted-imports` 把边界变成 lint error，并给 UI 规范提出的 6 个新组件一个**有主的落点**。
 4. 目标形态（单工程内按域拆模块，可整体 `rm -rf hrm-demo/` 回滚）：
 
@@ -19,9 +19,9 @@
 src/mobile/
 ├── modules/
 │   └── boss/
-│       ├── router.js        # 老板端路由子表（导出数组，由 ../router/index.js 聚合）
+│       ├── router.js        # 管理端路由子表（导出数组，由 ../router/index.js 聚合）
 │       ├── views/           # 21 个页面（views/boss/*.vue 整体迁入）
-│       └── components/      # 老板端专属组件（UI 规范 N-01~N-06 的落地位置）
+│       └── components/      # 管理端专属组件（UI 规范 N-01~N-06 的落地位置）
 └── （内核原地不动）components/ composables/ constants/ layout/ stores/ styles/ utils/ api/
 ```
 
@@ -74,7 +74,7 @@ src/mobile/
 | 路由 | 行号 | 组件指向 | 判定 |
 |----|----|----|----|
 | `/boss/message` | `router/index.js:44-49` | `../views/message/MessagePage.vue` | **中立共享页**（`/staff/message` 亦复用，`router/index.js:174-179`）。合法，见 P-07 |
-| `/boss/kpi/:employeeId` | `router/index.js:109-114` | `../views/staff/kpi.vue` | **跨域直引**：老板端路由挂载了员工端域页面。全仓唯一一处 |
+| `/boss/kpi/:employeeId` | `router/index.js:109-114` | `../views/staff/kpi.vue` | **跨域直引**：管理端路由挂载了员工端域页面。全仓唯一一处 |
 
 反向核实：`/staff/kpi`（`router/index.js:313-317`）指向同一文件 `views/staff/kpi.vue`。该页内部以 `auth.isAdmin` 分流标题与空态文案（`staff/kpi.vue:27,59,66-68`），即"同一业务对象两端共页"的既有约定（`staff/kpi.vue:16-22` 注释）。
 
@@ -82,15 +82,15 @@ src/mobile/
 
 ### P-04 重复实现盘查（逐域比对）
 
-| 域 | 老板端 | 员工端 | 判定 |
+| 域 | 管理端 | 员工端 | 判定 |
 |----|----|----|----|
 | 我的 | `boss/me.vue`（7 行） | `staff/me.vue`（7 行） | **逐行等价重复**（除注释）：两者均只渲染 `MeSection`（`boss/me.vue:2,8` / `staff/me.vue:2,8`）。可合并为中立共享页 |
 | 请假审批 | `boss/leaveApproval.vue`（13 行） | `staff/leaveReview.vue`（16 行） | 同一组件 `LeaveApprovalList` 的两个 props 变体（`title/default-status/actor` 不同，`boss:14` / `staff:17`）。**合法端差异**，不合并 |
 | 工资单详情 | `boss/payrollDetail.vue`（230 行） | `staff/payrollDetail.vue`（221 行） | 共享同一套 UI 骨架（`PageNav+PageState+PayrollStatusSteps+MyPayrollCard+ActionBar`）与同一"理由弹层"模式（2–200 字校验、`role="alert"`），但业务动作与端点完全不同（`approvePayroll/publishPayrolls` vs `confirmPayroll/objectPayroll`）。**业务不合并；「理由录入弹层」属可抽的 UI 模式**（与 UI 规范 N-06 同族） |
-| KPI | `boss/kpi.vue`（555 行） | `staff/kpi.vue`（114 行） | **非重复**：前者是考核列表 + 生成本期考核，后者是得分明细（且被老板端路由复用，见 P-03） |
-| 考勤记录 | `boss/attendanceRecords.vue`（262 行） | `staff/attendanceRecords.vue`（224 行） | 端差异：老板端带 `StationPicker`（`boss:7`）、员工端用 `monthShiftMap`（`staff:8`）。不合并 |
+| KPI | `boss/kpi.vue`（555 行） | `staff/kpi.vue`（114 行） | **非重复**：前者是考核列表 + 生成本期考核，后者是得分明细（且被管理端路由复用，见 P-03） |
+| 考勤记录 | `boss/attendanceRecords.vue`（262 行） | `staff/attendanceRecords.vue`（224 行） | 端差异：管理端带 `StationPicker`（`boss:7`）、员工端用 `monthShiftMap`（`staff:8`）。不合并 |
 | 考勤概览/打卡 | `boss/attendance.vue`（142 行） | `staff/attendance.vue`（876 行） | 端差异：`getAttendanceSummary` vs `checkIn`。不合并 |
-| 工单 | `boss/workorder.vue`（223 行） | `staff/workorder.vue`（238 行） | 端差异：老板全域筛选 vs 本站。不合并 |
+| 工单 | `boss/workorder.vue`（223 行） | `staff/workorder.vue`（238 行） | 端差异：管理员全域筛选 vs 本站。不合并 |
 | 排班 | `boss/schedule.vue`（941 行） | `staff/schedule.vue`（170 行） | 端差异：排班管理 vs 看自己。不合并 |
 | 入离职 | `boss/flow.vue`（183 行） | `staff/flow.vue`（96 行） | 端差异：审批 vs 只读降级（`staff/flow.vue:2` 头部注释已说明契约未开放） |
 | 工资单列表 | `boss/payroll.vue`（280 行） | `staff/payroll.vue`（109 行） | 端差异：`getPayrolls+publishPayrolls` vs `getMyPayrolls` |
@@ -99,7 +99,7 @@ src/mobile/
 
 **结论**：可抽的唯一真重复是 `boss/me.vue` ⇄ `staff/me.vue`；其余均为合法端差异或不同职责，强行合并会破坏两端行为（违反精简原则中"同一逻辑不得重复实现"的边界——端差异不算重复）。
 
-### P-05 老板端专属资产盘查：现状为 0
+### P-05 管理端专属资产盘查：现状为 0
 
 | 类型 | 结论 | 证据 |
 |----|----|----|
@@ -108,9 +108,9 @@ src/mobile/
 | util | 0 个专属 | `utils/workorder.js` 仅 `staff/workorderDetail.vue:14` 消费（员工端专属） |
 | constant | 0 个专属 | `quickEntries`（`boss/home.vue:19` + `staff/home.vue:11`）、`makeup`（`boss/makeupApproval.vue:9` + `staff/makeupList.vue:9`）、`accounts`（`login/index.vue:5`+`MeSection.vue:6`+`staff/home.vue:10`）、`tabs`（`TabbarLayout.vue:5`）、`todoGroups`（`stores/todo.js:3`）——全部共享 |
 
-**唯一"仅老板端消费"的共享目录资产**：`LineChart`，仅 `boss/home.vue:5`、`boss/trend.vue:3` 引用，员工端 0 引用。是否随迁见 §3.5 裁决（建议不迁）。
+**唯一"仅管理端消费"的共享目录资产**：`LineChart`，仅 `boss/home.vue:5`、`boss/trend.vue:3` 引用，员工端 0 引用。是否随迁见 §3.5 裁决（建议不迁）。
 
-### P-06 共享内核里硬编码了老板端路由字符串（本次禁改）
+### P-06 共享内核里硬编码了管理端路由字符串（本次禁改）
 
 | 位置 | 内容 |
 |----|----|
@@ -131,9 +131,9 @@ src/mobile/
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ 老板端模块  src/mobile/modules/boss/                      │
+│ 管理端模块  src/mobile/modules/boss/                      │
 │   自有：views/（21 页）· components/（Boss* 专属组件）      │
-│         router.js（老板端路由子表）                        │
+│         router.js（管理端路由子表）                        │
 │         （composables/ constants/ api/ 本轮不建，§3.3）    │
 └───────────────┬──────────────────────────────────────────┘
                 │ 只允许向下依赖，禁止横向依赖其他域
@@ -154,10 +154,10 @@ src/mobile/
 
 ### 2.2 包含 / 依赖 / 禁止
 
-**老板端模块自有（本次迁入并归属模块）**
+**管理端模块自有（本次迁入并归属模块）**
 - `modules/boss/views/`：21 个页面
-- `modules/boss/components/`：老板端专属组件，命名前缀 `Boss*`（沿用 UI 规范 §1.2 要求），本轮承载 UI 规范 N-01~N-06
-- `modules/boss/router.js`：老板端路由子表（导出数组）
+- `modules/boss/components/`：管理端专属组件，命名前缀 `Boss*`（沿用 UI 规范 §1.2 要求），本轮承载 UI 规范 N-01~N-06
+- `modules/boss/router.js`：管理端路由子表（导出数组）
 
 **依赖移动端共享内核（保持原地，只读消费）**
 - `layout/TabbarLayout.vue`（Tab 页外壳）
@@ -198,7 +198,7 @@ src/mobile/
 │       │   ├── flow.vue  flowDetail.vue  leaveApproval.vue  leaveSettings.vue
 │       │   ├── attendanceRule.vue  schedule.vue  attendanceRecords.vue
 │       │   └── （共 21 个）
-│       └── components/             # 新增：老板端专属组件（Boss*），本轮承接 UI 规范 N-01~N-06
+│       └── components/             # 新增：管理端专属组件（Boss*），本轮承接 UI 规范 N-01~N-06
 ├── router/
 │   ├── index.js                    # 改为聚合点：登录/员工端/404 + 展开 bossRoutes + 唯一跨域复用路由
 │   └── index.spec.js               # 随 mock 路径同步（§4 第 24 行）
@@ -212,7 +212,7 @@ src/mobile/
 import { ROLE } from '@/shared/constants/role.js'
 
 /**
- * 老板端路由子表（按域拆分后由 ../router/index.js 单点聚合）
+ * 管理端路由子表（按域拆分后由 ../router/index.js 单点聚合）
  * 为什么用数组导出而非独立 createRouter：整端共用一个 router 实例，
  * 子表只提供定义，实例与守卫（登录态 / 角色白名单）仍在聚合点，避免出现多实例与守卫漏挂。
  */
@@ -231,7 +231,7 @@ const routes = [
   { path: '/', redirect: '/login' },
   { path: '/login', /* … 不变 … */ },
 
-  ...bossRoutes,                        // 老板端域（含 /boss 重定向与 22 页）
+  ...bossRoutes,                        // 管理端域（含 /boss 重定向与 22 页）
 
   /* 跨域复用路由：唯一一处，故意留在聚合点（见 §8 Q2） */
   // TODO(扩展): 该页为「同一业务对象两端共页」，若后续要彻底去耦，应提升为中立共享页（参照 views/message/MessagePage.vue 先例）
@@ -247,8 +247,8 @@ const routes = [
 
 | 目录 | 现状 | 裁决 |
 |----|----|----|
-| `composables/` | 老板端 0 个专属（P-05） | **不建**。空目录是噪音；首个专属 composable 出现时再建，登记 `TODO(扩展)` |
-| `constants/` | 老板端 0 个专属常量（P-05） | **不建**，理由同上 |
+| `composables/` | 管理端 0 个专属（P-05） | **不建**。空目录是噪音；首个专属 composable 出现时再建，登记 `TODO(扩展)` |
+| `constants/` | 管理端 0 个专属常量（P-05） | **不建**，理由同上 |
 | `api/` | `src/mobile/api/index.js` 是 **212 行扁平薄适配层**，全端共用，无端特异性分支（`api/index.js:11-212` 全部是 `http.xxx(url)` 一行式） | **不拆**。拆它必须动共享文件、且员工端未同期改造会造成"半迁移"状态；按域拆 api 的前提是两端模块化同时推进，登记 `TODO(扩展)` |
 
 > 反过度设计：任务建议的骨架含 `api/`，但本工程的实际形态不支持——强行建一个只 re-export 的 `modules/boss/api/index.js` 会增加一层无收益转发，违反「精简优先」。
@@ -265,14 +265,14 @@ const routes = [
 2. **lint 覆盖零额外成本**：现有 `VIEW_FILES` 含 `'src/**/components/**'`（`eslint.config.js:25`），`src/mobile/modules/boss/components/**` 已被 `**` 命中，无需改规则。
 3. **与员工端同构**：员工端未来按同一约定得 `modules/staff/components/`；若走 B，则会变成"内核目录下按端开子目录"，两端拆完后 `components/` 下混杂内核与各端专属，边界再次模糊。
 
-**同时保留 UI 规范的实质要求**：新组件命名前缀 `Boss*`（UI 规范 §1.2 第 118 行）；老板端专属样式**禁止**写进 `mobile.scss` 全局工具类。
+**同时保留 UI 规范的实质要求**：新组件命名前缀 `Boss*`（UI 规范 §1.2 第 118 行）；管理端专属样式**禁止**写进 `mobile.scss` 全局工具类。
 
 **兼容处理**：UI 规范 §1.2 与附录 C 提到的 `components/boss/` 需在实现阶段同步改写为 `modules/boss/components/`（列入 §9 任务 A9，由主智能体回写）。
 
 ### 3.5 `LineChart` 是否随迁：裁决为**不迁**
 
 - 事实：仅 `boss/home.vue:5`、`boss/trend.vue:3` 引用，员工端 0 引用（P-05）。
-- 裁决：**保留在内核 `mobile/components/`**。理由：它是通用纯展示图表（无老板端业务语义），UI 规范 §8.1 已把它列为共享内核并规划接口扩展（§8.8、附录 C 的"LineChart 接口扩展"）。若迁入 `modules/boss/components/`，未来员工端要用就得反向依赖老板端模块，违反 §2.2 第 4 条依赖方向。
+- 裁决：**保留在内核 `mobile/components/`**。理由：它是通用纯展示图表（无管理端业务语义），UI 规范 §8.1 已把它列为共享内核并规划接口扩展（§8.8、附录 C 的"LineChart 接口扩展"）。若迁入 `modules/boss/components/`，未来员工端要用就得反向依赖管理端模块，违反 §2.2 第 4 条依赖方向。
 - 登记：`TODO(扩展): 若确认员工端永不使用 LineChart，再评估下沉到 module`（不属本次）。
 
 ### 3.6 与其他模块（staff / pc）的目录约定（供其他负责人对齐）
@@ -283,7 +283,7 @@ const routes = [
 | 模块内固定三件套 | `router.js`（导出 `<domain>Routes` 数组）+ `views/` + `components/`；`composables/`、`constants/`、`api/` 按需增建，不预置空目录 |
 | 内核 | `src/mobile/{components,composables,constants,layout,stores,styles,utils,api}` 与 `src/shared/**` 是唯一允许被多方依赖的层，**只增不改语义**；跨域共享页放内核的 `views/`（如 `views/message/`） |
 | 路由 | 每模块只导出定义，`src/mobile/router/index.js` 单点聚合；**跨域复用路由只允许写在聚合点** |
-| 命名 | 模块自有组件统一 `<Domain>*` 前缀（老板端 = `Boss*`） |
+| 命名 | 模块自有组件统一 `<Domain>*` 前缀（管理端 = `Boss*`） |
 | 依赖方向 | `modules/* → 内核 → shared`；禁止 `modules/A ⇄ modules/B`；禁止内核 `→ modules/*`（当前 `TabbarLayout.vue:33,79` 的 `/boss/*` 字符串是历史债，登记 `TODO(扩展)`） |
 | import 写法 | 跨层一律走既有 `@` 别名（`@/mobile/**`、`@/shared/**`），模块内互引用用相对路径（`./`、`../components/`）。**不新增 `@boss`/`@mobile` 别名**——既有 `@`（`vite.config.js:65`、`vitest.config.mjs:21`）已够用，新增别名要多改两处配置文件 |
 
@@ -332,7 +332,7 @@ const routes = [
 
 | # | 现有位置 | 目标位置 / 改动内容 | 处置 |
 |----|----|----|----|
-| 22 | `src/mobile/router/index.js:36`（`/boss` 重定向）+ `:37-99`（11 条路由）+ `:101-163`（12 条路由）+ `:293-309`（3 条路由），共 23 条老板端路由 | 抽到新文件 `src/mobile/modules/boss/router.js`，导出 `bossRoutes` 数组 | 改 |
+| 22 | `src/mobile/router/index.js:36`（`/boss` 重定向）+ `:37-99`（11 条路由）+ `:101-163`（12 条路由）+ `:293-309`（3 条路由），共 23 条管理端路由 | 抽到新文件 `src/mobile/modules/boss/router.js`，导出 `bossRoutes` 数组 | 改 |
 | 23 | `src/mobile/router/index.js` 顶部 import 区（`:1-9`） | 新增 `import { bossRoutes } from '../modules/boss/router.js'`；`routes` 数组内 `...bossRoutes` 展开 | 改 |
 | 24 | `src/mobile/router/index.spec.js:48` `vi.mock('../views/boss/home.vue', …)` | 改为 `vi.mock('../modules/boss/views/home.vue', …)`（路由改了 import 路径，mock 路径必须同步，否则 mock 不命中 → 导航挂起；该风险 `index.spec.js:44` 注释已警示） | 改 |
 | 25 | `src/mobile/router/index.spec.js:47` `vi.mock('../views/staff/home.vue', …)` | **保留**（员工端页面未移动） | 保留原地 |
@@ -358,7 +358,7 @@ const routes = [
 | `mobile/utils/{http,authStorage,bridge,format,attendance,leave,workorder}.js` | 内核 |
 | `mobile/api/index.js` | §3.3，薄适配层 |
 | `mobile/styles/{mobile.scss,tokens.scss}` | 内核 |
-| `src/mobile/views/{login,error,message}/**`、`views/staff/**` | 非老板端域（本轮范围外） |
+| `src/mobile/views/{login,error,message}/**`、`views/staff/**` | 非管理端域（本轮范围外） |
 | `src/shared/**` | 三端共享层，禁止改导出 |
 | `src/pc/**`、`hrm-admin/**`、`hrm-server/**` | §12 硬约束，零改动 |
 
@@ -389,7 +389,7 @@ const routes = [
 
 ```js
   // ==========================================================================
-  // 规则 4-6：按域拆模块后的老板端边界（本次新增）
+  // 规则 4-6：按域拆模块后的管理端边界（本次新增）
   // --------------------------------------------------------------------------
   // 必须放在规则 1-3 之后：flat config 中同一 rule 名"后者整体覆盖前者"，
   // 故每个新块都要把它覆盖文件原本生效的 patterns 复述一遍（尤其 mock 禁区），
@@ -397,7 +397,7 @@ const routes = [
   // 依据：ESLint《Configuration Files · Cascading Configuration Objects》。
   // ==========================================================================
 
-  // 规则 4：老板端模块内部 —— 禁止跨域 / 禁止触达一期只读资产 / 禁止直连 mock
+  // 规则 4：管理端模块内部 —— 禁止跨域 / 禁止触达一期只读资产 / 禁止直连 mock
   {
     files: ['src/mobile/modules/boss/**'],
     rules: {
@@ -407,15 +407,15 @@ const routes = [
           patterns: [
             {
               group: ['**/shared/mock/**', '@/shared/mock/**'],
-              message: '老板端模块禁止直连假后端；Mock 装配点仅限 pc/main.js 与 mobile/main.js'
+              message: '管理端模块禁止直连假后端；Mock 装配点仅限 pc/main.js 与 mobile/main.js'
             },
             {
               group: ['**/views/staff/**', '**/modules/staff/**'],
-              message: '老板端模块禁止直引其他业务域；跨端复用请走内核或中立共享页（路由层例外只允许写在聚合点 router/index.js）'
+              message: '管理端模块禁止直引其他业务域；跨端复用请走内核或中立共享页（路由层例外只允许写在聚合点 router/index.js）'
             },
             {
               group: ['@admin/**', '@/pc/**', '**/src/pc/**'],
-              message: '老板端模块禁止依赖 PC 端与一期只读资产 @admin'
+              message: '管理端模块禁止依赖 PC 端与一期只读资产 @admin'
             }
           ]
         }
@@ -423,7 +423,7 @@ const routes = [
     }
   },
 
-  // 规则 5：员工端域 —— 禁止反向依赖老板端模块（复述 mock 禁区）
+  // 规则 5：员工端域 —— 禁止反向依赖管理端模块（复述 mock 禁区）
   {
     files: ['src/mobile/views/staff/**', 'src/mobile/modules/staff/**'],
     rules: {
@@ -437,7 +437,7 @@ const routes = [
             },
             {
               group: ['**/modules/boss/**'],
-              message: '老板端模块是叶子域，禁止被员工端反向依赖'
+              message: '管理端模块是叶子域，禁止被员工端反向依赖'
             }
           ]
         }
@@ -445,7 +445,7 @@ const routes = [
     }
   },
 
-  // 规则 6：PC 端 —— 禁止反向依赖移动端老板模块（复述 mock 禁区，防御性）
+  // 规则 6：PC 端 —— 禁止反向依赖移动端管理员模块（复述 mock 禁区，防御性）
   {
     files: ['src/pc/**'],
     ignores: ['src/pc/main.js'],
@@ -460,7 +460,7 @@ const routes = [
             },
             {
               group: ['**/modules/boss/**'],
-              message: '老板端模块属移动端叶子域，PC 端禁止反向依赖'
+              message: '管理端模块属移动端叶子域，PC 端禁止反向依赖'
             }
           ]
         }
@@ -476,7 +476,7 @@ const routes = [
 ### 5.4 负向验证（可静态执行，不产文件）
 
 ```bash
-# 在 hrm-demo/ 下执行；--stdin-filename 让 ESLint 按老板端模块的 files 规则匹配
+# 在 hrm-demo/ 下执行；--stdin-filename 让 ESLint 按管理端模块的 files 规则匹配
 echo "import '@/shared/mock/install.js'" | npx eslint --stdin --stdin-filename src/mobile/modules/boss/views/__probe.js
 # 期望：1 个 no-restricted-imports error（禁止直连假后端）
 
@@ -615,9 +615,9 @@ echo "import '@/mobile/modules/boss/views/home.vue'" | npx eslint --stdin --stdi
 
 | # | 问题 | 影响面 | 本文建议 |
 |----|----|----|----|
-| Q1 | 老板端专属组件落点：`modules/boss/components/`（本文）vs UI 规范 §1.2 的 `components/boss/` | 组件库结构、lint 覆盖、与其他域同构性 | 取 `modules/boss/components/`（§3.4） |
+| Q1 | 管理端专属组件落点：`modules/boss/components/`（本文）vs UI 规范 §1.2 的 `components/boss/` | 组件库结构、lint 覆盖、与其他域同构性 | 取 `modules/boss/components/`（§3.4） |
 | Q2 | `/boss/kpi/:employeeId` 复用 `views/staff/kpi.vue`（`router/index.js:109-114`）：本轮保留在聚合点 + 零例外 lint，还是提升为中立共享页（如 `views/shared/kpiDetail.vue`，参照 `views/message/MessagePage.vue` 先例）？ | 需 staff 负责人配合，跨本轮范围 | 本轮保留在聚合点并登记 `TODO(扩展)`（§3.2） |
-| Q3 | `LineChart` 仅老板端消费，是否迁入 boss 模块？ | 依赖方向 | 不迁（§3.5） |
+| Q3 | `LineChart` 仅管理端消费，是否迁入 boss 模块？ | 依赖方向 | 不迁（§3.5） |
 | Q4 | 是否新增 `@boss` / `@mobile` 别名？ | 需同步改 `vite.config.js` + `vitest.config.mjs` | 不新增，复用既有 `@`（§3.6） |
 | Q5 | `src/mobile/api/index.js`（212 行）是否按域拆分？ | 需两端模块化同期推进 | 本轮不拆，登记 `TODO(扩展)`（§3.3） |
 
@@ -633,7 +633,7 @@ echo "import '@/mobile/modules/boss/views/home.vue'" | npx eslint --stdin --stdi
 |----|----|----|
 | Q1 | **采纳 `src/mobile/modules/boss/components/`**（否决 UI 规范的 `components/boss/`） | 复核通过：`eslint.config.js:25` 实测为 `'src/**/components/**'`，模块内组件已被覆盖，lint 零额外成本；所有权与「与 staff 同构」两条理由成立 |
 | Q2 | **本轮保留在聚合点 `router/index.js`，登记 `TODO(扩展)`** | 提升为中立共享页需 staff 负责人同期配合，超出本轮范围；`views/message/MessagePage.vue` 先例已指明最终形态 |
-| Q3 | **`LineChart` 不迁** | 通用纯展示图表，迁入将迫使员工端未来反向依赖老板模块，违反 §2.2 第 4 条 |
+| Q3 | **`LineChart` 不迁** | 通用纯展示图表，迁入将迫使员工端未来反向依赖管理员模块，违反 §2.2 第 4 条 |
 | Q4 | **不新增 `@boss` / `@mobile` 别名** | 既有 `@` 已覆盖；新增须同改 `vite.config.js` 与 `vitest.config.mjs` 两处 |
 | Q5 | **`api/index.js` 本轮不拆** | 212 行薄适配层，拆分须两端模块化同期推进，否则产生「半迁移」状态 |
 
@@ -643,7 +643,7 @@ echo "import '@/mobile/modules/boss/views/home.vue'" | npx eslint --stdin --stdi
 |----|----|----|
 | `VIEW_FILES` 含 `'src/mobile/views/**'` 但不含 `modules/**` | 读 `eslint.config.js:22-28` | ✅ 属实，`M0` 增补 `'src/mobile/modules/**'` 为**必做** |
 | `index.spec.js:48` 为 `vi.mock('../views/boss/home.vue')`，`:44` 有同步警示注释 | 读 `src/mobile/router/index.spec.js:44,48` | ✅ 属实，`M1` 必须同 commit 改 |
-| `router/index.js` 老板端相关条目共 **24** 条（23 条随迁 + 1 条 `/boss/kpi/:employeeId` 留守） | 逐条清点 `:36`–`:163`、`:293`–`:309` | ✅ 属实，§4.2 第 22 行与第 345 行的「23 条」口径正确（1 条重定向 + 22 条页面路由，其中含中立共享页 `/boss/message`） |
+| `router/index.js` 管理端相关条目共 **24** 条（23 条随迁 + 1 条 `/boss/kpi/:employeeId` 留守） | 逐条清点 `:36`–`:163`、`:293`–`:309` | ✅ 属实，§4.2 第 22 行与第 345 行的「23 条」口径正确（1 条重定向 + 22 条页面路由，其中含中立共享页 `/boss/message`） |
 | `boss/router.js` 引 `views/message/MessagePage.vue` 不被规则 4 拦截 | 比对规则 4 的 `group` 与 §5.4 未覆盖项声明 | ✅ 属实（`**/views/staff/**` 不匹配 `views/message/**`） |
 
 > **实现阶段新增硬要求（Review 补入）**：`--stdin --stdin-filename` 组合若在本机 ESLint 上行为不符，**不得**直接判定边界规则生效——改用临时探针文件后立即删除，并保留删除记录。禁止以「未实测」为由跳过 G11。

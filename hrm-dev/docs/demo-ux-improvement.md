@@ -5,7 +5,7 @@
 | 文档版本 | v1.0 |
 | 编写日期 | 2026-09-19 |
 | 作者 | UI/UX 设计师 |
-| 适用范围 | `hrm-dev/hrm-demo`（网页端 `pc.html` / 老板端 + 员工端 `mobile.html` / 端选择页 `index.html`） |
+| 适用范围 | `hrm-dev/hrm-demo`（网页端 `pc.html` / 管理端 + 员工端 `mobile.html` / 端选择页 `index.html`） |
 | 交付对象 | 主智能体（评审）→ 前端工程师（照 B 章逐项落地） |
 | 依据文档 | [demo-design.md](demo-design.md)、[demo-ui-redesign.md](demo-ui-redesign.md)、[plan.md](plan.md)、[api.md](api.md) |
 | 本轮产出 | 仅本设计文档，**不改任何源码** |
@@ -85,7 +85,7 @@
 | A3-1 | **P0** | 侧边栏是**平铺结构**：11 项平铺 + 仅 1 个「组织管理」分组（[menu.js:11,21-33](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/config/menu.js#L11-L33)）。本次要新增「KPI 考核 / 人事管理 / 财务管理 / 入离职 / 采集配置」，平铺后将达 16+ 项，扫读成本翻倍 | 分组从 1 个扩到 4 个（**只改此文件，不动 shared**）：<br>· **组织人事**：员工管理 / KPI 考核 / 人事管理 / 入离职 / 部门管理 / 驿站管理<br>· **考勤薪酬**：考勤管理 / 排班管理 / 财务管理<br>· **包裹作业**：包裹管理 / 数据同步（批次流水+采集配置）/ 工单管理 / 通知中心<br>· **系统**：个人中心 | `pc/config/menu.js:11` 的 `MENU_GROUPS`、`:21-33` 的 `MENU_ITEMS`。**注意**：`buildMenus()` 靠「同 group 项首次出现时创建父节点」，重排 `MENU_ITEMS` 顺序即改变父节点位置（[menu.js:36-51](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/config/menu.js#L36-L51)），需按「父节点先于子节点」排列 |
 | A3-2 | **P0** | 菜单可见性真源是 shared 层 `MENU_WHITELIST`（[role.js:27-31](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/constants/role.js#L27-L31)），新增的 `kpi / hr / finance / onboard / syncConfig` 键不在白名单里 → **新菜单一律不显示**。当前只靠 [menu.js:19](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/config/menu.js#L19) 的 `EXTRA_MENU_KEYS` 局部兜底 | 沿用既有兜底模式扩 `EXTRA_MENU_KEYS`：`ADMIN: ['attendance','schedule','kpi','hr','finance','onboard','syncConfig']`；`STATION_ADMIN: ['attendance','schedule','syncConfig']`（站长看采集配置但只读）。**须与路由 `meta.roles` 严格同口径**，否则出现「菜单可见但点进去被重定向」 | `pc/config/menu.js:19`；`pc/router/index.js:34-108` 各路由 `meta.roles` 同步 |
 | A3-3 | P1 | 面包屑只支持两级：`meta.group` + `meta.title`（[layout/index.vue:131-137](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/layout/index.vue#L131-L137)），且 `MENU_GROUPS` 只认 `org` 一个键。新增的三级页面（如「财务管理 → 工资单 → 详情」）无法表达 | 面包屑改为**显式声明**：路由 `meta.breadcrumb: ['财务管理', '工资单', '详情']`，有则直接渲染，无则回退现有两段逻辑。理由：分组名来自 `MENU_GROUPS` 常量，而详情页标题是动态的（含单号），靠常量拼不出来 | `pc/layout/index.vue:131-137`；`pc/router/index.js` 新页面 meta |
-| A3-4 | P1 | 菜单项**无法承载待办角标**。本次新增大量「待老板处理」的队列（待审核工资单、待审批补卡、待审批入离职、待处理工单），老板必须逐个点开才知道有没有活 | `MENU_ITEMS` 增加可选字段 `badgeKey`（如 `'pendingPayroll'`），`layout/index.vue` 从新增的 `stores/counts.js`（Pinia）取数并渲染 `el-badge`；角标为 0 时不占位 | `pc/config/menu.js:21-33` 加 `badgeKey`；`pc/layout/index.vue:22-30` 渲染；新建 `pc/stores/counts.js` |
+| A3-4 | P1 | 菜单项**无法承载待办角标**。本次新增大量「待管理员处理」的队列（待审核工资单、待审批补卡、待审批入离职、待处理工单），管理员必须逐个点开才知道有没有活 | `MENU_ITEMS` 增加可选字段 `badgeKey`（如 `'pendingPayroll'`），`layout/index.vue` 从新增的 `stores/counts.js`（Pinia）取数并渲染 `el-badge`；角标为 0 时不占位 | `pc/config/menu.js:21-33` 加 `badgeKey`；`pc/layout/index.vue:22-30` 渲染；新建 `pc/stores/counts.js` |
 | A3-5 | P1 | `activeMenu` 直接用 `route.path`（[layout/index.vue:123](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/layout/index.vue#L123)）。新增子路由（`/finance/payroll/:id`、`/employee/kpi/config`）时菜单高亮会**整个丢失**（路径不相等） | `activeMenu` 改为「取菜单 path 中与当前路径前缀匹配的最长项」；对详情页再用 `meta.activeMenu` 显式指定父路径（Element 官方支持 `el-menu` 的 `default-active` 传任意值，故只需计算正确） | `pc/layout/index.vue:123` 的 computed；`pc/router/index.js` 详情路由加 `meta.activeMenu` |
 | A3-6 | P2 | 头部的折叠按钮是 32×32（[layout/index.vue:275-282](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/layout/index.vue#L275-L282)），低于项目自定的 44px 触控基线；但 PC 端以鼠标为主，WCAG 2.5.8 最小 24×24 已满足 | **保留 32×32**，并在本文件登记例外理由（桌面端鼠标精度高 + 头部空间受限）。若要严格达 44，仅需把 `.collapse-btn` 宽高改 `var(--sp-8)`（32）→ `44px`，代价是头部 60px 内留白变紧 | `pc/layout/index.vue:279-280`；登记于本文 A13 汇总表 |
 | A3-7 | P2 | 路由进度条用 `key` 重放动画（[layout/index.vue:79-80,140-143](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/layout/index.vue#L79-L143)），**与真实加载无关**：接口慢时进度条早已走完，接口快时又显得多余。新增的「生成工资单」等重操作页若依赖它反馈，会误导 | 保留（作为路由切换的轻反馈），但明确规则：**任何 >1s 的操作必须用按钮级 `loading`**，禁止用进度条代替。写进前端实现约定 | 约定，无代码改动；示例见 [schedule/index.vue:17-19](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/schedule/index.vue#L17-L19) 的按钮 loading 写法 |
@@ -94,7 +94,7 @@
 
 | # | 优先级 | 现存问题 | 改进建议 | 落地要点 |
 | ---- | ---- | ---- | ---- | ---- |
-| A4-1 | **P0** | 看板对本次新增的老板核心待办**零覆盖**：没有「待审核工资单」「采集异常驿站」「待审批入离职」入口。老板进来看到的还是包裹/工单，而新功能全是「等老板处理」的 | 次级指标条从 4 项扩到 **6 项**：包裹总量 / 今日取件率 / 同步成功率 / 超时未处理工单 / **采集异常驿站** / **待审核工资单**。后两项可点下钻（`/parcel/sync?tab=collect`、`/finance/payroll?status=pending`）| `dashboard/index.vue:284-325`（`inlineCards`）；`HERO_META` 归位；`loadAll()` [:490-495](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/dashboard/index.vue#L490-L495) 增加两个 loader。**注意 6 项在 `:lg="6"` 会排成 4+2**，需同时把 [:34](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/dashboard/index.vue#L34) 的 `:lg` 改为 `4`（一屏 3 项 × 2 行） |
+| A4-1 | **P0** | 看板对本次新增的管理员核心待办**零覆盖**：没有「待审核工资单」「采集异常驿站」「待审批入离职」入口。管理员进来看到的还是包裹/工单，而新功能全是「等管理员处理」的 | 次级指标条从 4 项扩到 **6 项**：包裹总量 / 今日取件率 / 同步成功率 / 超时未处理工单 / **采集异常驿站** / **待审核工资单**。后两项可点下钻（`/parcel/sync?tab=collect`、`/finance/payroll?status=pending`）| `dashboard/index.vue:284-325`（`inlineCards`）；`HERO_META` 归位；`loadAll()` [:490-495](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/dashboard/index.vue#L490-L495) 增加两个 loader。**注意 6 项在 `:lg="6"` 会排成 4+2**，需同时把 [:34](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/dashboard/index.vue#L34) 的 `:lg` 改为 `4`（一屏 3 项 × 2 行） |
 | A4-2 | P1 | 首屏 4 个 Hero 卡在 `parcelLoading` 时**整块换 skeleton**（[dashboard/index.vue:13-26](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/dashboard/index.vue#L13-L26)），而次级 6 项是**逐项 loading**（同一份 `MetricCard` 组件）。同一页两种加载语义，会出现「上半骨架、下半真值」的错位观感 | 统一为逐项 `loading`：Hero 卡也用 `MetricCard` 的 `loading` 属性，删掉 `<el-skeleton>` 分支。理由：Hero 4 项同源（同一个 `/parcels/summary`），逐项 loading 会同时亮同时灭，视觉与整块骨架等价，但组件路径只剩一条 | 删 `dashboard/index.vue:26`；`MetricCard.vue` 的 `loading` 分支需先确认对 `variant="hero"` 与 `error` 共存的表现（待走查） |
 | A4-3 | P1 | 「同步健康度」在本页由前端聚合 100 条批次算出来（[dashboard/index.vue:427-451](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/dashboard/index.vue#L427-L451)），**且只看 `pageSize=100` 的样本**。本次新增「采集状态」后，同一件事会出现两个口径（前端样本聚合 vs `/sync/overview` 的权威计数） | 直接改用 `GET /sync/overview` 的 `counts`（[syncConfig.js:121-140](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/syncConfig.js#L121-L140)），删掉前端聚合逻辑。「同步成功率」改为 `1 - abnormal/total` 的口径说明，文案显式标注口径来源 | `dashboard/index.vue:427-451`；新增 `pc/api/syncConfig.js` 的 `getSyncOverview()` |
 | A4-4 | P2 | 需求 6 文案未同步：`label:'超 SLA 工单'`、`errorText:'超 SLA 工单加载失败'`、`{ label:'超 SLA' }`、`有 N 条工单已超 SLA`（[dashboard/index.vue:165,317,323,332](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/dashboard/index.vue#L165-L332)） | 统一改为「超时未处理」 | 见 B6 全量清单 |
@@ -125,11 +125,11 @@
 | # | 优先级 | 现存问题 | 改进建议 | 落地要点 |
 | ---- | ---- | ---- | ---- | ---- |
 | A7-1 | **P0** | 无「新建工单」入口，`pc/api/workOrder.js` 也没有 `createWorkOrder`（全文件仅 5 个方法，[workOrder.js:1-33](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/api/workOrder.js)）。契约 `POST /work-orders` **已就绪**（[workOrder.js:397](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/workOrder.js#L397)），移动端员工端也早已实现（[mobile/api/index.js:39](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/api/index.js#L39)）——**PC 是唯一缺口** | 页头加主按钮「新建工单」→ 弹窗表单。字段与移动端对齐并补 PC 独有项（归属驿站、指派处理人）。详见 B3 | `workOrder/index.vue:3-7`（PageHeader actions）；`pc/api/workOrder.js` 加 `createWorkOrder`；新建 `views/workOrder/components/CreateWorkOrderDialog.vue` |
-| A7-2 | **P0** | 需求 6 文案未改：Tab 名「超 SLA」（[workOrder/index.vue:333](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L333)）、口径提示 [:57](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L57)、行样式注释 [:797](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L797)。**口径提示是老板判断「这条该不该催」的唯一说明**，不改则新语义对不上 | 全量替换见 B6；同时把 Tab 内部键 `overSla` → `overdueUnhandled`，请求参数改用新参数名（契约已兼容旧名，[workOrder.js:92](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/workOrder.js#L92) 明确「新参数为准」） | `workOrder/index.vue:333,57,797`；`:478`（`params.overSla='1'`）→ `params.overdueUnhandled='1'`；`:558,561` 的 `row.overSla` → `row.overdueUnhandled` |
+| A7-2 | **P0** | 需求 6 文案未改：Tab 名「超 SLA」（[workOrder/index.vue:333](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L333)）、口径提示 [:57](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L57)、行样式注释 [:797](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L797)。**口径提示是管理员判断「这条该不该催」的唯一说明**，不改则新语义对不上 | 全量替换见 B6；同时把 Tab 内部键 `overSla` → `overdueUnhandled`，请求参数改用新参数名（契约已兼容旧名，[workOrder.js:92](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/workOrder.js#L92) 明确「新参数为准」） | `workOrder/index.vue:333,57,797`；`:478`（`params.overSla='1'`）→ `params.overdueUnhandled='1'`；`:558,561` 的 `row.overSla` → `row.overdueUnhandled` |
 | A7-3 | P1 | Tab 计数要**并发 6 个请求**（[workOrder/index.vue:504-511](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L504-L511)），每个 `pageSize=1`。需求 3 若再加「来源」筛选（手工/企微自动），组合数会继续膨胀 | 本次先**不加来源筛选**（改为在列表加「来源」列，见 A7-7）；计数逻辑改为「只统计当前筛选下的 5 个状态 + 1 个超时」，并把 6 次请求合并为一次 `Promise.all`（已是）→ 保持现状，登记为待后端提供 `GET /work-orders/stats` | `workOrder/index.vue:500-516`；新增需求登记于本文 A13 |
 | A7-4 | P1 | 转单候选来源分裂且**不含在职状态**：ADMIN 走 `/employees`（`pageSize=100` 截断），站长走 `/schedules` 名册（[workOrder/index.vue:636-649](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L636-L649)），代码已自述该缺陷（[:622-623](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L622-L623) 的 TODO） | 需求 8（人事管理）落地时会产出「在职员工」的权威来源，届时统一改为「本站员工简表」接口；**本次不实现**，但在人事模块的接口清单里把该需求登记进去（见 B8） | `workOrder/index.vue:622-649`；登记到 B8 的接口清单 |
 | A7-5 | P1 | 详情抽屉底部操作区**按钮数量随状态变化而跳动**：指派 + 转单 + 0~2 个流转按钮（[workOrder/index.vue:203-220](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L203-L220)），最多 4 个并排，最少 0 个（只剩一行灰字说明） | 主操作固定右侧（`margin-left:auto`），次操作（转单）收进「更多」下拉。理由：与移动端 `ActionBar` 的「主操作权重更大」规则一致（[ActionBar.vue:115-118](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/ActionBar.vue#L115-L118)），且按钮位置稳定后不会误点 | `workOrder/index.vue:203-220`、`:905-914`（`.drawer-footer` 加 `justify-content: flex-end` 思路） |
-| A7-6 | P1 | 列表无「来源」列，但契约已返回 `source`（[workOrder.js:37](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/workOrder.js#L37)）。需求 3 上线后，企微自动派发的工单与手工工单混在一起，老板无法区分 | 列表加一列「来源」（`MANUAL` → 手工 / `AUTO_WECHAT` → 企微自动，用 `StatusTag variant="outline"`），详情页在「类型」旁也显示；时间线已有 `auto_dispatch` 节点可直接渲染（[workOrder.js:369-372](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/workOrder.js#L369-L372)） | `workOrder/index.vue:74-108`（列定义）；`dict.js` 需新增 `WORK_ORDER_SOURCE` 字典 → **shared 层冻结**，须由主智能体解冻（见 0.2 推论 3）；`LOG_ACTION` 需补 `auto_dispatch: '企业微信自动派发'`（[workOrder/index.vue:308](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L308)） |
+| A7-6 | P1 | 列表无「来源」列，但契约已返回 `source`（[workOrder.js:37](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/workOrder.js#L37)）。需求 3 上线后，企微自动派发的工单与手工工单混在一起，管理员无法区分 | 列表加一列「来源」（`MANUAL` → 手工 / `AUTO_WECHAT` → 企微自动，用 `StatusTag variant="outline"`），详情页在「类型」旁也显示；时间线已有 `auto_dispatch` 节点可直接渲染（[workOrder.js:369-372](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/workOrder.js#L369-L372)） | `workOrder/index.vue:74-108`（列定义）；`dict.js` 需新增 `WORK_ORDER_SOURCE` 字典 → **shared 层冻结**，须由主智能体解冻（见 0.2 推论 3）；`LOG_ACTION` 需补 `auto_dispatch: '企业微信自动派发'`（[workOrder/index.vue:308](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L308)） |
 | A7-7 | P2 | 待处理工单「直关」需填原因（[workOrder/index.vue:547-559](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L547-L559)），但用的是 `ElMessageBox.prompt`——单行输入 + 无字数反馈，与转单理由（textarea + `show-word-limit`，[:260-269](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L260-L269)）不是一套形态 | 关闭原因改用与转单同款的 `el-dialog + el-form + textarea(maxlength=100, show-word-limit)`；处理说明（选填）保持 prompt 不动 | `workOrder/index.vue:543-576` |
 
 ## A8 通知中心（`pc/views/notification/index.vue`）——需求 4 主战场
@@ -147,9 +147,9 @@
 | ---- | ---- | ---- | ---- | ---- |
 | A9-1 | **P0** | 无导出入口，`pc/api/attendance.js` 无 `exportAttendance`（[attendance.js:1-85](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/api/attendance.js) 仅 14 个方法）。契约 `GET /attendance/export` **已就绪且返回 Blob**（[attendance.js:321-357](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/attendance.js#L321-L357)），Mock 适配器也已支持 `responseType:'blob'`（[engine.js:114-118](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/engine.js#L114-L118)） | 页头加「导出」按钮 → 确认弹窗（回显筛选摘要 + 预计行数）→ 走 blob + `saveResponseFile`。详见 B5 | `attendance/index.vue:3-16`；`pc/api/attendance.js` 加 `exportAttendance`；复用 `@admin/utils/download.js` 的 `saveResponseFile`（[download.js:6-33](file:///d:/Users/16626/Desktop/hrm-dev/hrm-admin/src/utils/download.js#L6-L33)） |
 | A9-2 | P1 | **明知无效仍给控件**：打卡类型下拉（[attendance/index.vue:61-65](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/attendance/index.vue#L61-L65)）在契约层被忽略（`records()` 未解构 `checkType`，[attendance.js:292-307](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/attendance.js#L292-L307)），页面只能用一段长文案解释（[:84-88](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/attendance/index.vue#L84-L88)）。用户会以为筛选生效 | 二选一：**(a)** 后端补 `checkType` 参数（推荐，字段本就存在于记录里）；**(b)** 短期内把该控件 `disabled` 并给 `title` 说明。**禁止**保留「可用但无效」的第三态 | `attendance/index.vue:61-65,84-88`；契约变更需求登记于本文 A13 |
-| A9-3 | P1 | 驿站切换**默认选中第一个驿站**（[attendance/index.vue:281-282](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/attendance/index.vue#L281-L282)），老板视角看到的永远是城东驿站的概况——「全域」这个数据范围在页面上**看不见**。页头 `sub` 虽写「数据范围：全域（可切换驿站）」（[:244-248](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/attendance/index.vue#L244-L248)），但三块数据实际都不是全域 | 驿站下拉加「全部驿站」选项（值 `null`）并设为 ADMIN 默认；`summary` 在同一次请求里返回全域口径。**前置**：需确认契约对 ADMIN 传空 `stationId` 的行为（U4）；若契约不支持，则退化为「默认不选 + 三块各自空态提示『请先选择驿站』」 | `attendance/index.vue:281-282`；`:236`（`effectiveStationId`）；验证方式见 U4 |
+| A9-3 | P1 | 驿站切换**默认选中第一个驿站**（[attendance/index.vue:281-282](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/attendance/index.vue#L281-L282)），管理员视角看到的永远是城东驿站的概况——「全域」这个数据范围在页面上**看不见**。页头 `sub` 虽写「数据范围：全域（可切换驿站）」（[:244-248](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/attendance/index.vue#L244-L248)），但三块数据实际都不是全域 | 驿站下拉加「全部驿站」选项（值 `null`）并设为 ADMIN 默认；`summary` 在同一次请求里返回全域口径。**前置**：需确认契约对 ADMIN 传空 `stationId` 的行为（U4）；若契约不支持，则退化为「默认不选 + 三块各自空态提示『请先选择驿站』」 | `attendance/index.vue:281-282`；`:236`（`effectiveStationId`）；验证方式见 U4 |
 | A9-4 | P1 | 「今日打卡概况」6 卡用 `:cols="6"` 硬编码（[attendance/index.vue:21](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/attendance/index.vue#L21)），在 992–1200 断点每卡约 150px，「早退」「缺卡」的中文标签会被压 | `MiniStats` 的列数改为**按容器宽度自适应**：内部用 `ResizeObserver` 或 CSS Grid `repeat(auto-fit, minmax(140px, 1fr))`，`cols` prop 降级为「最大列数」。理由：`cols` 由调用方拍脑袋给（包裹页 6、考勤页 6、看板 4），是全站同类缺陷 | `pc/components/MiniStats.vue`；`attendance/index.vue:21`、`parcel/index.vue:14` 同步简化 |
-| A9-5 | P2 | 「缺卡」只是概况里的一个数字，**没有下钻**；补卡审批入口挂在页面最底部（[attendance/index.vue:155](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/attendance/index.vue#L155)），老板要滚动整页才能看到审批区 | 「缺卡」卡加下钻 → 筛选到 `status=ABNORMAL`；补卡审批改为**页内 Tab 第三视图**（概况+记录 / 补卡审批）而不是页尾堆叠。理由：审批是高频动作，不该在页面末尾 | `attendance/index.vue:19-29`（MiniStats 加 `clickable`）、`:155` 移入 Tab |
+| A9-5 | P2 | 「缺卡」只是概况里的一个数字，**没有下钻**；补卡审批入口挂在页面最底部（[attendance/index.vue:155](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/attendance/index.vue#L155)），管理员要滚动整页才能看到审批区 | 「缺卡」卡加下钻 → 筛选到 `status=ABNORMAL`；补卡审批改为**页内 Tab 第三视图**（概况+记录 / 补卡审批）而不是页尾堆叠。理由：审批是高频动作，不该在页面末尾 | `attendance/index.vue:19-29`（MiniStats 加 `clickable`）、`:155` 移入 Tab |
 
 ## A10 排班管理（`pc/views/schedule/index.vue`）——需求 2 主战场
 
@@ -158,7 +158,7 @@
 | A10-1 | **P0** | 只有「逐格 `el-select`」一种录入方式（[schedule/index.vue:83-104](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/schedule/index.vue#L83-L104)）。8 人 × 7 天 = **56 次下拉 × 2 次点击 = 112 次操作**铺一周，与需求 2「减少操作频次」正面冲突。契约 `POST /schedules/batch-by-station` **已就绪但无人调用**（[attendance.js:479](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/attendance.js#L479)） | 引入 4 个批量能力：①「复制上一周」②「一键铺排（按驿站+日期区间+星期）」③「整行/整列批量设班」④「清空全周」。详见 B2 | `schedule/index.vue:15-22`（PageHeader actions 加「批量工具」下拉）；新建 `views/schedule/components/BatchToolsDialog.vue`；`pc/api/attendance.js` 加 `saveSchedulesByStation`、`copyWeekSchedules` |
 | A10-2 | P1 | 单元格是下拉，**无法键盘录入**：表格无焦点管理，键盘用户要 Tab 过 56 个 select（每次 Tab 会打开下拉）。一线排班员实际是鼠标 + 键盘混用 | 支持「点击单元格选中 → 键盘 `1/2/3` 直接赋班次 → `Esc` 取消」，并支持「选中某天 → `Ctrl+C` → 选中另一天 → `Ctrl+V`」。理由：排班是**重复性极高的同构操作**，键盘录入比下拉快 5–10 倍 | `schedule/index.vue:78-106`（单元格改为可聚焦 `div[role=gridcell]` + `tabindex`）；`:194-196`（键盘映射挂在班次下标） |
 | A10-3 | P1 | 未保存改动的提示只在**切周/切驿站/刷新**时出现（[schedule/index.vue:267-280](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/schedule/index.vue#L267-L280)），**离开页面/关闭标签页时无提示**（无 `beforeunload`、无路由守卫拦截） | 加 `onBeforeRouteLeave` 守卫：有 `dirtyCount` 时弹确认；`window.beforeunload` 兜底。理由：56 格编辑成本高，误丢一次就是几分钟白干 | `schedule/index.vue` 新增 `onBeforeRouteLeave`；`dirtyCount` 已有（[:180](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/schedule/index.vue#L180)） |
-| A10-4 | P1 | 周视图**没有「本周已排/未排」进度**，老板看不出这周排完没有；`grid-toolbar` 只显示「共 N 名在岗员工」（[schedule/index.vue:48](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/schedule/index.vue#L48)） | 在周标签旁补「已排 X/Y 天·格」统计（`Y = 员工数 × 7`，`X = 已排格数），并给未排满的日期列头加提示色。移动端 `boss/schedule.vue` 已有「已排 X/Y」的同类表达（[boss/schedule.vue:234](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/schedule.vue#L234)），两端口径统一 | `schedule/index.vue:33,48`；`:432-461`（`.day-head` 加未排满态） |
+| A10-4 | P1 | 周视图**没有「本周已排/未排」进度**，管理员看不出这周排完没有；`grid-toolbar` 只显示「共 N 名在岗员工」（[schedule/index.vue:48](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/schedule/index.vue#L48)） | 在周标签旁补「已排 X/Y 天·格」统计（`Y = 员工数 × 7`，`X = 已排格数），并给未排满的日期列头加提示色。移动端 `boss/schedule.vue` 已有「已排 X/Y」的同类表达（[boss/schedule.vue:234](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/schedule.vue#L234)），两端口径统一 | `schedule/index.vue:33,48`；`:432-461`（`.day-head` 加未排满态） |
 | A10-5 | P2 | 已排「停用班次」的单元格无法识别：下拉里停用项是 `disabled`（[schedule/index.vue:96](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/schedule/index.vue#L96)），但**历史遗留的停用班次仍会显示在格子里且无色条**（`shiftColorOf` 找不到就返回 `transparent`，[:204-208](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/schedule/index.vue#L204)） | 该格显示「已停用」标签 + 警告色左条；提交时该格会因 9106 被服务端拒绝（`handleSave` 已有 9106 分支，[:295-297](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/schedule/index.vue#L295-L297)），前端要**在提交前**就把这些格标出来 | `schedule/index.vue:78-106,204-208` |
 
 ## A11 员工管理（一期页面，需求 7 的挂载点）
@@ -166,20 +166,20 @@
 | # | 优先级 | 现存问题 | 改进建议 | 落地要点 |
 | ---- | ---- | ---- | ---- | ---- |
 | A11-1 | **P0** | **需求 7 与既有约束冲突**：需求是「KPI 考核并入员工管理模块」，但 PC `/employee` 直接复用一期视图（[pc/router/index.js:40-45](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/router/index.js#L40-L45)），而一期页面在**冻结清单内禁止改动**（demo-ui-redesign.md 0.1 / 1.6）。若前端直接改一期页，会污染一期交付基线 | **解法（推荐）**：不改一期视图，在 Demo 内新建 `/employee/kpi`（KPI 考核）与 `/employee/detail/:id`（员工档案聚合页：基本信息 + KPI + 入离职 + 工资单入口），侧边栏在「组织人事」分组下并列呈现。**员工管理** 与 **KPI 考核** 是同级菜单项，但从 KPI 表格点员工姓名可跳到档案聚合页——「并入员工管理模块」以**信息架构归属**实现，而非物理合并页面 | `pc/config/menu.js:21-33`（同 group 并列）；`pc/router/index.js:40-45` 之后新增两条；新建 `views/employee/kpi/index.vue`、`views/employee/detail/index.vue`。**禁止**改 `hrm-admin/**` |
-| A11-2 | P1 | 一期员工页的员工列表无法携带 KPI 得分/排名（页面冻结）。老板看「谁该谈绩效」必须先开 KPI 页、再回员工页找人对齐 | 在 KPI 页的表格里直接给出**可跳转的员工档案入口**（点姓名 → `/employee/detail/:id`），并在档案页反向展示该员工的全部画像；一期员工页保持不动，仅在它旁边多一个菜单项 | 同 A11-1 |
+| A11-2 | P1 | 一期员工页的员工列表无法携带 KPI 得分/排名（页面冻结）。管理员看「谁该谈绩效」必须先开 KPI 页、再回员工页找人对齐 | 在 KPI 页的表格里直接给出**可跳转的员工档案入口**（点姓名 → `/employee/detail/:id`），并在档案页反向展示该员工的全部画像；一期员工页保持不动，仅在它旁边多一个菜单项 | 同 A11-1 |
 | A11-3 | P2 | 一期员工页有「导入导出」（[employee.js mock](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/employee.js) 的 `IMPORT_TEMPLATE_HEADER`），但**没有入离职专用流程**，与需求 10 的「流程」不是一回事（导入是批量建档，流程是逐人状态推进） | 入离职流程独立成页（`/onboarding`），**不复用**员工导入/导出。理由：两者数据模型不同（流程有步骤、责任人、驳回记录），硬塞进导入会让「导入失败」与「流程驳回」两套错误提示串味 | `views/onboarding/**`（新建）；不在员工页加入口 |
 
-## A12 移动端 · 老板端（`mobile/views/boss/**` + Tabbar）
+## A12 移动端 · 管理端（`mobile/views/boss/**` + Tabbar）
 
 | # | 优先级 | 现存问题 | 改进建议 | 落地要点 |
 | ---- | ---- | ---- | ---- | ---- |
-| A12-1 | **P0** | **Tabbar 已满，新功能无处可放**：老板端 6 项（[tabs.js:8-15](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/constants/tabs.js#L8-L15)），代码内已注明「320px 下每项约 53px，已达上限」（[:5-6](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/constants/tabs.js#L5-L6)）；员工端同样 6 项（[:17-24](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/constants/tabs.js#L17-L24)）。本次新增 5 个模块（KPI/人事/财务/入离职/采集配置）**一个都进不了 Tabbar** | **明确约定（本轮所有移动端设计的硬前提）**：新功能只能走两条路径——**(a)** 首页宫格入口（`/boss/home` 的 `van-grid`）；**(b)** 「我的」页 `van-cell-group` 分组（[MeSection.vue:42-48](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/MeSection.vue#L42-L48)）。**禁止**为了塞新功能而把 Tabbar 加到 7 项（320px 下每项 <46px，触控不达标） | 本条为**约束**而非改动；B 章各项移动端入口均按此设计 |
-| A12-2 | **P0** | 老板端**没有采集状态视图**（需求 1 要求「区分驿站同步采集状态」）。现有 `/boss/alerts` 三个分组只覆盖「超 48h 未取件 / 同步失败驿站 / 超时未处理工单」（[alerts.vue:86,114,135](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L86-L138)），缺 `UNCONFIGURED` / `DISABLED` 两态，老板看不到「有驿站压根没配采集」 | 老板端只做**只读状态卡**（不做配置）：在 `/boss/alerts` 增加「采集状态」分组，4 态计数 + 明细行；同时在 `/boss/home` 的「同步健康度」卡里补一行「未配置采集 N 站」。配置能力只留 PC | `boss/alerts.vue`；`boss/home.vue:182-187`（同步健康度卡）；数据源 `GET /sync/overview` |
+| A12-1 | **P0** | **Tabbar 已满，新功能无处可放**：管理端 6 项（[tabs.js:8-15](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/constants/tabs.js#L8-L15)），代码内已注明「320px 下每项约 53px，已达上限」（[:5-6](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/constants/tabs.js#L5-L6)）；员工端同样 6 项（[:17-24](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/constants/tabs.js#L17-L24)）。本次新增 5 个模块（KPI/人事/财务/入离职/采集配置）**一个都进不了 Tabbar** | **明确约定（本轮所有移动端设计的硬前提）**：新功能只能走两条路径——**(a)** 首页宫格入口（`/boss/home` 的 `van-grid`）；**(b)** 「我的」页 `van-cell-group` 分组（[MeSection.vue:42-48](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/MeSection.vue#L42-L48)）。**禁止**为了塞新功能而把 Tabbar 加到 7 项（320px 下每项 <46px，触控不达标） | 本条为**约束**而非改动；B 章各项移动端入口均按此设计 |
+| A12-2 | **P0** | 管理端**没有采集状态视图**（需求 1 要求「区分驿站同步采集状态」）。现有 `/boss/alerts` 三个分组只覆盖「超 48h 未取件 / 同步失败驿站 / 超时未处理工单」（[alerts.vue:86,114,135](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L86-L138)），缺 `UNCONFIGURED` / `DISABLED` 两态，管理员看不到「有驿站压根没配采集」 | 管理端只做**只读状态卡**（不做配置）：在 `/boss/alerts` 增加「采集状态」分组，4 态计数 + 明细行；同时在 `/boss/home` 的「同步健康度」卡里补一行「未配置采集 N 站」。配置能力只留 PC | `boss/alerts.vue`；`boss/home.vue:182-187`（同步健康度卡）；数据源 `GET /sync/overview` |
 | A12-3 | P1 | 首页「常用入口」只有 2 项（[boss/home.vue:162-166](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/home.vue#L162-L166)：工单管理 / 补卡审批），本次要加的「工资单审核 / 入离职审批 / 模拟派单 / KPI 考核」没有位置 | 扩到 **6 项（3 列 × 2 行）**，按「待办优先」排序：工单管理 / 补卡审批 / 工资单审核 / 入离职审批 / KPI 考核 / 模拟派单。每项按待办数给角标（复用 `van-grid-item` 的 `badge`，通知项已有先例 [staff/home.vue:38](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/home.vue#L38)） | `boss/home.vue:163`（`:column-num` 2 → 3）；`:164-165` 扩项 |
-| A12-4 | P1 | 「我的」页入口按角色分流但只有 2 条（[MeSection.vue:44-48](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/MeSection.vue#L44-L48)）。老板的身份是「审批者」，本次新增了 3 条审批线（工资单/入离职/补卡已有），入口会溢出到页面下方 | 「我的」页把 `常用入口` 拆成分组：**待办审批**（工单/补卡/工资单/入离职，带角标）与 **我的数据**（KPI/我的工资单/我的排班/打卡记录）。理由：老板与员工共用同一组件，分组标签让两端都能自解释 | `MeSection.vue:43-48` 改为两个 `van-cell-group` |
-| A12-5 | P2 | 需求 6 文案未改，老板端 3 处（[boss/home.vue:65,155,161](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/home.vue#L65-L161)）+ 预警页 4 处（[alerts.vue:135,138,145,163](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L135-L163)） | 统一改「超时未处理」 | 见 B6 全量清单 |
-| A12-6 | P2 | 老板端 Hero 的「口径：全域」是不可点的 chip（[boss/home.vue:114-115](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/home.vue#L114-L115)），代码已注 TODO；用户会尝试点它 | 短期把它降级为纯文字（去掉 chip 的按钮隐喻），或加 `title`/`aria-label` 明确「当前不可切换」。理由：**不可交互的元素不应该长得像按钮** | `boss/home.vue:115` |
-| A12-7 | P2 | 老板端详情页复用员工端（[boss/workorder.vue:112](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/workorder.vue#L112) 直接跳 `/staff/workorder/:id`），当前没问题（同页多入口是有意设计）；但本次工资单/入离职也会出现「老板看审核态、员工看确认态」的同页两态 | 登记为**模式**：同一业务对象的两端视图**优先复用同页 + 按角色渲染不同操作栏**，不新写页面。仅在「信息结构真正不同」（如工资单老板看明细+审核，员工看汇总+确认）时才拆页。写进前端实现约定 | 约定，无代码改动 |
+| A12-4 | P1 | 「我的」页入口按角色分流但只有 2 条（[MeSection.vue:44-48](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/MeSection.vue#L44-L48)）。管理员的身份是「审批者」，本次新增了 3 条审批线（工资单/入离职/补卡已有），入口会溢出到页面下方 | 「我的」页把 `常用入口` 拆成分组：**待办审批**（工单/补卡/工资单/入离职，带角标）与 **我的数据**（KPI/我的工资单/我的排班/打卡记录）。理由：管理员与员工共用同一组件，分组标签让两端都能自解释 | `MeSection.vue:43-48` 改为两个 `van-cell-group` |
+| A12-5 | P2 | 需求 6 文案未改，管理端 3 处（[boss/home.vue:65,155,161](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/home.vue#L65-L161)）+ 预警页 4 处（[alerts.vue:135,138,145,163](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L135-L163)） | 统一改「超时未处理」 | 见 B6 全量清单 |
+| A12-6 | P2 | 管理端 Hero 的「口径：全域」是不可点的 chip（[boss/home.vue:114-115](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/home.vue#L114-L115)），代码已注 TODO；用户会尝试点它 | 短期把它降级为纯文字（去掉 chip 的按钮隐喻），或加 `title`/`aria-label` 明确「当前不可切换」。理由：**不可交互的元素不应该长得像按钮** | `boss/home.vue:115` |
+| A12-7 | P2 | 管理端详情页复用员工端（[boss/workorder.vue:112](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/workorder.vue#L112) 直接跳 `/staff/workorder/:id`），当前没问题（同页多入口是有意设计）；但本次工资单/入离职也会出现「管理员看审核态、员工看确认态」的同页两态 | 登记为**模式**：同一业务对象的两端视图**优先复用同页 + 按角色渲染不同操作栏**，不新写页面。仅在「信息结构真正不同」（如工资单管理员看明细+审核，员工看汇总+确认）时才拆页。写进前端实现约定 | 约定，无代码改动 |
 
 ## A13 移动端 · 员工端（`mobile/views/staff/**` + Tabbar）
 
@@ -246,9 +246,9 @@
 
 文案规范：确认框标题用**动词短语**（「发布工资单」），正文说清**影响范围与不可逆性**（「将发布给 12 名员工，发布后不可撤回」），按钮用**具体动词**（「确认发布」/「再想想」），不用「确定/取消」。
 
-### B0.4 移动端分工总表（老板端做什么 / 员工端做什么）
+### B0.4 移动端分工总表（管理端做什么 / 员工端做什么）
 
-| 模块 | 老板端（ADMIN 移动） | 员工端（STATION_ADMIN / STAFF 移动） |
+| 模块 | 管理端（ADMIN 移动） | 员工端（STATION_ADMIN / STAFF 移动） |
 | ---- | ---- | ---- |
 | B1 采集状态 | 只读：4 态计数 + 异常驿站明细 | 站长只读本站采集状态；员工不可见 |
 | B2 排班 | 可写：批量工具 + 逐人调整 | 只读：我的排班 |
@@ -270,7 +270,7 @@
 | 端 | 位置 |
 | ---- | ---- |
 | PC | 侧边栏「包裹作业 → 数据同步」（键 `sync`，路径不变 `/parcel/sync`）。页内 Tab：**批次流水**（现有） / **采集配置**（新增）。Tab 状态写 URL：`?tab=collect` |
-| 老板端 | `/boss/alerts` 增「采集状态」分组（只读）；`/boss/home` 同步健康度卡补一行「未配置采集 N 站」 |
+| 管理端 | `/boss/alerts` 增「采集状态」分组（只读）；`/boss/home` 同步健康度卡补一行「未配置采集 N 站」 |
 | 员工端 | 站长：`/staff/sync`（现有页）顶部加只读采集状态卡；员工不可见 |
 
 **为什么不新开路由**：`sync` 键已在白名单（[role.js:28-29](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/constants/role.js#L28-L29)），新开路由要动 shared 层；且两者是同一业务的两种视图，页内 Tab 语义正确。
@@ -346,7 +346,7 @@ export const COLLECT_FREQUENCY = {
 
 ### B1.6 PC 与移动端差异
 
-| 项 | PC | 老板端 | 员工端（站长） |
+| 项 | PC | 管理端 | 员工端（站长） |
 | ---- | ---- | ---- | ---- |
 | 视图 | 计数 + 表格 + 编辑抽屉 | 只读计数 + 明细行 | 只读本站状态卡（1 张卡 + 3 行 cell） |
 | 可写 | ADMIN 可写 | 只读 | 只读 |
@@ -366,7 +366,7 @@ export const COLLECT_FREQUENCY = {
 | 端 | 位置 |
 | ---- | ---- |
 | PC | 侧边栏「考勤薪酬 → 排班管理」（路径不变 `/schedule`）。页头 `actions` 左侧新增 **「批量工具」下拉按钮** |
-| 老板端 | `/boss/schedule` 页头新增「批量工具」，打开底部弹层 |
+| 管理端 | `/boss/schedule` 页头新增「批量工具」，打开底部弹层 |
 | 员工端 | `/staff/schedule`（我的排班）**只读**，不加任何批量入口 |
 
 ### B2.2 核心：把 112 次点击降到 1–3 次
@@ -430,7 +430,7 @@ PageHeader
 
 ### B2.6 PC 与移动端差异
 
-| 能力 | PC | 老板端 | 员工端 |
+| 能力 | PC | 管理端 | 员工端 |
 | ---- | ---- | ---- | ---- |
 | 一键铺排 | ✅ 完整（含人员多选、星期多选） | ✅ 简化（班次 / 日期区间 / 星期 chip） | ❌ |
 | 复制上一周 | ✅ | ✅ | ❌ |
@@ -454,7 +454,7 @@ PageHeader
 | 端 | 位置 |
 | ---- | ---- |
 | PC | 侧边栏「包裹作业 → 工单管理」。页头 `actions` 新增两个按钮：**[新建工单]（primary）** + **[自动派单]（default）** |
-| 老板端 | `/boss/workorder` 页头可选加 [模拟派单]（**默认不加**，见 B3.6）；不提供新建 |
+| 管理端 | `/boss/workorder` 页头可选加 [模拟派单]（**默认不加**，见 B3.6）；不提供新建 |
 | 员工端 | `/staff/home` 宫格「工单」→ 列表页 FAB/按钮「新建工单」（**已实现**，[workorderCreate.vue](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/workorderCreate.vue)） |
 
 ### B3.2 新建工单（PC）
@@ -563,7 +563,7 @@ Step 2 解析结果预览（只读卡 + 可覆盖）
 
 ### B3.5 PC 与移动端差异
 
-| 项 | PC | 老板端 | 员工端 |
+| 项 | PC | 管理端 | 员工端 |
 | ---- | ---- | ---- | ---- |
 | 新建工单 | ✅ 弹窗（含驿站/指派） | ❌（定位是督办，不新建，[boss/workorder.vue:17](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/workorder.vue#L17) 已说明） | ✅ 已有（不含驿站/指派，由登录态决定） |
 | 模拟派单 | ✅ 完整（规则表 + 模拟入口） | ⚠️ 可选：仅在确认演示需要时加一个「模拟派单」按钮，跳转到一个简化底部弹层（无规则表） | ❌ |
@@ -585,7 +585,7 @@ Step 2 解析结果预览（只读卡 + 可覆盖）
 | 端 | 位置 |
 | ---- | ---- |
 | PC | 侧边栏「包裹作业 → 通知中心」。页头 `actions` 新增 **[发布通知]（primary，仅 ADMIN 渲染）** |
-| 老板端 | 「我的」→ 待办审批 分组 → **发布通知**（cell 入口，`/boss/notification/publish`）；或 `/boss/home` 宫格第 5 项 |
+| 管理端 | 「我的」→ 待办审批 分组 → **发布通知**（cell 入口，`/boss/notification/publish`）；或 `/boss/home` 宫格第 5 项 |
 | 员工端 | ❌ 不可发布（契约 `roles:['ADMIN']`，[notification.js:121](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/notification.js#L121)） |
 
 ### B4.2 信息架构：`PublishDrawer`（PC，宽 560px）
@@ -644,7 +644,7 @@ Footer: [取消] [发布]
 
 ### B4.6 PC 与移动端差异
 
-| 项 | PC | 老板端 | 员工端 |
+| 项 | PC | 管理端 | 员工端 |
 | ---- | ---- | ---- | ---- |
 | 发布 | ✅ 完整表单 | ✅ 简化：范围只留「全员 / 指定驿站」两项（去掉多选员工，移动端多选体验差），走全屏页面 `/boss/notification/publish`（**不用弹层**，表单在移动端全屏更稳） | ❌ |
 | 收通知 | ✅ | ✅ | ✅（已有，需补「公告」标识与发布人，见 B4.5） |
@@ -660,7 +660,7 @@ Footer: [取消] [发布]
 
 ### B5.1 入口位置
 
-PC 考勤页页头 `actions` 新增 **[导出]（default，图标 Download）**，位置在「刷新」左侧、「驿站选择」右侧。移动端不做（老板不会在手机上处理 CSV）。
+PC 考勤页页头 `actions` 新增 **[导出]（default，图标 Download）**，位置在「刷新」左侧、「驿站选择」右侧。移动端不做（管理员不会在手机上处理 CSV）。
 
 ### B5.2 交互：先确认范围，再导出
 
@@ -728,7 +728,7 @@ Footer: [取消] [导出 CSV]
 | # | 文件:行 | 现文案 | 改为 | 备注 |
 | ---- | ---- | ---- | ---- | ---- |
 | 1 | [workOrder/index.vue:333](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L333) | `{ name:'overSla', label:'超 SLA' }` | `{ name:'overdueUnhandled', label:'超时未处理' }` | Tab 内部键同步改；`:14` 的 `tab.name === 'overSla'` 判定同步改 |
-| 2 | [workOrder/index.vue:57](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L57) | `SLA 口径：低 48h / 中 24h / 高 8h · 超时仅高亮提醒，不自动改状态` | `SLA 口径：低 48h / 中 24h / 高 8h · 超时未处理 = 已过 SLA 且仍为待处理/处理中；仅高亮提醒，不自动改状态` | 文案已含「超时」，但缺「未处理」的判定说明；**这行是老板判断的唯一说明，必须补全** |
+| 2 | [workOrder/index.vue:57](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L57) | `SLA 口径：低 48h / 中 24h / 高 8h · 超时仅高亮提醒，不自动改状态` | `SLA 口径：低 48h / 中 24h / 高 8h · 超时未处理 = 已过 SLA 且仍为待处理/处理中；仅高亮提醒，不自动改状态` | 文案已含「超时」，但缺「未处理」的判定说明；**这行是管理员判断的唯一说明，必须补全** |
 | 3 | [workOrder/index.vue:478](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L478) | `params.overSla = '1'` | `params.overdueUnhandled = '1'` | 契约已兼容旧名（[:92](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/workOrder.js#L92)），但新代码用新名 |
 | 4 | [workOrder/index.vue:510](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L510) | `getWorkOrders({ ...base, overSla:'1', pageSize:1 })` | `overdueUnhandled: '1'` | Tab 计数 |
 | 5 | [workOrder/index.vue:457-459,797-805](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/views/workOrder/index.vue#L457-L459) | `row.overSla` / `is-oversla` 注释「超 SLA 行」 | `row.overdueUnhandled` / 注释改「超时未处理行」 | 类名 `is-oversla` 可保留（纯内部标识），但注释与字段名必须改；`:98` 的 `:finished` 判定不受影响 |
@@ -801,7 +801,7 @@ GET    /kpi/my                        我的 KPI（移动端员工端）
 | ---- | ---- |
 | PC | 侧边栏「组织人事 → **KPI 考核**」（新增菜单键 `kpi`），与「员工管理」同级。页内两个 Tab：**考核结果** / **指标模板** |
 | PC（档案聚合） | 「组织人事 → 员工管理」旁新增 **员工档案** `/employee/detail/:id`（A11-1 的解法）；档案页的 KPI 区块内联展示 |
-| 老板端 | `/boss/home` 宫格「KPI 考核」→ `/boss/kpi`（只读：全站结果 + 排名） |
+| 管理端 | `/boss/home` 宫格「KPI 考核」→ `/boss/kpi`（只读：全站结果 + 排名） |
 | 员工端 | `/staff/home` 宫格「我的 KPI」→ `/staff/kpi`（只读：我的得分/达成率/排名/明细） |
 
 ### B7.3 信息架构（PC · 考核结果 Tab）
@@ -866,7 +866,7 @@ GET    /kpi/my                        我的 KPI（移动端员工端）
 | **排名** | 徽标 + 分母（如 `#3 / 56`） | 前 3 名用 `--rank-1-bg` / `--rank-2-bg` / `--rank-3-bg`（**已有 Token**，[tokens.scss:121-126](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/pc/styles/tokens.scss#L121-L126)）；4+ 用 `--rank-rest-*` |
 | **指标达成率条** | 横向进度条（宽度=达成率） | `--c-blue-500`；未达成（<100%）用 `--c-amber-500`；严重不足（<60%）用 `--c-red-500` |
 
-**移动端降级**：员工端 `/staff/kpi` 不做表格，改为「Hero（我的综合得分 + 等级）+ 环形达成率 + 指标卡片列表（一项一卡：名称 / 权重 / 目标 / 实际 / 达成率条）」。老板端 `/boss/kpi` 为「汇总 4 卡 + 排名前 10 列表 + 点人进明细」。
+**移动端降级**：员工端 `/staff/kpi` 不做表格，改为「Hero（我的综合得分 + 等级）+ 环形达成率 + 指标卡片列表（一项一卡：名称 / 权重 / 目标 / 实际 / 达成率条）」。管理端 `/boss/kpi` 为「汇总 4 卡 + 排名前 10 列表 + 点人进明细」。
 
 ### B7.6 关键组件与状态
 
@@ -879,7 +879,7 @@ GET    /kpi/my                        我的 KPI（移动端员工端）
 
 ### B7.7 交互流程
 
-**正常流（老板配置模板）**：KPI 考核 → 指标模板 Tab → 新建模板 → 填名称「一线员工月度考核」→ 添加 3 项指标（出勤率 40% / 工单及时率 40% / 客户满意度 20%）→ 权重合计条实时显示 100% 绿色 → 保存 → toast「模板已保存」→ 切到考核结果 Tab → 选周期 2026-08 → 「生成本期考核」→ 确认（`9205` 兜底防重复）→ 生成完成 → 表格按得分降序展示。
+**正常流（管理员配置模板）**：KPI 考核 → 指标模板 Tab → 新建模板 → 填名称「一线员工月度考核」→ 添加 3 项指标（出勤率 40% / 工单及时率 40% / 客户满意度 20%）→ 权重合计条实时显示 100% 绿色 → 保存 → toast「模板已保存」→ 切到考核结果 Tab → 选周期 2026-08 → 「生成本期考核」→ 确认（`9205` 兜底防重复）→ 生成完成 → 表格按得分降序展示。
 
 **异常流**：
 
@@ -895,7 +895,7 @@ GET    /kpi/my                        我的 KPI（移动端员工端）
 
 ### B7.8 PC 与移动端差异
 
-| 项 | PC | 老板端 | 员工端 |
+| 项 | PC | 管理端 | 员工端 |
 | ---- | ---- | ---- | ---- |
 | 配置模板 | ✅ 完整（可增删指标、调权重） | ❌（配置场景留 PC） | ❌ |
 | 查看全站结果 | ✅ 表格 + 明细抽屉 | ✅ 汇总 + 前 10 排名 | ❌ |
@@ -937,7 +937,7 @@ POST /hr/import                       批量导入（复用员工导入模板）
 | ---- | ---- |
 | PC | 侧边栏「组织人事 → **人事管理**」（菜单键 `hr`）。页内 4 个 Tab：**员工档案** / **薪资标准** / **调薪记录** / **岗位职级** |
 | PC（交叉入口） | `/employee/detail/:id`（员工档案聚合页）内嵌「人事信息」与「当前薪资」两个区块 + 「调整薪资」按钮 |
-| 老板端 | 「我的」→ 待办审批/我的数据 → **人事管理**（只读：员工档案查询） |
+| 管理端 | 「我的」→ 待办审批/我的数据 → **人事管理**（只读：员工档案查询） |
 | 员工端 | 「我的」→ 我的数据 → **我的档案**（只读：岗位/职级/合同到期/当前薪资构成） |
 
 ### B8.3 信息架构（PC）
@@ -1016,10 +1016,10 @@ Tab 4 岗位职级
 
 ### B8.7 PC 与移动端差异
 
-| 项 | PC | 老板端 | 员工端 |
+| 项 | PC | 管理端 | 员工端 |
 | ---- | ---- | ---- | ---- |
 | 员工档案 | ✅ 全量查询 + 维护 | ✅ 查询 + 详情（只读） | ✅ 仅本人（只读） |
-| 薪资设置/调薪 | ✅ | ❌（涉及金额，PC 更稳；且老板在 B9 财务模块已能改规则） | ❌ |
+| 薪资设置/调薪 | ✅ | ❌（涉及金额，PC 更稳；且管理员在 B9 财务模块已能改规则） | ❌ |
 | 薪资标准/岗位职级 | ✅ | ❌ | ❌ |
 | 我的档案 | — | — | ✅ 岗位/职级/合同到期/**本人**薪资构成（只展示本人，接口必须按登录人收口） |
 
@@ -1030,14 +1030,14 @@ Tab 4 岗位职级
 
 ---
 
-## B9 财务管理（按考勤 + KPI 生成工资单，老板审核后发布，员工确认）
+## B9 财务管理（按考勤 + KPI 生成工资单，管理员审核后发布，员工确认）
 
 ### B9.1 契约缺口与建议数据结构
 
 契约不存在。建议错误码段 **94xx**。
 
 ```
-# 计算规则（老板自行配置）
+# 计算规则（管理员自行配置）
 GET  /finance/payroll-rules                规则列表
 GET  /finance/payroll-rules/:id            规则详情
 POST /finance/payroll-rules                新建规则
@@ -1055,7 +1055,7 @@ DELETE /finance/payrolls/:id               作废（仅草稿/待审核可作废
 GET  /finance/payrolls/my                  我的工资单（员工端）
 PUT  /finance/payrolls/:id/confirm         员工确认
 PUT  /finance/payrolls/:id/object          员工提异议（需原因）
-PUT  /finance/payrolls/:id/resolve         老板处理异议（重新发布 or 驳回至草稿）
+PUT  /finance/payrolls/:id/resolve         管理员处理异议（重新发布 or 驳回至草稿）
 ```
 
 建议错误码：
@@ -1105,7 +1105,7 @@ Tab 1 工资单
   表格：单号 | 月份 | 驿站 | 人数 | 应发合计 | 实发合计 | 状态 | 生成时间 | 操作(详情/提交审核/审核)
   空态（首次）：「本月尚未生成工资单」+「生成工资单」引导 + 一行说明「生成前请确认当月考勤与 KPI 已完成」
 
-Tab 2 计算规则（需求 9 的重点：老板自行配置）
+Tab 2 计算规则（需求 9 的重点：管理员自行配置）
   规则列表：规则名 | 适用岗位/驿站 | 关联数据源 | 状态 | 更新时间 | 操作
   [新建规则]
 
@@ -1113,7 +1113,7 @@ Tab 3 异议处理
   列表：员工 | 月份 | 异议原因 | 提出时间 | 状态 | 操作(处理)
 ```
 
-### B9.4 计算规则的配置界面（需求 9 的核心，必须「老板自己会配」）
+### B9.4 计算规则的配置界面（需求 9 的核心，必须「管理员自己会配」）
 
 **设计原则：不写公式字符串，用「积木式」配置**。用户的真实心智是「基本工资 + 出勤天数折算 + 绩效工资 - 扣款 + 补贴」，而不是 `(base * attDays / shouldDays) + (perfBase * kpiScore / 100)`。
 
@@ -1136,7 +1136,7 @@ PayrollRuleEditor（PC 抽屉 width 720px，用 --drawer-w-lg）
 ④ 试算预览
    选择：月份 2026-08 | 驿站 城东
    [试算] 按钮 → 展示前 5 名员工的逐项拆解表（**不落库**）
-   —— 这是本界面最重要的按钮：老板改完规则必须能立刻看到「张三会拿多少钱」
+   —— 这是本界面最重要的按钮：管理员改完规则必须能立刻看到「张三会拿多少钱」
 ⑤ 汇总公式（只读）
    应发 = Σ(项目1..n 中正数项)；实发 = 应发 - Σ(扣款项)
    —— 展示为纯文本说明，不让用户编辑，避免出现无法解析的表达式
@@ -1172,7 +1172,7 @@ PayrollDetailDrawer（PC width 720px）
    │ ●───────●───────○───────○───────○                            │
    │ 草稿    待审核  已发布   已确认   完成                        │
    │ 09-19           (等待中)                                     │
-   │ 09-18 10:00  已提交审核 · 王老板                              │
+   │ 09-18 10:00  已提交审核 · 王管理员                              │
    └──────────────────────────────────────────────────────────────┘
    —— 用 el-steps（`active` 由状态决定）+ 已有时间线数据；每一步的时间与操作人写在下方时间线里
 
@@ -1209,13 +1209,13 @@ PayrollDetailDrawer（PC width 720px）
 **正常流（完整闭环）**：
 
 ```text
-老板：财务管理 → 工资单 → 生成工资单（选 2026-08 + 城东）→ 确认（提示「将按『一线员工月度工资』规则计算 12 人」）
+管理员：财务管理 → 工资单 → 生成工资单（选 2026-08 + 城东）→ 确认（提示「将按『一线员工月度工资』规则计算 12 人」）
   → 生成草稿（状态=草稿，可逐人手工调整「其他补贴」）
   → 提交审核（草稿 → 待审核）
   → 审核通过并发布（二次确认：「将发布给 12 名员工，发布后员工可见并需确认，不可撤回」）
   → 员工收到通知「您的 2026-08 工资单已发布，请确认」
 员工：我的工资单 → 打开 → 看明细 → 点「确认无误」（二次确认）→ 状态=已确认
-老板：工资单详情看到「已确认 10 / 12」，对未确认 2 人点「催办」
+管理员：工资单详情看到「已确认 10 / 12」，对未确认 2 人点「催办」
 ```
 
 **异常流**：
@@ -1224,7 +1224,7 @@ PayrollDetailDrawer（PC width 720px）
 | ---- | ---- |
 | 同月重复生成 | `9401` → 「2026-08 的工资单已存在，请勿重复生成」+ 提供跳转现有单 |
 | 规则未启用 | `9402` → 「未找到启用的计算规则，请先在『计算规则』里配置」 |
-| 员工提异议 | 状态 → 有异议 + 员工端显示异议原因；老板端「异议处理」Tab 出现待处理项；老板可「重新发布」（回到已发布，需填说明）或「退回草稿」修改后重新走流程 |
+| 员工提异议 | 状态 → 有异议 + 员工端显示异议原因；管理端「异议处理」Tab 出现待处理项；管理员可「重新发布」（回到已发布，需填说明）或「退回草稿」修改后重新走流程 |
 | 未发布时员工访问 | `9407` → 员工端显示「工资单尚未发布」 |
 | 已确认后再改 | `9406` → 「该员工已确认，如需调整请先退回草稿」 |
 | 无该单权限（跨站） | `9405` → 「无权查看该工资单」 |
@@ -1237,7 +1237,7 @@ PayrollDetailDrawer（PC width 720px）
 | 端 | 角色 | 做什么 |
 | ---- | ---- | ---- |
 | PC | ADMIN | 配置计算规则、生成草稿、批量调整、提交审核、审核发布、处理异议、导出 |
-| 老板端 | ADMIN | **审核**：待审核列表 → 详情（含逐人明细）→ 通过/驳回（必须填原因）；查看确认进度、催办 |
+| 管理端 | ADMIN | **审核**：待审核列表 → 详情（含逐人明细）→ 通过/驳回（必须填原因）；查看确认进度、催办 |
 | 员工端 | STAFF / STATION_ADMIN | **确认**：我的工资单列表 → 详情（逐项明细）→ 确认无误 / 提异议（必填原因）；查看历史工资单 |
 
 **移动端的明细呈现**（375px 下的降级）：
@@ -1298,7 +1298,7 @@ GET  /flows/my                        我的流程（员工端）
 | 1 | 提交入职资料 | 候选人 / 人事 | 身份证、学历、银行卡、紧急联系人 | 否 |
 | 2 | 资料审核 | 人事（ADMIN） | 通过/驳回（驳回回步 1） | 否 |
 | 3 | 开通账号与权限 | 人事（ADMIN） | 生成 `employee` 记录 + 角色 + 驿站归属 | 否 |
-| 4 | 岗位与薪资确认 | 老板（ADMIN） | 关联 B8 的岗位/职级/薪资 | 否 |
+| 4 | 岗位与薪资确认 | 管理员（ADMIN） | 关联 B8 的岗位/职级/薪资 | 否 |
 | 5 | 入职培训与交接入岗 | 站长 | 确认已完成带教 | **可跳过**（小驿站无正式培训） |
 
 **离职流程（5 步）**
@@ -1307,7 +1307,7 @@ GET  /flows/my                        我的流程（员工端）
 | ---- | ---- | ---- | ---- | ---- |
 | 1 | 提出离职申请 | 员工本人 / 站长代提 | 离职原因、期望离职日 | 否 |
 | 2 | 交接确认 | 站长 | 逐项确认交接（包裹/设备/钥匙/客户） | 否 |
-| 3 | 财务结算 | 老板（ADMIN） | 关联 B9 生成末月工资单 | 否 |
+| 3 | 财务结算 | 管理员（ADMIN） | 关联 B9 生成末月工资单 | 否 |
 | 4 | 账号与权限回收 | 人事（ADMIN） | 停用账号、关闭权限 | 否 |
 | 5 | 离职归档 | 人事（ADMIN） | 归档档案、合同终止 | 否 |
 
@@ -1385,7 +1385,7 @@ Tab 2 流程模板
 
 ### B10.7 交互流程
 
-**正常流（离职）**：员工端「我的」→ 我的流程 → 发起离职 → 填原因与期望日期 → 提交 → 站长收到通知 → 站长在 PC/老板端打开流程 → 勾选交接项 → 通过 → 财务结算步骤给老板 → 老板确认末月工资单已生成 → 通过 → 人事回收账号 → 通过 → 归档 → 流程完成 → 员工端收到「离职流程已完成」通知，账号在下次登录时提示已停用。
+**正常流（离职）**：员工端「我的」→ 我的流程 → 发起离职 → 填原因与期望日期 → 提交 → 站长收到通知 → 站长在 PC/管理端打开流程 → 勾选交接项 → 通过 → 财务结算步骤给管理员 → 管理员确认末月工资单已生成 → 通过 → 人事回收账号 → 通过 → 归档 → 流程完成 → 员工端收到「离职流程已完成」通知，账号在下次登录时提示已停用。
 
 **异常流**：
 
@@ -1401,11 +1401,11 @@ Tab 2 流程模板
 
 ### B10.8 PC 与移动端差异
 
-| 项 | PC | 老板端 | 员工端 |
+| 项 | PC | 管理端 | 员工端 |
 | ---- | ---- | ---- | ---- |
 | 查看流程列表 | ✅ 全量 | ✅ 待我审批（按责任人过滤） | ✅ 仅本人 |
 | 发起流程 | ✅（代发起） | ⚠️ 可发起离职（口头提出场景常见）→ 建议 ✅ | ✅ 发起离职 |
-| 步骤审批 | ✅ 全步骤 | ✅ **仅老板为责任人的步骤**（财务结算 / 薪资确认） | ✅ 仅员工为责任人的步骤（提交资料、确认交接） |
+| 步骤审批 | ✅ 全步骤 | ✅ **仅管理员为责任人的步骤**（财务结算 / 薪资确认） | ✅ 仅员工为责任人的步骤（提交资料、确认交接） |
 | 流程模板配置 | ✅ | ❌ | ❌ |
 
 ### B10.9 复用与新增 Token
@@ -1578,5 +1578,629 @@ Tab 2 流程模板
 | 断点覆盖 H5/平板/桌面 | ✅ C5 逐断点约定 |
 | 可落地、无空话 | ✅ A 章 66 条每条带 `文件:行号`；B 章每项带阶段文件清单与契约出处 |
 | 文档与实现一致性风险已登记 | ✅ A2-1（登录页一键填充的文档-实现偏差）、B6-2（文案全量清单）、U1–U6 六项不确定项 |
+
+---
+
+# D. 移动端通知阅读页（NoticeReader）——「消息可打开、可读全」
+
+> **需求原文（用户）：** 消息里的所有文件应该是可以打开的，现在打不开，点一下就确认了，应该调整为可以打开阅读的。
+>
+> **本轮交付边界：** 只出设计规范（本文件 D 章）。**不改任何源码**；`hrm-admin/**`、`hrm-server/**`、`hrm-android-shell/**` 零改动；`hrm-demo` 的改动清单见 D9/D11 的「待实现」标注，由前端工程师与后端工程师按本文实现。
+>
+> **术语校正：** 用户口中的「文件」经全量核查后判定为**通知/公告条目本身（公文语义）**，不是「附件」。全工程无附件数据概念（见 D13 开放问题 9），附件上传与预览**本轮不做**，登记为 `TODO(扩展): 通知附件字段与预览能力`。
+
+## D1 缺陷定位与范围界定
+
+### D1.1 三个根因（逐处带位置）
+
+| # | 根因 | 位置 | 现象 |
+| --- | --- | --- | --- |
+| R-1 | 点击处理函数**没有兜底分支** | [NoticeList.vue:105-154](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L105-L154)：第 123-152 行按 `bizType` 分流，第 153 行是函数结尾的 `TODO`，**无 `else`** | 手工发布的公告（`isPublished === true` 且 `bizType == null`）点击后只把未读改已读，**不跳转、不展开、无任何提示** —— 用户说的「点一下就确认了」即此处 |
+| R-2 | **全工程不存在通知详情/阅读页** | 移动端路由表无任何 noticeDetail / notificationDetail；`/staff/message`（[router/index.js:57-62](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L57-L62)）与 `/boss/message`（[boss/router.js:26-31](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/router.js#L26-L31)）指向同一 `MessagePage.vue` | 通知正文没有任何「能读全」的承载页 |
+| R-3 | 列表正文**只渲染一行、且不截断** | [NoticeList.vue:228](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L228) 的 `.list-item__meta`（样式见 [mobile.scss:269-274](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L269-L274)，**无 `line-clamp`**） | 短正文看不全；长正文（发布上限 500 字符，[notification.js:81](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/notification.js#L81)）反过来把行撑到十几行，一条公告占满整屏 |
+
+### D1.2 顺带消化的既有缺陷（必须一并关掉）
+
+`payroll` 通知固定跳 `/staff/payroll/:id`（[NoticeList.vue:137-140](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L137-L140)），而该路由 `meta.roles` 是 `STAFF_ROLES`（[router/index.js:190-194](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L190-L194)）→ **管理端（ADMIN）点工资单通知必然被守卫拦下**（守卫处 [router/index.js:232-235](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L232-L235) 弹 Toast 并回首页）。同一缺陷族还有 `sync_task`（`/staff/sync` 仅站长可见，[router/index.js:123-128](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L123-L128)）与 `flow`（员工端与管理端落点不同）。**本设计用「阅读页内按角色分流动作」一次性消灭这一族问题**（见 D6）。
+
+### D1.3 明确不在本轮范围
+
+| 不做的项 | 理由 |
+| --- | --- |
+| 通知附件（上传 / 预览 / 下载） | 全工程无该数据概念；需先定存储、类型白名单、鉴权与预览实现，属新能力（D13-9） |
+| 正文内 URL 可点击外跳 | 涉「是否允许外跳 + 域名白名单」，属安全面，须先取网络安全工程师结论（D4.4 末行） |
+| 待办（`TodoList`）列表 | 待办是「状态快照」、无正文实体（[MessagePage.vue:15-16](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/message/MessagePage.vue#L15-L16)），本轮不动 |
+| PC 端通知中心 | 需求原文限定「消息」（移动端），PC 侧本轮不动 |
+| 通知「已读回执 / 谁读过」 | 需要发布人视角的聚合接口，超出本轮（D13-1） |
+
+## D2 路由契约
+
+### D2.1 结论
+
+**两条新增路由、一个共用组件、`?id=` 查询参数。**
+
+| 端 | path（**新增**） | name（**新增**） | `meta` | component |
+| --- | --- | --- | --- | --- |
+| 员工端 | `/staff/message/notice` | `staffNoticeReader` | `{ roles: STAFF_ROLES, title: '通知详情' }` | `src/mobile/views/message/NoticeReader.vue` |
+| 管理端 | `/boss/message/notice` | `bossNoticeReader` | `{ roles: [ROLE.ADMIN], title: '通知详情' }` | 同上（同一文件） |
+
+- **不设 `meta.tabbar`**：`App.vue` 按 `meta.tabbar` 决定是否套 `TabbarLayout`（[App.vue:79-82](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/App.vue#L79-L82)），阅读页是非 Tab 的二级页，自带返回 NavBar（与 `包裹详情`/`工单详情` 同构）。
+- **两端各一条、指向同一组件**。不给 `tabbar` 也意味着阅读页**不会渲染管理端 NavBar 右侧的「发布」按钮**（该按钮的显隐条件是 `route.path === '/boss/message'` 字面量，[TabbarLayout.vue:33](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/layout/TabbarLayout.vue#L33)）—— 这是期望行为。
+- 组件落点：`src/mobile/views/message/`，与 `MessagePage.vue` 同目录。沿用「跨端共用页放内核 `views/message/`、不进任何一端域目录」的既有决策（[boss/router.js:9-10](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/router.js#L9-L10)）。
+- 注册位置：管理端那条加进 `modules/boss/router.js`（子表由聚合点展开，[router/index.js:38](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L38)）；员工端那条加在 [router/index.js:62](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L62) 的 `/staff/message` 之后。
+- **一致性副作用（必改）**：两条新增后，[boss/router.js:9](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/router.js#L9) 的「共 24 条」与 [router/index.js:37](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L37) 的计数注释须同步 +1，否则文档与实现不一致。
+
+### D2.2 为什么是两条路由（而不是一条中立路由）
+
+| 方案 | 判定 | 理由 |
+| --- | --- | --- |
+| A. 两条分端路由（**采用**） | ✅ | ① 与既有先例同构：`/staff/message` 与 `/boss/message` 就是两条路由指向同一 `MessagePage.vue`；② `meta.roles` 必须分域（`STAFF_ROLES` vs `[ADMIN]`），合成一条只能写 `ALL_ROLES`，等于让员工端能直接打开管理端域 URL；③ `document.title` 的域切换依赖 `to.path.startsWith('/boss')`（[router/index.js:244-246](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L244-L246)），中立路径在管理端会错显员工端标题 |
+| B. 单条中立路由 `/message/notice` | ❌ | 破坏「URL 前缀 = 端域」这一全端既有约定；标题切换、面包屑、降级排查全部要开例外 |
+| C. 复用 PC 通知中心 | ❌ | 跨端（PC 页在移动端不作为目标形态），且需求限定移动端 |
+
+**冻结合规：** `/boss/*` 下**既有** path / name / meta 一字未动，本设计只**新增** `/boss/message/notice`；`/staff/message`、`/boss/message`、`/boss/notification/publish` 三个被字面量依赖的路径保持原值（[boss/router.js:11-13](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/router.js#L11-L13)）。
+
+### D2.3 为什么用 `?id=` 而不是 `/:id`
+
+| 判据 | `?id=`（**采用**） | `/:id`（否决） |
+| --- | --- | --- |
+| 缺参/参数损坏时的行为 | 命中路由 → 页面自渲染「通知不存在或已被删除」错误态 | 不匹配任何路由 → 落到全局 `mobileNotFound`（[router/index.js:210-215](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L210-L215)），同一个「读到坏链」场景出现两种页面 |
+| 未来新增同域子页 | `/message/notice` 是稳定父路径，后续加 `/message/notice/settings` 之类不受影响 | 动态段会吞掉同级静态子路径（Mock 引擎同款问题的注释见 [routes/index.js:20,33-34](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/index.js#L20)） |
+| 与同页既有约定一致 | `MessagePage` 本就用 `route.query.tab` 决定子视图（[MessagePage.vue:27](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/message/MessagePage.vue#L27)）；管理端已有 `/boss/attendance/detail?dim=` 这一「详情页 + 查询参数」先例（[boss/router.js:157-163](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/router.js#L157-L163)） | — |
+| 参数语义 | `id` 是**查询条件**（取哪一条），不是路径层级 | `id` 在此不是层级资源 |
+
+- 参数值统一 `String(item.id)`（`db.notifications` 的 id 是自增数字，[db.js:847](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/db.js#L847)）。
+- **不引入 `?from=` 之类的来源参数**：返回路径由历史栈决定（D7），显式来源参数会与历史栈冲突并制造两种真相。
+
+## D3 点击行为改造（列表 → 阅读页）
+
+### D3.1 结论
+
+**一律先进阅读页；「标记已读」的发起从列表移到阅读页，不阻塞导航。**
+
+| 项 | 结论 |
+| --- | --- |
+| 带 `bizType` 的通知 | **先进阅读页**，业务动作降为阅读页底部的「去处理」（二次点击）。**不保留直接跳转** |
+| 无 `bizType` 的公告 | 同样进阅读页（这就是 R-1 的正解） |
+| 标记已读 vs 进入阅读页的先后 | **先进入阅读页**（列表侧零写请求）；阅读页在**详情取回成功后**再发起标记已读 |
+| 标记已读失败是否阻断阅读 | **不阻断**。阅读页顶部给一条常驻提示条说明「未能标记为已读」，正文照常可读 |
+| 重复点击 | 列表侧用一个 `navigating` 标志在导航期间忽略重复点击；vue-router 对「同目标重复导航」本身会中止（不会压两层栈） |
+
+### D3.2 为什么是「先进阅读页」而不是「直接跳业务页」（二选一说明）
+
+需求原文是「**所有**文件应该是可以打开的」。**直接跳业务页会永久隐藏通知正文** —— 业务详情页里没有通知正文，通知正文在列表里只有一行、还被打断（R-3）。若只让公告进阅读页，工单/包裹/工资单/请假/入流通知仍然「打不开、读不全」，等于只修了三分之一，用户会立刻再提一次。
+
+四条理由：
+
+1. **需求覆盖**：「所有」要求所有条目都有同一个可读入口，唯一能一次性满足的做法是统一入口。
+2. **信息不丢失**：业务详情页 ≠ 通知内容。例：`sync_task` 通知正文写的是「城东驿站 3 条异常」这类**通知特有的说明**，`/staff/sync` 里没有这句话。
+3. **一次性消灭守卫拦截族缺陷**：阅读页是角色中立页，`meta.roles` 覆盖全部角色；业务动作在页内按 `bizType × 角色` 分流（D6），`payroll`/`sync_task`/`flow` 三类「两端落点不同」的分支从列表的 30 行 `if` 链里搬到一个可测的动作表里。
+4. **交互语义**：点通知 = 读通知，符合公文直觉；业务动作是第二步。「不得退化」由 D6 的动作区显式保证（每个原本能跳的 `bizType` 都有一个可达动作）。
+
+**代价与缓解：** 到达业务页由 1 次点击变 2 次点击。缓解——「去处理」是**固定底部主按钮**（`ActionBar`），不需要先滚到正文末尾（这正是 [ActionBar.vue:5-9](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/ActionBar.vue#L5-L9) 当年解决的 P31 问题）。
+
+### D3.3 列表侧 `onOpen` 的新实现（语义级，非代码）
+
+```
+onOpen(item):
+  if (navigating) return
+  navigating = true                        // 同步置位，覆盖两次连点
+  记住返回上下文 { tab: activeTab, scrollTop: window.scrollY, id: item.id }   // 见 D7
+  router.push({ name: 本端阅读页名, query: { id: String(item.id) } })
+  结束（无写请求、无 Toast、无 else 分支）
+```
+
+**必须删除的东西**（都是「先写后跳」范式的产物，留着就是死代码）：
+
+- `pendingId` 及行内「标记中…」忙碌指示（[NoticeList.vue:40-41, 106-121, 236-241](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L40-L41)）—— 新流程下列表不再发起写请求，该指示永远不会出现。
+- `onOpen` 内的 `catch → showFailToast`（[NoticeList.vue:114-117](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L114-L117)）—— 失败提示改由阅读页的提示条承担，位置上更靠近用户当下的注意力。
+- 全部按 `bizType` 的跳转分支（[NoticeList.vue:123-152](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L123-L152)）—— 搬到 D6 的动作表。
+
+**为什么把标记已读移到阅读页（而不是保持「先标记后跳转」）**：本次缺陷的根因是「点击后无反馈」。把一个网络写请求挡在导航之前，会把「无反馈」升级成「可感知的卡顿后仍无反馈」，是同一个病的另一种形态。移到阅读页后：列表导航零延迟；失败提示出现在用户正在看的页面上；且**标记失败不影响主任务（阅读）**，把它当阻断事件与优先级不符。
+
+### D3.4 阅读页内的发起时序（确定性规则）
+
+| 步 | 动作 | 失败处置 |
+| --- | --- | --- |
+| 1 | `detail = GET /notifications/:id`（D11） | 网络/5xx → `PageState` error + 重试；9001 → `PageState` empty |
+| 2 | 渲染完成后（`nextTick`）若 `detail.isRead === false` → `notify.markRead(id)` | 非 401 → 顶部提示条；401 → 交全局广播（[App.vue:38-45](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/App.vue#L38-L45)），页面不再弹第二条；**均不阻断阅读** |
+| 3 | 焦点落到 `<h1>`（D8.1） | — |
+
+- **必须在第 1 步成功之后才发起**：取详情失败说明用户没看到内容，此时标已读等于把「没读到」记成「已读」。若用户在详情返回前就返回列表，则该条**保持未读**——这是可解释的正确行为（他确实没读）。
+- **幂等天然成立**：`markRead` 只在 `is_read === 0` 时才写（[notification.js:50-53](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/notification.js#L50-L53)），重复挂载/重试不会写两次。
+- **角标同步**：`notify.markRead` 内部已 `set(unread - 1)`（[stores/notify.js:38-42](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/stores/notify.js#L38-L42)），无需额外处理；阅读页无 Tabbar，回到消息页即见新角标。
+
+## D4 页面结构、分区与排版规范
+
+### D4.1 结构（从上到下四段）
+
+```
+┌─ PageNav  title="通知详情"  back=true  ────────────────┐  44px（--navbar-h）
+├─ [条件] 已读失败提示条 van-notice-bar ────────────────┤  40px（--van-notice-bar-height）
+├─ 内容区 .page（左右 --sp-3=12px）                       │
+│  ┌ 卡片 .card（内边距 --sp-4=16px）─────────────────┐  │
+│  │ ① 标签行  StatusTag[公告] + StatusTag[类型]        │  │  高度 --tag-h=20px
+│  │ ② H1 标题（全量、不截断）                          │  │  --fs-h1/--lh-h1
+│  │ ③ 元信息行 时间 ·（仅公告）由 X 发布 · 范围：Y       │  │  --fs-caption/--lh-caption
+│  │ ─── 1px 分隔线 --border-line ──────────────────   │  │  上下各 --sp-3
+│  │ ④ 正文段落 1／2／3…（全量，无展开收起）              │  │  --fs-body/--lh-body
+│  └────────────────────────────────────────────────┘  │
+└─ [条件] ActionBar 固定底栏「去处理」──────────────────┘  56px（--actionbar-h）
+```
+
+- 页面根容器：`.detail-page` + `.page.page--bar`（沿用 [parcelDetail.vue:101-103](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/parcelDetail.vue#L101-L103) 的既有结构：`PageNav` 在 `.page` 之外，`PageState` 在 `.page` 之内）。
+- 只有在动作区非空时才需要 `.page--bar`（底部留白 `--page-pad-bottom`，[mobile.scss:107-110](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L107-L110)）；动作区为空时用 `.page--loose`。
+
+### D4.2 分区层级与 Token 取值（逐项确定值，不留「酌情」）
+
+| 区 | 元素 | 字号 Token | 行高 Token | 字重 | 颜色 Token | 间距 |
+| --- | --- | --- | --- | --- | --- | --- |
+| ① 标签行 | 公告标签 / 类型标签（`StatusTag`，`variant="outline"`） | 组件内定 `--fs-micro` | 1 | `--fw-regular` | 组件内定（描边用 `--state-outline-border`） | 与 H1 间距 `--sp-2` |
+| ② 标题 | `<h1>`（`tabindex="-1"`，焦点落点） | `--fs-h1`（20px） | `--lh-h1`（28px） | `--fw-semibold` | `--text-1` | 与元信息 `--sp-2` |
+| ③ 元信息 | 单行文本 | `--fs-caption`（12px） | `--lh-caption`（18px） | `--fw-regular` | `--text-3` | 分隔线上下 `--sp-3` |
+| ④ 正文 | 段落 `<p>` | `--fs-body`（14px） | `--lh-body`（21px） | `--fw-regular` | `--text-1` | 段间距 `--sp-4`（16px），首段 0 |
+
+- **NavBar 标题固定为「通知详情」，不放通知标题**：`PageNav` 的标题 `max-width: 60%`（[PageNav.vue:43-46](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/PageNav.vue#L43-L46)），标题上限 100 字符（[notification.js:80](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/notification.js#L80)），放进导航栏必然截断 —— 那等于在阅读页又造一处「看不全」。范式与 `包裹详情`/`工单详情` 一致（[parcelDetail.vue:102](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/parcelDetail.vue#L102)）。
+- **时间用绝对时间**（`formatDateTime(createTime)`，[utils/format.js:7](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/utils/format.js#L7)），不用列表的相对时间（`relativeTime`）。理由：公文阅读里「几点发的」是内容的一部分，「3 天前」信息量不足；列表保持相对时间不改（列表是扫读）。
+- **元信息的两分支**（不得伪造数据）：
+  - `isPublished === true` → `{formatDateTime(createTime)} · 由 {publisherName || '管理员'} 发布 · 范围：{dictLabel(PUBLISH_SCOPE, publishScope)}`
+  - `isPublished === false`（系统联动）→ 只渲染 `{formatDateTime(createTime)}`。**不渲染「发布人/范围」行**：系统通知没有发布人，`publisherName` 为 `null`（[db.js:865-867](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/db.js#L865-L867)），凭空写「系统」属于伪造字段来源。来源由类型标签（工单指派／同步失败／请假申请…）表达，与列表口径一致。
+  - 范围只到档位（全员/指定驿站/指定员工），与列表同口径；沿用既有 `TODO(扩展)`（[NoticeList.vue:22-23](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L22-L23)），本页不新增目标明细。
+
+### D4.3 正文渲染规则（确定性，可验收）
+
+1. 按 `\n` 切分为段落；**过滤掉 `trim()` 后为空的段**。
+2. 每段渲染一个 `<p>`，段间距 `margin-top: var(--sp-4)`；首段为 0。
+3. 段内 `white-space: pre-wrap`（保留段内多余空格与缩进）。
+4. 段与容器 `overflow-wrap: anywhere; word-break: break-word`。
+5. **不设 `max-height`、不做「展开/收起」、不做 line-clamp**：正文上限 500 字符，全量展示就是本次需求本身；折叠等于把「读不全」换个地方复发。
+
+### D4.4 边界处理（逐项给结论）
+
+| 边界 | 结论 |
+| --- | --- |
+| 超长标题（上限 100 字符） | `<h1>` 完整换行展示，`overflow-wrap: anywhere`；**禁止 `line-clamp`/`text-overflow`**；标题最长约 4 行，不设滚动 |
+| 连续换行 / 多空行 | 由 D4.3 规则 1 归一为**单一段间距**（`--sp-4`）。理由：用户手输 5 个空行会在移动端拉出半屏空白，越过它要额外滑动 —— 又一处「读不全」 |
+| 纯英文长串（无空格，如运单号/URL） | `overflow-wrap: anywhere` 强制断行，**不出现横向滚动条**（`html/body` 已 `overflow-x: hidden`，[mobile.scss:16](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L16)；`#app` 另有 `max-width: 480px`，[mobile.scss:33](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L33)） |
+| 正文里出现 URL | **本轮按纯文本渲染**，不识别、不可点击。理由：可点击外跳涉及「是否允许外跳 + 域名白名单」的安全判定，须先取网络安全工程师结论，不得由实现顺手放开。登记 `TODO(扩展): 通知正文 URL 的识别与可点击（前置：安全评估结论 + 白名单）` |
+| 正文为空（`content` 为空串） | 理论上不会出现（发布校验 1-500 字符，[notification.js:81](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/notification.js#L81)）；仍须容错：渲染一行「（无正文）」用 `--text-3`，不留空白卡片 |
+| 标题为空 | 同上，回落到「（无标题）」；**不得**让 `<h1>` 空标签存在（焦点会落到空元素，读屏无输出） |
+
+## D5 状态最小集（7 态映射）
+
+沿用 B0.2 的 7 态最小集，逐态给落点：
+
+| 态 | 落点 | 具体表现 |
+| --- | --- | --- |
+| 默认 | 正常渲染 | D4.1 的四段结构 |
+| 加载 | `PageState :loading="true"` + `:rows="6"`（[PageState.vue:53-57](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/PageState.vue#L53-L57)） | 骨架延迟 200ms 才出现（[PageState.vue:27-45](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/PageState.vue#L27-L45)），快请求不闪骨架 |
+| 空（通知不存在 / 已删除） | `PageState :empty="true"` + `empty-text="该通知不存在或已被删除"` | 走 9001（D11.2）。**不给重试按钮**——数据不会自己回来，重试按钮是假动作 |
+| 错误（加载失败，可重试） | `PageState :error="errMsg"` + `@retry` | 沿用默认 `error-hint`「请检查网络后重试，若持续失败请联系管理员」；`role="alert"` + 44px 重试按钮已由组件提供（[PageState.vue:65-70, 125-134](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/PageState.vue#L65-L70)） |
+| 禁用 | 动作区按钮 `disabled` | 角色不可达时：按钮**保留可见但禁用** + `ActionBar` 的 `note` 说明原因（D6.3）。不隐藏——按钮凭空消失会让用户以为功能没了 |
+| 无权限访问 | **页面内不实现**；由路由守卫拦截 | ① 路由级：`meta.roles` 不匹配 → 既有守卫弹「当前演示身份无权访问该页面」并回首页（[router/index.js:232-235](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L232-L235)）；② 数据级：非本人通知**统一回 9001**，**故意不区分「不存在」与「非本人」**（不泄露他人通知的存在性）。因此页面**没有独立的「无权限」态**，`PageState` 的 `variant="denied"` 在本页不启用 |
+| 边界 | D4.4 六项 | 超长标题 / 长正文 / 连续空行 / 纯英文长串 / URL / 空字段 |
+
+**已读与未读在阅读页是否需要视觉区分 —— 结论：不做区分，但需一次「已标记」的语义确认。**
+
+- 不做徽标的理由：阅读页在时序上必然已是「已读」（进入即标记），渲染「未读」标签会与自身行为自相矛盾；渲染「已读」标签则毫无信息量（能读到这一页就说明已读）。
+- 需要的确认是**失败那一条**：标记已读失败时给 `van-notice-bar`（`left-icon="warning-o"`、`wrapable`、`color="var(--color-warning)"`、`background="var(--color-warning-surface)"`，与 [boss/home.vue:216-225](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/views/home.vue#L216-L225) 同口径），文案固定为：**「未能标记为已读，返回列表后该条仍显示为未读」**（说清后果与下次能做什么，不停留在「失败了」）。
+
+## D6 「去处理」动作区
+
+### D6.1 容器
+
+复用 `ActionBar`（`src/mobile/components/ActionBar.vue`）：
+
+- `actions.length === 0` 时整块**不渲染**（`v-if="actions.length"`，[ActionBar.vue:41](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/ActionBar.vue#L41)）→ 天然满足「未命中任何 `bizType` 时隐藏，不留空位」。
+- 单动作走 `single` 形态（第 1 个是主操作，占 2 倍宽度，[ActionBar.vue:24-29, 129-131](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/ActionBar.vue#L24-L29)）。
+- `note` 渲染在按钮上方（[ActionBar.vue:47, 133-139](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/ActionBar.vue#L47)），用于「角色不可达」的原因说明。
+- 页根加 `.page--bar`；带 `note` 时按 `parcelDetail.vue` 的做法多留 `--sp-6`（[parcelDetail.vue:148-151](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/parcelDetail.vue#L148-L151)）。
+
+### D6.2 动作表（`bizType × 角色`，逐格给结论）
+
+角色判定用既有 `useAuthStore`：`auth.isAdmin` / `auth.role`（与 [NoticeList.vue:148-150](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L148-L150) 同口径）。
+
+| `bizType` | 主按钮文案 | STAFF | STATION_ADMIN | ADMIN | 目标页 roles 依据 |
+| --- | --- | --- | --- | --- | --- |
+| `work_order` | 去处理工单 | `/staff/workorder/{bizId}` | 同左 | 同左 | `ALL_ROLES`（[router/index.js:118-121](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L118-L121)） |
+| `parcel` | 查看包裹 | `/staff/parcel/{bizId}` | 同左 | 同左 | `ALL_ROLES`（[router/index.js:106-110](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L106-L110)） |
+| `payroll` | 查看工资单 | `/staff/payroll/{bizId}` | 同左 | **`/boss/payroll/{bizId}`** | `/staff/payroll/:id` = `STAFF_ROLES`（[router/index.js:190-194](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L190-L194)）；`/boss/payroll/:id` = `[ADMIN]`（[boss/router.js:109-113](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/router.js#L109-L113)）。两侧读的是同一 id 空间（`GET /finance/payrolls/:id` 为 `ALL_ROLES`，[finance.js:231](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/finance.js#L231)） |
+| `sync_task` | 查看同步状态（STAFF 文案改为「同步状态页仅站长可见」见 D6.3） | **禁用** + note | `/staff/sync` | **`/boss/alerts`**，文案改「查看异常预警」 | `/staff/sync` = `[STATION_ADMIN]` 仅站长（[router/index.js:123-128](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L123-L128)）；管理端无同步页，但异常预警含同步失败批次（[boss/home.vue:109-114](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/views/home.vue#L109-L114)），`/boss/alerts` = `[ADMIN]`（[boss/router.js:57-62](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/router.js#L57-L62)） |
+| `flow` | 查看入离职流程 | `/staff/flow` | 同左 | `/boss/flow` | 员工端 `STAFF_ROLES`（[router/index.js:201-207](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L201-L207)）；管理端 `[ADMIN]`（[boss/router.js:115-119](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/router.js#L115-L119)）。**不深链到 `/boss/flow/:type/:id`**：通知未下发流程类型，沿用既有 `TODO(扩展)`（[NoticeList.vue:146](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L146)） |
+| `leave` | 查看请假单 | `/staff/leave` | `/staff/leave/review` | `/boss/leave` | 与 [NoticeList.vue:147-152](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L147-L152) 完全同口径，不改落点 |
+| `null` / 未登记值 | — | ActionBar 整块隐藏 | — | — | 公告无业务对象；未登记值同样隐藏（**不猜**，猜错会把用户送去无关页面） |
+
+### D6.3 角色不可达时的处理（结论）
+
+| 场景 | 表现 | 文案 |
+| --- | --- | --- |
+| STAFF 收到 `sync_task` | 按钮**保留可见、置 `disabled`**，`ActionBar note` 说明 | note：`同步状态页仅站长可见，请用站长身份查看`；按钮文案：`查看同步状态` |
+| 其它角色不可达（未来新增 `bizType` 时） | 同上 | note 统一格式：`{目标页名称}仅{允许的角色}可见` |
+
+- **为什么是「禁用 + 说明」而不是「隐藏」**：隐藏会让用户无法判断「这个通知本来有动作吗」；且现有代码在同等场景是弹 Toast（[NoticeList.vue:128-130](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L128-L130)），**告知能力不得退化**，只是把「点后才知道」提前到「一眼看到 + 原因写清」。
+- 禁用按钮的对比度豁免：WCAG 1.4.3 明确豁免非活动控件；`ActionBar` 的 `note` 用 `--text-3`，对照见 D8.3。
+- 兜底：`router.push` 前仍须用 `canAccess(roles, auth.user)`（[shared/domain/permission.js:5-8](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/domain/permission.js#L5-L8)）判一次；不可达则**原地降级为禁用 + note**，不再走「点了被守卫弹走」的路径。
+
+### D6.4 不命中任何 `bizType` 时
+
+`ActionBar` 整块隐藏（`actions = []`），页面底部不留空位，无 `note`。**不给「知道了」「关闭」这类伪动作**——阅读页的关闭语义由 `PageNav` 返回承担，多一个按钮只是噪音。
+
+## D7 返回路径、状态恢复与历史栈
+
+### D7.1 结论
+
+| 场景 | 返回落点 | 机制 |
+| --- | --- | --- |
+| 从列表进入 | 本端消息页 + **恢复原 Tab 与滚动位置**（+ 高亮刚读的那条） | `router.back()`（历史栈有上一页） |
+| 深链直达 / 刷新后 | 本端消息页消息子视图（默认「全部」Tab、顶部） | `router.replace('/{端}/message?tab=notice')`（历史栈无上一页） |
+| 从阅读页点「去处理」再返回 | 回到阅读页（保留 3 层栈：列表 → 阅读页 → 业务页） | 正常 `push`，不 `replace` |
+
+### D7.2 `PageNav` 的返回行为与深链兜底
+
+`PageNav` 内部固定 `router.back()`（[PageNav.vue:17-20](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/PageNav.vue#L17-L20)），**外部无法覆盖**（没有 back 事件）。深链场景下 `router.back()` 是空操作，用户会以为返回键坏了。
+
+**结论：给 `PageNav` 增加一个可选 prop `back-fallback`（String，默认 `''`）**：
+
+- `''`（默认）= 保持现行为 `router.back()` → **既有 40+ 页面零回归**。
+- 非空时：`window.history.state?.back` 为空（vue-router 4 在首条历史项写 `back: null`）→ `router.replace(backFallback)`；否则 `router.back()`。
+- 阅读页传值：员工端 `/staff/message?tab=notice`；管理端 `/boss/message?tab=notice`（`?tab=notice` 与既有重定向约定一致，[router/index.js:75](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L75)；`MessagePage` 只识别 `tab=todo`，其余落通知，[MessagePage.vue:27](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/message/MessagePage.vue#L27)）。
+- 为什么不用 `window.history.length > 1`（`bridge.js` 的桥接口径）：它把「只有前进项」也算作有上一页，判断比 `history.state.back` 粗。桥接侧保持原样（壳返回键走 [bridge.js:80-87](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/utils/bridge.js#L80-L87) 的既有逻辑），阅读页内的 NavBar 返回用更准的 `history.state.back`，两者互不覆盖。
+
+### D7.3 状态恢复（列表侧，必须做）
+
+**事实：移动端没有 `keep-alive`**（[App.vue:78-83](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/App.vue#L78-L83) 直接渲染 `component`），且 `scrollBehavior` 固定 `{ top: 0 }`（[router/index.js:221](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L221)）。→ 返回列表 = 组件重建 = **Tab 复位、滚动归顶、数据重拉**。
+
+**结论：必须恢复 Tab 与滚动位置。** 理由与本次需求同源：用户在列表深处点开一条通知，返回后被弹回顶部，需要重新滑动寻找 —— 又一次「点了没用」的体验。恢复规则：
+
+| 步 | 规则 |
+| --- | --- |
+| 1 | `onOpen` 前写 `sessionStorage['demo:notice-return'] = { tab, scrollTop, id }`（`tab` = `NoticeList` 的内部 Tab ref，`''`=全部 / `0`=未读） |
+| 2 | `NoticeList` 首屏数据加载完成后读取该键，**读完即删**（一次性，避免下次正常进入消息页时被误恢复） |
+| 3 | **Tab 恢复规则**：原 `tab === 0`（未读）→ 落到「**全部**」Tab 并高亮该条；否则落回原 Tab |
+| 4 | 滚动/定位：目标行存在 → `scrollIntoView({ block: 'center' })`；不存在 → `window.scrollTo(0, 0)` |
+| 5 | 高亮：给目标行加既有类 `is-highlight`（[mobile.scss:297-311](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L297-L311) 已提供 1.6s 主色底淡出），**零新增样式** |
+
+**第 3 步为什么这样定**：用户最常从「未读」Tab 点入。若严格恢复「未读」Tab，返回时该条已因已读而移出 → 用户看到「没有未读通知」空态，会以为通知丢了；切到「全部」并高亮，让「我刚读的那条」始终在视野内。原 Tab 为「全部」时行为完全不变。
+
+### D7.4 历史栈与 `router.replace`
+
+- **不做 `replace` 的中间态清理**：列表 → 阅读页 → 业务页 是三次有意义的导航，三层栈是真实路径，清理反而让「返回再看一眼通知」变成不可能。
+- **防重复入栈**：`onOpen` 的 `navigating` 标志（D3.3）+ vue-router 对同目标重复导航的中止行为。
+- **壳内返回键**：阅读页无 `meta.tabbar`，`consumeBack` 会走 `router.back()`（[bridge.js:80-87](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/utils/bridge.js#L80-L87)）；深链 + 壳返回键的边界（`history.length === 1` 时交原生「再按一次退出」）不在本页收口，登记 D13-5。
+- **深链返回不做定位**：目标条可能在第 3 页，列表也不属于「刚从列表进来」的上下文；登记 `TODO(扩展): 深链返回时按 id 定位到具体条（需列表支持游标定位）`。
+
+## D8 无障碍规范
+
+### D8.1 焦点管理（三条确定规则）
+
+| 时机 | 规则 | 依据 |
+| --- | --- | --- |
+| 进入阅读页（数据就绪后） | `<h1 tabindex="-1">` 取焦点 → 读屏从标题开始播报 | 单页应用换页后焦点默认留在 body，读屏不会自动播报新内容（[PageState.vue](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/PageState.vue) 等页均无此处理，本页补齐；`tabindex="-1"` 只让脚本可聚焦，不进 Tab 序列） |
+| 返回列表后 | 定位到 `saved.id` 对应行并 `element.focus()`（该行本就 `tabindex="0"`，[NoticeList.vue:211](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L211)）；行不存在则 `scrollTo(0,0)` 且**不夺焦点** | 焦点回到「用户离开时的位置」是 SPA 的等价于浏览器前进后退的行为；不夺焦点避免读屏被强行拖走 |
+| 返回后到达首个可聚焦元素 | `PageNav` 返回按钮（44×44、`aria-label="返回"`，[PageNav.vue:27-29, 54-65](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/PageNav.vue#L27-L29)）；键盘用户 Tab 一下即可操作 | 既有实现已达标，不新增 |
+
+### D8.2 读屏播报
+
+| 元素 | 处理 |
+| --- | --- |
+| 标题 | 原生 `<h1>`，由 D8.1 的聚焦触发播报 |
+| 标记已读失败提示条 | `van-notice-bar`；文案自带后果说明（D5）。**不额外加 `aria-live`**：它随页面一起渲染，读屏进入页面时会读到，加 live 会在页面刚加载时抢在标题前播报，把焦点管理的效果打乱 |
+| 正文段落 | 原生 `<p>` 序列，无需额外语义 |
+| 标签 | `StatusTag` 输出的是文本胶囊（[StatusTag.vue:133-134](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/StatusTag.vue#L133-L134)），文本即语义，达标 |
+| 加载/错误/空 | `PageState` 已给：错误 `role="alert"`、`denied` `role="status"`（[PageState.vue:59-70](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/PageState.vue#L59-L70)）。**空态分支当前无 `role`** → 登记 `TODO(扩展): PageState 的 empty 分支补 role="status"`（共享组件，需全端回归后单独改） |
+
+### D8.3 对比度实算（公式 + 中间量，禁止估值）
+
+**公式**（WCAG 2.x 相对亮度，sRGB）：
+
+```
+c' = c / 255
+c_lin = c' ≤ 0.03928 ? c' / 12.92 : ((c' + 0.055) / 1.055) ^ 2.4
+L = 0.2126·R_lin + 0.7152·G_lin + 0.0722·B_lin
+CR = (L_light + 0.05) / (L_dark + 0.05)
+```
+
+**中间量（本轮实算，逐条给 L）**
+
+| 颜色来源（Token → 原始十六进制） | 十六进制 | 相对亮度 L |
+| --- | --- | --- |
+| `--text-1`（`--c-neutral-800`） | `#1F2937` | 0.021525 |
+| `--text-2`（`--c-neutral-600`） | `#4B5563` | 0.088960 |
+| `--text-3`（`--c-neutral-500`） | `#6B7280` | 0.167299 |
+| `--text-placeholder`（`--c-neutral-400`） | `#9AA4B2` | 0.366340 |
+| `--color-primary`（`--c-blue-700`） | `#0958D9` | 0.120488 |
+| `--color-primary-icon`（`--c-blue-500`） | `#1890FF` | 0.273595 |
+| `--color-danger`（`--c-red-600`） | `#CF1322` | 0.138478 |
+| `--color-warning`（`--c-amber-700`） | `#B45309` | 0.159124 |
+| `--surface-card`（`--c-neutral-0`） | `#FFFFFF` | 1.000000 |
+| `--surface-page` / `--surface-subtle`（`--c-neutral-50`） | `#F5F7FA` | 0.928388 |
+| `--color-warning-surface`（`--c-amber-50`） | `#FFFBE6` | 0.959679 |
+
+**用例比值（本轮页面实际用到的组合）**
+
+| 用途 | 前景 / 背景 | 比值 | 阈值 | 判定 |
+| --- | --- | --- | --- | --- |
+| H1 标题、正文 | `--text-1` / `--surface-card` | (1.0+0.05)/(0.021525+0.05) = **14.68:1** | 4.5 | ✅ |
+| 元信息、动作区 note、列表 meta | `--text-3` / `--surface-card` | 1.05/0.217299 = **4.83:1** | 4.5 | ✅ |
+| 元信息若落到页面底色 | `--text-3` / `--surface-page` | 0.978388/0.217299 = **4.50:1** | 4.5 | ⚠️ 恰好达标**无余量** —— 故**强制要求正文与元信息一律落在 `--surface-card` 卡片内**（与 [mobile.scss:142-143](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L142-L143) 的既有结论同源：「无余量」即不许可） |
+| 「去处理」主按钮文字 | `--text-inverse` / `--color-primary` | 1.05/0.170488 = **6.16:1** | 4.5 | ✅ |
+| 已读失败提示条文字 | `--color-warning` / `--color-warning-surface` | 1.009679/0.209124 = **4.83:1** | 4.5 | ✅ |
+| 未读圆点 / 列表未读计数 | `--color-danger` / `--surface-card` | 1.05/0.188478 = **5.57:1** | 4.5 | ✅ |
+| 列表「可打开」chevron（非文本） | `--color-primary-icon` / `--surface-card` | 1.05/0.323595 = **3.24:1** | 3.0（SC 1.4.11） | ✅ |
+| 焦点环（非文本） | `--color-primary-icon` / `--surface-page` | 0.978388/0.323595 = **3.02:1** | 3.0 | ✅（余量极小，故焦点环不得改深底色） |
+| **反例：chevron 用 `--text-placeholder`** | `--text-placeholder` / `--surface-card` | 1.05/0.416340 = **2.52:1** | 3.0 | ❌ **不达标，禁止** |
+
+**结论与硬规则：**
+
+1. 阅读页的 **chevron 颜色 = `--color-primary-icon`**（3.24:1 ≥ 3:1）。语义上还与「可操作」的主色族一致（焦点环、描边按钮同族）。
+2. **禁止**用 `--text-placeholder` 画任何图标/图形（实算 2.52:1，不达 SC 1.4.11）。
+3. **禁止**用 `--color-primary-icon` 渲染任何**文字**（3.24:1 < 4.5:1）；正文/元信息只用 `--text-1` / `--text-3`，且必须落在 `--surface-card` 上。
+4. 页面 `<style>` 内**不得出现十六进制色值**（只允许出现在本节的对比度计算说明里）。
+
+### D8.4 触控与可读性
+
+| 项 | 判定 |
+| --- | --- |
+| 列表行热区 | `min-height: 64px`（`.list-item`，[mobile.scss:233](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L233)）；两行截断后实际约 107px（见 D10.2）→ 均 ≥44px ✅ |
+| 返回按钮 | 44×44（[PageNav.vue:56-58](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/PageNav.vue#L56-L58)）✅ |
+| 「去处理」按钮 | `min-height: 44px`（[ActionBar.vue:125-126](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/ActionBar.vue#L125-L126)）✅ |
+| chevron | **不单独做热区**（16px 图标），点击由整行承担；图标 `aria-hidden="true"`，不进入键盘序列 ✅ |
+| 重试按钮 | `min-height: var(--touch-min)`（[PageState.vue:126](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/PageState.vue#L126)）✅ |
+| 正文字号 | `--fs-body` 14px / `--lh-body` 21px → 行高比 **1.5×**，满足 SC 1.4.12（Text Spacing）的 1.5 下限；行长受 `#app` 的 `max-width: 480px` 约束（[mobile.scss:33](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L33)），中文约 30 字/行，属可读区间 |
+| 对齐 | **左对齐**；**禁止 `text-align: justify`**（中文两端对齐会拉出字间距空洞） |
+| 动效降级 | 复用既有全局 `prefers-reduced-motion` 兜底（[tokens.base.scss:244-253](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/styles/tokens.base.scss#L244-L253)）；本页无新动画，仅复用 `is-highlight`（`animation` 属性，自动被覆盖） |
+
+## D9 复用与新增
+
+### D9.1 直接复用（零改动）
+
+| 组件 | 路径 | 在本页承担 |
+| --- | --- | --- |
+| `PageNav` | `src/mobile/components/PageNav.vue` | 顶部导航 + 返回（新增 D7.2 的可选 prop，默认行为不变） |
+| `PageState` | `src/mobile/components/PageState.vue` | 加载骨架 / 加载失败可重试 / 通知不存在 |
+| `StatusTag` | `src/mobile/components/StatusTag.vue` | 公告标签 + 通知类型标签（`variant="outline"`，与列表同口径） |
+| `ActionBar` | `src/mobile/components/ActionBar.vue` | 固定底部「去处理」+ 角色不可达的 `note` |
+| `van-notice-bar` | Vant 4，已全局注册（[vant.js:56, 89](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/vant.js#L56)）与既有 Token（[tokens.scss:174-175](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/tokens.scss#L174-L175)） | 标记已读失败提示条 |
+| `is-highlight` / `visually-hidden` / `.page--bar` / `.card` | `src/mobile/styles/mobile.scss`（[297-311](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L297-L311) / [56-58](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L56-L58) / [107-110](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L107-L110) / [114-119](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L114-L119)） | 返回高亮、读屏补充文本、底部留白、卡片 |
+
+### D9.2 明确**不**复用（并给出理由）
+
+| 组件 | 为什么不用 |
+| --- | --- |
+| `ListItemCard` | 它是**列表行**容器（`marked`/`failed` 竖条 + 密度语义，[ListItemCard.vue:14-24](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/ListItemCard.vue#L14-L24)）；阅读页不是行，正文段落更不是「行」。用它会把「阅读」硬塞进「列表」语义 |
+| `BossScopeNote` | ① 文件头明确「管理端专属」（[BossScopeNote.vue:1-6](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/components/BossScopeNote.vue#L1-L6)），阅读页是两端共用页，引入即产生跨域依赖；② 它的语义是「口径说明」，不是「操作失败提示」，用错语义比复用更贵 |
+
+### D9.3 新增清单（最小化）
+
+| 类型 | 名称 | 落点 | 职责边界 |
+| --- | --- | --- | --- |
+| 页面（Organism/Page） | `NoticeReader.vue` | `src/mobile/views/message/` | 只负责：取详情、渲染 D4 四段结构、发起标记已读、按 D6 表渲染动作区、返回状态恢复。**不含**任何列表逻辑、不含发布入口、不含附件 |
+| 常量（1 条） | `NOTICE_ANNOUNCEMENT` | `src/shared/constants/dict.js` | 把 `NoticeList.vue:25` 的本地 `ANNOUNCEMENT_TAG` 提升为共享字典（公告 / 已发布标签） |
+| 可选 prop（1 个） | `PageNav.backFallback` | `src/mobile/components/PageNav.vue` | 深链返回兜底（D7.2）；默认 `''` 保持原行为 |
+
+**结论：本轮新增组件 1 个（`NoticeReader.vue`），新增通用子组件 0 个，新增 Token 0 个。**
+
+- **为什么不抽「只读长文」通用组件**：全站只有本页消费；项目规则 §2「出现三次以上必须抽取」（`.trae/rules/项目规则1.md` §2）未触发，现在抽是提前抽象。
+- **为什么不新增 Token**：D4.2 的取值全部落在既有字号/行高/间距/色族内（`--fs-h1/--lh-h1/--fs-body/--lh-body/--fs-caption/--lh-caption/--fs-micro/--sp-*/--r-*/--text-*/--color-*/--surface-*`）。唯一「想加」的是一条更宽松的正文行高（22px），但既有 5 档行高阶梯（[tokens.scss:49-58](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/tokens.scss#L49-L58)）无对应文档位，为单页新增一条违反 C3-5 的既定原则。若走查判定 1.5× 偏紧，按 C3 流程单独立项，并在本文件登记。
+
+## D10 列表侧配套改动
+
+### D10.1 「可打开」的视觉与语义提示（结论：两者都加）
+
+| 通道 | 做法 | 依据/取值 |
+| --- | --- | --- |
+| 视觉 | 行右侧加 **chevron**：`van-icon name="arrow"`，16px，色 `--color-primary-icon`，`aria-hidden="true"`；行容器 `position: relative` + 内容右侧留 `padding-right: var(--sp-6)`（24px） | 非文本比值 3.24:1 ≥ 3:1（D8.3）。**绝对定位**在行内垂直居中，不动现有标题行「公告 + 类型」两枚标签（[NoticeList.vue:217-227](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L217-L227)）与右侧「未读」标记的布局 |
+| 语义 | 行尾追加 `<span class="visually-hidden">，可打开阅读全文</span>` | 复用 [mobile.scss:56-58](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L56-L58)。**不给行加 `aria-label`**：`aria-label` 会整体覆盖容器内的可读文本（标题/正文/发布人/范围/时间全被吞掉），是净损失；追加视觉隐藏文本则保留原有内容并补上动作预期 |
+| 保留 | 现有 `role="button"`、`tabindex="0"`、`aria-busy`、Enter/Space 键兜底（[NoticeList.vue:210-215](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L210-L215)） | 四件套已由 `ListItemCard` 沉淀，此处为等价实现，不退化 |
+
+### D10.2 正文截断改为两行（结论：改）
+
+- 现状：`.list-item__meta` 无 `line-clamp`（[mobile.scss:269-274](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L269-L274)），长正文把行撑到十几行。
+- 目标：两行截断（`display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden`）。
+- 行高影响（确定性估算）：12(上 padding) + 21(标题行 `--lh-body`) + 4(`--sp-1`) + 36(2×`--lh-caption` 18px) + 4(`--sp-1`) + 18(时间/未读行) + 12(下 padding) = **107px**（`min-height: 64px` 只是下限，不冲突）。
+- 为什么是 2 行：12px × 2 行足以判断「这条讲什么、要不要点」；1 行不够判断（如「城东驿站设备检修通知」的正文只有第一行有信息量），3 行以上首屏可见条数掉出 4 条。
+- 只在 **阅读页** 展示全文：这既是本次需求，也让列表与阅读页职责分明（列表=扫读，阅读页=读全）。
+- **禁止**在列表里做「展开全文」：那等于把阅读页搬到列表，制造两个真相。
+
+### D10.3 未读态与读取进度在返回后如何同步
+
+| 项 | 机制 |
+| --- | --- |
+| 未读态 | 源数据由阅读页的 `notify.markRead` 写入 → **返回列表时重新拉取**（无 keep-alive，必然重拉）→ 行态以服务端为真。**不做前端本地改写**（避免与重新拉取的结果打架） |
+| 未读角标 | `notify.markRead` 内部 `set(unread - 1)`（[stores/notify.js:38-42](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/stores/notify.js#L38-L42)）；Tabbar 角标随 store 响应式更新 |
+| 「未读」Tab 下读掉一条 | 返回后该条已移出未读列表；由 D7.3 第 3 步切到「全部」Tab 并高亮，保证用户仍能看到它 |
+| 标记失败 | 该行返回后仍显示未读（正确反映服务端状态）；用户可再点一次重试（`markRead` 幂等） |
+| 列表自身 | 本轮不改列表的加载/分页/筛选逻辑（20 条/页的 `van-list` 保持原样），只改点击行为与视觉 | 
+
+## D11 Mock 契约（只出契约，不写实现）
+
+### D11.1 结论：**需要新增一个读口 `GET /notifications/:id`**
+
+**先回答「列表 VO 是否已含全部字段」：是。** 核对结论（两处互证）：
+
+- `toNotificationVO`（[notification.js:12-29](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/notification.js#L12-L29)）返回 `id / type / title / content / bizType / bizId / isRead / readTime / createTime / isPublished / publisherId / publisherName / publishScope`；
+- 种子数据写入的字段是同一组再加 `employee_id`（[db.js:849-914](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/db.js#L849-L914)）；
+- 正文上限 500 字符、标题上限 100 字符（[notification.js:80-81](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/notification.js#L80-L81)），**VO 里的 `content` 是全量正文**，不是摘要。
+
+→ **不需要新增 VO 字段、不需要改种子数据、不需要改 `db.js` 结构。** 唯一缺口是「按 id 取一条」，而现有接口里没有。
+
+**为什么不能靠前端传对象 / 列表缓存绕过（否决的三个方案）：**
+
+| 方案 | 否决理由 |
+| --- | --- |
+| A. 路由 `state` 或 Pinia 传整个对象 | 刷新页面、深链直达、壳内冷启动全部拿不到数据 → 阅读页退化为「请从消息列表进入」的死路，等于把 R-2 换个形式留下 |
+| B. 复用 `GET /notifications?pageNum=1&pageSize=100` 后前端 `find` | `pageSize` 硬上限 100（[validate.js:25-28](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/validate.js#L25-L28) 与 `CODE.BAD_REQUEST` 分支 [notification.js:32](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/notification.js#L32)）；单用户通知量已可超 100（种子 60 条 + 3 批手工发布），未来必破；且需遍历分页，是错误做法 |
+| C. `GET /notifications/:id`（**采用**） | 一行路由 + 一个 handler，复用同一 `toNotificationVO`；与 `PUT /notifications/:id/read` 的鉴权口径天然一致 |
+
+### D11.2 契约
+
+| 项 | 内容 |
+| --- | --- |
+| method / path | `GET /notifications/:id` |
+| roles | `ALL_ROLES`（与列表一致；数据层再按归属过滤） |
+| pathParams | `id`：通知 id（字符串数字；`Number()` 后比对） |
+| 入参 | 无 query、无 body（复用 `markRead` 的「无入参」风格，[api/notification.js:10](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/api/notification.js#L10)） |
+| 出参（成功） | `ok(toNotificationVO(n))` —— **与列表项/已读回写同一 VO 形状，零新增字段** |
+| 出参（失败） | 非本人 / 不存在 / id 非法 → **统一 `fail(DEMO_CODE.NOTIFICATION_NOT_EXISTS)` = 9001**，message 沿用既有值「通知不存在」 |
+| 数据源过滤 | `db.notifications.find(n => n.id === Number(id) && n.employee_id === user.id)` —— **与 `markRead` 逐字同条件**（[notification.js:48](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/notification.js#L48)），口径单点，不写第二份 |
+| 幂等性 | 纯读，天然幂等；**不在此接口里改已读**（读接口有副作用是坏味道，已读由 `PUT .../read` 单独承担） |
+
+**明确的三条「不新增」：**
+
+1. **不新增错误码**：9001 `NOTIFICATION_NOT_EXISTS` 已定义（[errorCode.js:71](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/constants/errorCode.js#L71)），复用它。**不为「id 非法」新增 400 分支** —— 与 `markRead` 现有口径保持一致（那边 `Number(NaN)` 查不到也回 9001），且「非法 id」与「他人 id」走同一响应可避免探测。
+2. **不区分「不存在」与「非本人」**：统一 9001，不泄露他人通知的存在性。
+3. **不新增种子字段**：`db.notifications` 现有列即足够。
+
+**注册顺序约束（必须遵守）：** 新路由须放在 `GET /notifications/unread-count` **之后**。Mock 引擎按 `routes` 数组顺序取**首个命中**（[mock/routes/index.js:20](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/index.js#L20)），若 `:id` 排在 `unread-count` 之前，`unread-count` 会被当成一个 id 命中。建议顺序：
+
+```
+GET  /notifications                 ← 现有（列表）
+GET  /notifications/unread-count    ← 现有（静态段，必须在 :id 之前）
+GET  /notifications/:id             ← 新增
+PUT  /notifications/read-all        ← 现有
+POST /notifications/publish         ← 现有（ADMIN）
+PUT  /notifications/:id/read        ← 现有
+```
+
+**前端配套（同样只给契约）：** ① [api/notification.js](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/api/notification.js) 增 `getNotification(id)`；② [stores/notify.js](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/stores/notify.js) 增 `fetchDetail(id)` 转发（延续 P1-7「组件不直连 api」与 `fetchList` 的既有写法，[stores/notify.js:33-35](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/stores/notify.js#L33-L35)）；③ **不改 `markRead` / `markAllRead` / `list` 的现有行为**。
+
+## D12 验收清单（逐条可判定）
+
+### D12.1 静态审查（无需运行）
+
+| # | 可判定语句 |
+| --- | --- |
+| S1 | `src/mobile/views/message/` 下存在 `NoticeReader.vue`；仓库内**没有**第二个通知详情页 |
+| S2 | 两条新路由的 path / name / meta 与 D2.1 表格**逐字一致**；`git diff` 中 `/boss/**` 既有路由条目**零改动**（仅新增条目 + 计数注释） |
+| S3 | `NoticeReader.vue` 的 `<style>` 内 `grep -E '#[0-9a-fA-F]{3,8}'` **无结果** |
+| S4 | `git status` 中 `package.json` / `package-lock.json` **无 diff**（零新增依赖）；仓库内**无**本页新增的图片资源引用（无 `assets/` 新增文件） |
+| S5 | `NoticeList.vue` 中已不存在 `pendingId`、`showFailToast` 的引入，`onOpen` 内不存在任何 `bizType` 分支与 `showToast` |
+| S6 | `NoticeList.vue` 中不存在 `else`/兜底跳转缺失的空分支（即 R-1 所指的「无分支即结束」结构已消失） |
+| S7 | `dict.js` 中新增 `NOTICE_ANNOUNCEMENT`，且 `NoticeList.vue` 与 `NoticeReader.vue` 均从此处 import（无第二份定义） |
+| S8 | `PageNav.vue` 新增 `backFallback` prop 且**默认值为 `''`**；除 `NoticeReader.vue` 外无其它调用方传该 prop |
+| S9 | `NoticeReader.vue` 未 import `BossScopeNote`；未 import 任何 `modules/boss/**` 下的文件 |
+| S10 | 阅读页所有可点元素在源码中的 `min-height` ≥ 44px（或继承自 `ActionBar`/`PageNav`/`PageState` 的既有 44px） |
+| S11 | `e2e/03-mobile-nav.spec.js:41` 里的 `#/staff/message` 断言仍成立（新路由是子路径，不改变该 URL） |
+| S12 | 页面内实现的三条对比度规则：chevron 用 `--color-primary-icon`；正文/元信息落在 `--surface-card` 内；无任何 `--text-placeholder` 用于图标 |
+
+### D12.2 e2e 可断言（Playwright，沿用 [e2e/utils/harness.js](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/e2e/utils/harness.js) 既有装置）
+
+| # | 断言 |
+| --- | --- |
+| E1 | 员工端：进入 `#/staff/message`，点击第一条**公告**列表项 → `await expect(page).toHaveURL(/#\/staff\/message\/notice\?id=\d+/)` |
+| E2 | 管理端：进入 `#/boss/message`，点击任一列表项 → URL 匹配 `#\/boss\/message\/notice\?id=\d+` |
+| E3 | E1 之后，页面 H1（`h1`）的 `textContent` 等于该条通知在列表中的完整标题文本（不截断、不含 `...`） |
+| E4 | 公告类（无 `bizType`）阅读页：`page.locator('[role=toolbar]')` 计数为 **0**（动作区隐藏） |
+| E5 | 有 `bizType` 的阅读页：`[role=toolbar]` 存在且恰有 1 个按钮；点击后 URL 命中 D6.2 表中该角色的目标 |
+| E6 | **管理端 payroll 用例（回归 D1.2 的既有缺陷）**：ADMIN 打开 `payroll` 通知的阅读页 → 点「查看工资单」→ URL 匹配 `#\/boss\/payroll\/\d+`，且**不出现**「当前演示身份无权访问该页面」Toast |
+| E7 | 员工端 STAFF 打开 `sync_task` 通知的阅读页：主按钮存在且 `disabled`，`note` 文本包含「仅站长可见」 |
+| E8 | 深链：直接打开 `#/staff/message/notice?id=999999` → 可见文本包含「该通知不存在或已被删除」，且**无**「重新加载」按钮 |
+| E9 | 返回：E1 之后 `page.goBack()` → URL 回到 `#/staff/message`，且原列表项可见并带 `is-highlight` 类 |
+| E10 | 未读→已读：从未读 Tab 点入一条 → 返回后未读数为 N-1（`tool-row` 文案「N-1 条未读」或在「全部」Tab 中该行不再有未读标记） |
+| E11 | 长正文：以 500 字符正文的公告打开阅读页 → 正文段落文本长度等于 500（或与列表项 `content` 全等），且页面**无横向滚动**（`document.documentElement.scrollWidth <= clientWidth + 1`） |
+| E12 | 边界：仅含英文长串（无空格）的公告 → 阅读页仍无横向滚动；列表项正文为 2 行截断（`-webkit-line-clamp` 生效，`scrollHeight > clientHeight`） |
+| E13 | 触控：阅读页 `[role=toolbar] button` 的 `boundingBox().height >= 44` |
+| E14 | 无控制台报错：进入并离开阅读页，`harness` 采集的 `pageErrors` 为空（沿用既有装置） |
+| E15 | 标记已读失败路径（可注入）：失败时页面出现 `van-notice-bar` 且文本含「未能标记为已读」；正文段落仍全部可见（不阻断） |
+
+### D12.3 实现方的自测义务
+
+| 项 | 命令/方式 |
+| --- | --- |
+| 构建与静态检查 | `npm run build`、`npm run lint`（沿用工程既有脚本） |
+| 单测 | `NoticeList` 若已有用例，须同步更新（点击不再发起写请求、不再跳业务页）；`PageNav` 的新 prop 补一条「默认行为不变」的用例 |
+| 四态实测 | 断网 → 错误态可重试；`?id=999999` → 不存在态；正常 → 默认态；慢网（DevTools throttling）→ 骨架不闪 |
+
+## D13 开放问题（需主智能体 / 用户裁决）
+
+| # | 问题 | 影响 | 我的倾向 |
+| --- | --- | --- | --- |
+| 1 | 通知是否需要「已读回执 / 谁读过」（发布人视角）？ | 需要新增聚合读口 + 发布人入口，本轮不含 | 本轮不做，按 `TODO(扩展)` 登记 |
+| 2 | 管理端 `payroll` 通知的目标用 `/boss/payroll/{bizId}`（工资单详情）还是 `/boss/payroll`（审核列表）？ | 影响 D6.2 一格 | 倾向详情页（`GET /finance/payrolls/:id` 为 `ALL_ROLES`，同一 id 空间；[finance.js:231](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/finance.js#L231)）。若产品认为管理员看的是「整批审核」，则改为列表 |
+| 3 | `sync_task` 通知在管理端的落点定为 `/boss/alerts` 是否可接受？ | 管理端无同步专页，只能落异常预警 | 倾向接受（异常预警含同步失败批次，[boss/home.vue:109-114](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/views/home.vue#L109-L114)） |
+| 4 | 新增 `GET /notifications/:id` 是否需同步登记到 `api.md` 类文档？ | 文档一致性；本轮我只写 D 章，Mock 契约由后端工程师落地 | 倾向同步登记（Demo 契约已有独立文档惯例） |
+| 5 | `PageNav` 增 `backFallback` prop（影响 40+ 共享调用方）是否允许本轮改？ | 不允许则深链返回降级为「不处理，靠壳/浏览器返回键」 | 倾向允许（默认值保持原行为，回归面 = 0；且属阅读页可用的必要条件） |
+| 6 | 「原 Tab 为未读 → 返回改落全部 Tab 并高亮」这一行为变更是否接受？（D7.3 第 3 步） | 不接受则返回未读 Tab 时会看到空态 | 倾向接受（避免「通知丢了」的错觉） |
+| 7 | 列表正文改两行截断是否接受？（会让长公告的行高到约 107px，首屏可见条数减少） | 影响列表密度 | 倾向接受（列表=扫读，读全交给阅读页） |
+| 8 | 正文内 URL 是否要做成可点击外跳？ | 若做，涉安全评估（外跳 + 白名单），须先取网络安全工程师结论 | 本轮按纯文本，登记 `TODO(扩展)` |
+| 9 | 用户口中的「文件」是否需要**真正的附件能力**（上传/预览/下载）？ | 若需要，属新数据概念 + 存储 + 类型白名单 + 鉴权 + 预览实现，远超本轮 | 本轮按「通知条目本身」理解；附件登记 `TODO(扩展): 通知附件字段与预览能力` |
+| 10 | 通知是否需要一个「列表 → 阅读页」之间的**点击热区标记**（现为整行可点）？是否保留整行可点？ | 影响点击精度与误触 | 倾向保留整行可点（行高 ≥64px，远大于 44px 下限） |
+
+## D14 交付前自检（本规范自身）
+
+| 检查项 | 结果 |
+| --- | --- |
+| 只改文档、零源码改动 | ✅ 仅新增本 D 章；未触碰任何 `.vue`/`.js`/`.scss` |
+| `hrm-admin` / `hrm-server` / `hrm-android-shell` 零改动 | ✅ 未涉及 |
+| `/boss/*` 既有 path / name / meta 冻结 | ✅ 只新增 `/boss/message/notice`；D2.2 逐条说明 |
+| 员工端既有文案不动 | ✅ 阅读页为新页面；`NoticeList` 的既有文案（空态、Toast）除按 D3.3 删除死分支外不改写 |
+| 无新第三方依赖、无图片资源 | ✅ D9.3 新增清单仅 1 个页面 + 1 条字典 + 1 个可选 prop |
+| Token 一律用变量名，无裸十六进制 | ✅ D4.2 全部用 Token；十六进制仅出现在 D8.3 的对比度计算说明中 |
+| 对比度实算、≥4.5:1 | ✅ D8.3 给出公式、11 个 L 中间量与 8 组比值；并登记 1 处反例（`--text-placeholder` 2.52:1 不达标） |
+| 触控 ≥44px | ✅ D8.4 逐元素 |
+| 每条结论可执行、无「酌情/视情况」 | ✅ 12 项要求逐项给结论；开放问题集中列于 D13 |
+| 需要裁决的点已升级 | ✅ D13 共 10 条，含 3 条安全/数据面（#1 #8 #9） |
+
+---
+
+## D15 主智能体裁决（Review 结论 · 2026-09-23）
+
+> D 章整体**采信**并进入实现。本节只记独立复核结论、开放问题裁决与实现范围锁定；冲突处以本节为准。
+
+### D15.1 独立复核（逐条实测，不采信转述）
+
+| 复核项 | 结论 |
+| --- | --- |
+| 列表 VO 已含全部展示字段 | **成立**。`toNotificationVO`（[notification.js:12-29](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/notification.js#L12-L29)）含全量 `content`；标题上限 100、正文上限 500（[:80-81](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/notification.js#L80-L81)） |
+| 新读口须与 `markRead` 同过滤条件 | **成立**：[notification.js:48](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/notification.js#L48) 为 `x.id === Number(id) && x.employee_id === user.id`，新读口逐字同条件 |
+| 复用 9001 可行 | **成立**：[errorCode.js:71](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/constants/errorCode.js#L71) `NOTIFICATION_NOT_EXISTS: 9001` |
+| 注册顺序约束 | **成立**：[notification.js:122-128](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/notification.js#L122-L128) 现序 list → unread-count → read-all → publish → `:id/read`；`/notifications/:id` 必须排在 `unread-count` **之后** |
+| Mock 引擎支持路径参数 | **成立**：[engine.js:34](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/engine.js#L34)「路径参数 `:id` → 正则捕获组」，且已有 `/notifications/:id/read` 先例 |
+| `/boss/payroll/:id` 存在 | **成立**：[boss/router.js:109-111](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/router.js#L109-L111) |
+| 复用组件与 Vant 组件均可得 | **成立**：`ActionBar` / `PageNav` / `StatusTag` / `PageState` 均在 `src/mobile/components/`；`Icon` / `NavBar` / `NoticeBar` 已在 [vant.js:11,14,15](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/vant.js#L11) 注册 |
+| 既有 e2e 无「点通知直达业务页」断言 | **成立**：[03-mobile-nav.spec.js:41-44](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/e2e/03-mobile-nav.spec.js#L41-L44) 只断言消息页 Tab，本次行为变更不破坏既有用例 |
+| **D10.2 的样式落点** | ⚠️ **需纠正**：`.list-item__meta`（[mobile.scss:270](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L270)）全工程 **77 处**复用，两行截断若落在共享类上会波及全部列表页。**必须只在 `NoticeList.vue` 的 `<style scoped>` 内、以新增修饰类**（如 `.list-item__meta--clamp2`）作用于正文那一行（[NoticeList.vue:228](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L228)），**不得改 `mobile.scss`**。同理 chevron 所需的 `position: relative` 与 `padding-right` 也一律落 scoped |
+| **计数注释既有不一致** | ⚠️ **上一轮遗留缺陷**：[boss/router.js:9](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/router.js#L9) 已写「24 条 / 22 个管理端页面」，而 [router/index.js:37](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L37) 仍写「21 个管理端页面」。本轮一并修正（见 D15.3） |
+
+### D15.2 开放问题裁决（D13 十条）
+
+| # | 裁决 | 说明 |
+| --- | --- | --- |
+| 1 | **批准「本轮不做」** | 已读回执需发布人视角聚合读口，超范围；登记 `TODO(扩展)` |
+| 2 | **批准 `/boss/payroll/{bizId}`**（详情页） | 与员工端同一 id 空间；两页读的均含 `ALL_ROLES` 的工资单读口 |
+| 3 | **批准 `/boss/alerts`**，文案「查看异常预警」 | 管理端无同步专页；异常预警含同步失败批次 |
+| 4 | **调整：不做文档登记** | `docs/api.md` 是**一期生产后端**契约，demo mock 不在其列；经查 `docs/demo-design.md` 亦无通知契约小节。本 D 章 + `update-log.md` 即契约真源 |
+| 5 | **批准 `PageNav.backFallback`** | 默认 `''` 完全保持原行为，回归面 0；是阅读页深链可用的必要条件 |
+| 6 | **批准**「未读 Tab → 返回落全部 Tab + 高亮」 | 否则返回看到空态，用户会以为通知丢了 |
+| 7 | **批准**两行截断，**但落点按 D15.1 纠正**（scoped + 修饰类） | 列表=扫读，读全交给阅读页 |
+| 8 | **批准**正文 URL 按纯文本 | 可点击外跳涉安全评估（外跳 + 白名单），不得由实现顺手放开；登记 `TODO(扩展)` |
+| 9 | **批准**「文件」= 通知条目；附件不做 | 全工程无附件数据概念；登记 `TODO(扩展): 通知附件字段与预览能力` |
+| 10 | **批准**保留整行可点 | 行高 ≥64px，远大于 44px 下限 |
+
+### D15.3 实施范围锁定（必改文件，清单外不擅动）
+
+1. `src/mobile/views/message/NoticeReader.vue`（**新建**，按 D4/D5/D6/D8）
+2. `src/mobile/components/NoticeList.vue`（`onOpen` 退化为一行导航；删 `pendingId`/忙碌指示/失败 Toast/全部 `bizType` 分支；加 chevron + 视觉隐藏动作语义 + 两行截断修饰类；返回态恢复）
+3. `src/mobile/components/PageNav.vue`（**仅**新增 `backFallback` prop，默认 `''`）
+4. `src/mobile/router/index.js`（新增 `/staff/message/notice`；**并修正 :37 的计数注释**）
+5. `src/mobile/modules/boss/router.js`（新增 `/boss/message/notice`；计数注释 24 → 25）
+6. `src/shared/constants/dict.js`（新增 `NOTICE_ANNOUNCEMENT`，`NoticeList` 与 `NoticeReader` 共用，**不得留第二份定义**）
+7. `src/shared/mock/routes/notification.js`（新增 `GET /notifications/:id`，注册在 `unread-count` 之后）
+8. `src/mobile/api/notification.js`（新增 `getNotification(id)`）
+9. `src/mobile/stores/notify.js`（新增 `fetchDetail(id)`）
+10. `hrm-dev/hrm-demo/scripts/verify-mock.mjs`（新增断言，见 D15.4）
+11. `hrm-dev/hrm-demo/e2e/03-mobile-nav.spec.js`（新增 A3-8）
+
+**禁止改动**：`src/mobile/styles/mobile.scss`（本轮零共享样式改动）、`src/pc/**`、`src/mobile/views/staff/**`（既有文案）、`src/shared/mock/db.js`（种子零改动）、`hrm-admin/**`、`hrm-server/**`、`hrm-android-shell/**`。
+
+### D15.4 门禁与新增断言
+
+- `verify:mock` 至少新增 4 条（当前基线 **887**，脚本自报总数，无硬编码期望值）：
+  ① `GET /notifications/:id` 正常取回，字段形状与列表项**同形**且 `content` 全等；
+  ② 用他人（非本人）通知 id 取 → **9001**；
+  ③ 不存在的 id → **9001**；
+  ④ **读接口无副作用**：调用前后该条 `is_read` 不变。
+- `e2e` 新增 **A3-8**：员工端 `#/staff/message` 点第一条公告 → URL 命中 `#/staff/message/notice?id=\d+`；`h1` 文本等于列表标题全文；`[role=toolbar]` 计数为 0；`goBack()` 回到 `#/staff/message`。其余沿用 D12.2。
+- 全量沿用工程既有门禁：`lint` / `lint:style` / `test` / `verify:mock` / `verify:mobile` / `build` / `build:prod` / `e2e`。
 
 

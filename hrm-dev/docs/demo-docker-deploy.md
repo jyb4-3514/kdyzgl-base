@@ -57,7 +57,7 @@
   `/data/www/kdyzzhxt/courier-server/nginx/nginx.conf`），改动 2 处 `location`。
 - **对外表现变化：** 仅 `https://kongzhen1.com/`（根路径）由「快递驿站管理系统 · 后端 API 服务运行中」静态欢迎页
   变为演示站入口。
-- **明确不变：** `/admin/`（老板网页端）、`/api/`（后端反代）、`/photos/`、`/apk/`、`/download`、`/health`
+- **明确不变：** `/admin/`（管理员网页端）、`/api/`（后端反代）、`/photos/`、`/apk/`、`/download`、`/health`
   逐条保持原样（nginx 前缀匹配「最长者优先」，`/` 的 catch-all 不会抢占以上任一前缀）。
 
 ### ② 是否可逆

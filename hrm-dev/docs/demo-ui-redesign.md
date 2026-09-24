@@ -5,7 +5,7 @@
 | 文档版本 | v1.0 |
 | 编写日期 | 2026-09-17 |
 | 作者 | UI/UX 设计师 |
-| 适用范围 | `hrm-dev/hrm-demo`（网页端 pc.html / 老板端 + 员工端 mobile.html / 端选择页 index.html） |
+| 适用范围 | `hrm-dev/hrm-demo`（网页端 pc.html / 管理端 + 员工端 mobile.html / 端选择页 index.html） |
 | 交付对象 | 前端工程师（照本文「10 落地实施清单」逐项落地） |
 | 关联文档 | [demo-design.md](demo-design.md)（信息架构 5 章、数据契约 7.4）、[requirement.md](requirement.md)（一期语义与角色） |
 
@@ -98,7 +98,7 @@ grep -rn -E "#[0-9a-fA-F]{6}" hrm-dev/hrm-demo/src | wc -l
 | P33 | [workorder.vue:130-136](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/workorder.vue) 列表行 `<div @click>`、[notification.vue:110](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/notification.vue)、[alerts.vue:97-102](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-demo/src/mobile/views/boss/alerts.vue)、[rank.vue:88](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/rank.vue) | 可点击列表行为 `<div @click>`，无 `role`/`tabindex`/键盘事件；`notification.vue:105` 的"全部已读"是 `<span @click>` | 外接键盘/无障碍开关/读屏用户无法打开列表项；`aria-label` 全端缺失（含 [LineChart.vue:81](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/LineChart.vue) 的 `role="img"` 但没有 `aria-label`，而 PC 的 TrendChart 有） |
 | P34 | 触控目标实测不足 44px（按 CSS 声明推算高度：padding×2 + 字号×1.2 + 边框）：[login/index.vue:133-140](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/login/index.vue) 一键体验按钮 ≈25px；[rank.vue:133-140](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/rank.vue) 排序 chip ≈30px；[workorder.vue:171-181](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/workorder.vue) `filter__chip` ≈23px；[notification.vue:138-141](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/notification.vue) "全部已读" ≈17px；[pickup.vue:162-169](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/pickup.vue) 演示运单号 ≈33px；[LineChart.vue:157-165](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/LineChart.vue) 图例 ≈17px | 驿站现场单手持机、戴手套操作，误触率显著上升；WCAG 2.5.5 (AAA 44px) 与 2.5.8 (AA 24px) 均不满足 |
 | P35 | [boss/trend.vue:107-118](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/trend.vue) 自定义 `.metric` 卡 | 与 `StatCard` 同一"指标卡"概念**第二份实现**，且数值字号不同（20px vs [StatCard.vue:44](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/StatCard.vue) 22px）、圆角与内边距不同 | 同屏"指标"两种字重；按项目"同一逻辑不得三次实现"红线，此处已是第二次，必须收口到 `StatCard` |
-| P36 | [LineChart.vue:16](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/LineChart.vue) `H = compact ? 92 : 190` 且 `compact` 时 `PAD` 全为 8、隐藏全部轴与网格 | 老板端首页的迷你趋势图**没有任何量纲参照**（无轴、无末值标注），只有形状 | 数据被"形状化"：老板看到曲线上升但不知是 100 件还是 10 万件；首页最重要的图无法读数 |
+| P36 | [LineChart.vue:16](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/LineChart.vue) `H = compact ? 92 : 190` 且 `compact` 时 `PAD` 全为 8、隐藏全部轴与网格 | 管理端首页的迷你趋势图**没有任何量纲参照**（无轴、无末值标注），只有形状 | 数据被"形状化"：管理员看到曲线上升但不知是 100 件还是 10 万件；首页最重要的图无法读数 |
 | P37 | 移动端页面无过渡动画；[mobile.scss:136-148](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss) `highlight-fade 2.4s` 是唯一动效；全端无 `prefers-reduced-motion` 处理 | 页面切换生硬；且骨架→内容的切换无淡入，数据到达瞬间"跳变" | 观感廉价；对前庭敏感用户无法降级动效（WCAG 2.3.3） |
 | P38 | [TabbarLayout.vue:34](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/layout/TabbarLayout.vue) `active-color="#1677ff" inactive-color="#969799"` | 内联色值绕过 Token；`inactive-color:#969799` 在 Tabbar 白底上对比度约 2.9:1 | 与 P28 同源问题；Tabbar 文字偏淡，老年员工辨识困难 |
 
@@ -623,12 +623,12 @@ L3 Component（组件层，覆盖第三方库变量 + 组件私有尺寸）
 | 端 | 用户 | 场景 | 视觉主张 |
 | ---- | ---- | ---- | ---- |
 | 网页端 | 管理员（总部） | 桌面、长时间批量操作（20 万包裹、批量工单） | **「数据密集 · 克制 · 可扫读」**：满屏信息、弱装饰、强列对齐、表头固定、一切为"快速定位与批量操作"服务 |
-| 老板端（移动·ADMIN） | 经营决策者 | 碎片时间看全局（通勤/会议间隙） | **「少而醒目 · 先看趋势与异常」**：首屏 ≤3 个信息块，大字号数值，深色 Hero 报头建立"经营报告"心智 |
+| 管理端（移动·ADMIN） | 经营决策者 | 碎片时间看全局（通勤/会议间隙） | **「少而醒目 · 先看趋势与异常」**：首屏 ≤3 个信息块，大字号数值，深色 Hero 报头建立"经营报告"心智 |
 | 员工端（移动·站长/员工） | 一线作业者 | 站点现场、单手持机、可能戴手套 | **「待办优先 · 一步到位」**：首屏即"今天要做什么"，关键动作固定可达（不靠滚动），列表高密度、触控目标大 |
 
-### 3.2 老板端 vs 员工端 差异表（同一套 Vant 组件下）
+### 3.2 管理端 vs 员工端 差异表（同一套 Vant 组件下）
 
-| 维度 | 老板端 | 员工端 | 共享（必须一致） |
+| 维度 | 管理端 | 员工端 | 共享（必须一致） |
 | ---- | ---- | ---- | ---- |
 | Hero 底色 | `--grad-hero-deep`（`#1F2937 → #111827` 深蓝灰）＋ 1px 主色顶边 | `--grad-hero`（`#0958D9 → #0745A8` 品牌蓝） | 高度 88px、圆角 `--r-lg`、白字阶梯、范围/角色 chip 形态 |
 | Hero 内容 | 今日日期+星期 / 数据截止时间 / **口径 chip（全域｜本站）** | 驿站名 / 姓名+角色 chip / **今日待处理条数** | — |
@@ -727,7 +727,7 @@ L3 Component（组件层，覆盖第三方库变量 + 组件私有尺寸）
 
 #### C-M1 `StatCard`（改造）
 
-- **Anatomy**：`① 标签 Caption 12/400 --c-neutral-500` + `② 数值 Num-lg（老板 24 / 员工 22）/600 + 单位 12/400 --c-neutral-500` + `③ 环比行 Caption 12（`↑ 12.4%` 绿 / `↓ 3.1%` 红）`
+- **Anatomy**：`① 标签 Caption 12/400 --c-neutral-500` + `② 数值 Num-lg（管理员 24 / 员工 22）/600 + 单位 12/400 --c-neutral-500` + `③ 环比行 Caption 12（`↑ 12.4%` 绿 / `↓ 3.1%` 红）`
 - **Variants**：`primary`/`success`/`warning`/`danger`/`neutral`（决定数值色，取 600/700 档而非 500 档 → 保证 4.5:1）；`dense`（无环比，用于工作台）
 - **States**：default / active（`transform: scale(.985)`，`--dur-fast`）/ focus-visible / disabled（`opacity .5` 不适用）/ loading（数值 60×24 骨架）/ empty（`—`）/ error（`—` + 12px 危险文案"加载失败"）
 - **Token**：卡 `--c-neutral-0` / `--r-lg`(12) / `padding: var(--sp-4)` / `--e1`；数值与标签间距 `--sp-2`
@@ -964,7 +964,7 @@ L3 Component（组件层，覆盖第三方库变量 + 组件私有尺寸）
 | Tabs | 高 44px，标签 14/400（选中 14/600 + 主色），下划线 2px 主色、宽等于文字宽 |
 | 搜索 | `van-search` 高 44，`--r-full`，底 `#FFFFFF`，placeholder `--c-neutral-400` |
 
-### 5.7 移动端 · 老板端
+### 5.7 移动端 · 管理端
 
 #### B1 登录页（`views/login/index.vue`）
 
@@ -974,7 +974,7 @@ L3 Component（组件层，覆盖第三方库变量 + 组件私有尺寸）
 │  快递驿站智汇系统         │ ← H1 20/600（现状 22/600，归位）
 │  移动端演示 · 纯 Mock 数据 │ ← Caption 12 --c-neutral-500
 │ ┌─────────────────────┐ │
-│ │ 一键体验：[老板][站长][员工]│ ← 胶囊，高 32（描边式，非必需触控目标）
+│ │ 一键体验：[管理员][站长][员工]│ ← 胶囊，高 32（描边式，非必需触控目标）
 │ │ 账号  [__________]   │ │ ← 控件高 44
 │ │ 密码  [__________]   │ │
 │ │      [    登录    ]  │ │ ← 高 44，实底 #0958D9
@@ -1022,9 +1022,9 @@ L3 Component（组件层，覆盖第三方库变量 + 组件私有尺寸）
 | Hero | 新增（现状无 Hero，首屏直接从 4 卡开始）→ 建立"经营报告"心智；口径 chip 用 24px 高描边胶囊（白字 + `rgba(255,255,255,.24)` 底） |
 | 环比 | **新增**（数据契约无同比字段，故用"近 7 天日均 vs 今日"本地推导，无数据时整行隐藏）；实现标注 `TODO(扩展): 待后端出环比字段后改为直接取值` |
 | 趋势卡 | `compact` 模式补末值标注与最高/最低档刻度（修 P36）；点击整卡进入 B3 |
-| 组织规模 | 移至末位并默认折叠（修"一期指标占据老板视线"） |
+| 组织规模 | 移至末位并默认折叠（修"一期指标占据管理员视线"） |
 | 区块顺序 | Hero → 指标 → 异常条 → 趋势 → 同步健康度 → 排行 TOP3（新增）→ 组织规模 |
-| 驿站 TOP3 | **新增**（老板首页需要"哪里好/哪里差"的一个抓手；数据来自既有 `getParcelRanking`，无需新接口） |
+| 驿站 TOP3 | **新增**（管理员首页需要"哪里好/哪里差"的一个抓手；数据来自既有 `getParcelRanking`，无需新接口） |
 | 三态 | loading 用骨架（Hero 88 块 + 4 卡 + 96 图，修现状"整页 `PageState` 骨架行"导致 Hero 缺失）；error 保留 `PageState` 错误态；empty（无数据）在趋势卡内空态 |
 
 #### B3 包裹趋势（`views/boss/trend.vue`）
@@ -1295,7 +1295,7 @@ L3 Component（组件层，覆盖第三方库变量 + 组件私有尺寸）
 ┌────────────┬────────────┬────────────┐
 │▔▔ 蓝       │▔▔ 深蓝灰    │▔▔ 蓝        │ ← 4px 顶部色条区分端
 │PC/Desktop  │Mobile       │Mobile       │ ← 12px 主色 500 档
-│网页端       │老板端        │员工端        │ ← 18/600
+│网页端       │管理端        │员工端        │ ← 18/600
 │角色说明…    │说明…        │说明…         │ ← 12px --c-neutral-500
 │→ 进入网页端 │→ 进入移动端  │→ 进入移动端   │ ← 12px #0958D9
 └────────────┴────────────┴────────────┘
@@ -1432,7 +1432,7 @@ L3 Component（组件层，覆盖第三方库变量 + 组件私有尺寸）
 | 图标/文字 | 图标 22px；文字 10/400（Vant 默认，不放大以保 5 项不挤） |
 | 色 | 选中 `#0958D9`；未选中 `#6B7280`；底色 `#FFFFFF`；上沿 1px `--border-line` |
 | 角标 | 底 `#CF1322` 白字 10px，`--r-full`，右上偏移 2px；未读为 0 时不渲染（保留逻辑） |
-| 可见项数 | 固定 5 项（老板端 5 / 员工端 5），不增减 |
+| 可见项数 | 固定 5 项（管理端 5 / 员工端 5），不增减 |
 | 触控 | 每项宽 = 屏宽/5（375pt 下 75px），高 50px → 达标 |
 
 ### 7.3 列表项密度
@@ -1515,7 +1515,7 @@ L3 Component（组件层，覆盖第三方库变量 + 组件私有尺寸）
 | `#0958D9` | `#FFFFFF` | 6.16 | 链接/可点文字 | 4.5 | 通过 |
 | `#FFFFFF` | `#0958D9` | 6.16 | 主按钮/NavBar/Tabbar 选中 | 4.5 | 通过 |
 | `#FFFFFF` | `#0745A8` | 8.66 | 主按钮 hover、Hero 深端 | 4.5 | 通过 |
-| `#FFFFFF` | `#1F2937` | 14.66 | 侧栏菜单激活、老板端 Hero | 4.5 | 通过 |
+| `#FFFFFF` | `#1F2937` | 14.66 | 侧栏菜单激活、管理端 Hero | 4.5 | 通过 |
 | `rgba(255,255,255,.82)` 合成 `#D7E2F4` | `#0958D9` | ≈5.40 | Hero 副信息 | 4.5 | 通过 |
 | `#237804` | `#F6FFED` | 5.15 | 成功标签 | 4.5 | 通过 |
 | `#B45309` | `#FFFBE6` | 4.71 | 警告标签 | 4.5 | 通过 |
@@ -1567,7 +1567,7 @@ L3 Component（组件层，覆盖第三方库变量 + 组件私有尺寸）
 3. `el-table` 行高在 Token 覆盖后是否真正为 44px；
 4. Tabbar 实际高度与 FAB `bottom` 计算是否吻合（U5）；
 5. `van-tag` `plain` 与自定义 `solid` 形态的视觉重量是否与 PC `StatusTag` 匹配；
-6. 320px 视口下老板端 Hero 内两行文字与 chip 是否溢出。
+6. 320px 视口下管理端 Hero 内两行文字与 chip 是否溢出。
 
 ---
 

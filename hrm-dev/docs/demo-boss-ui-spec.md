@@ -1,15 +1,27 @@
-# 快递驿站智汇系统 · 移动端「老板端」精细化开发设计规范
+# 快递驿站智汇系统 · 移动端「管理端」精细化开发设计规范
 
 | 项目 | 内容 |
 | ---- | ---- |
-| 文档版本 | v1.0 |
+| 文档版本 | v1.1 |
 | 编写日期 | 2026-09-22 |
+| 修订日期 | 2026-09-23 |
 | 作者 | UI/UX 设计师 |
-| 适用范围 | `hrm-dev/hrm-demo` 移动端老板端（`mobile.html`，`roles: ['ADMIN']` 的 21 个页面 + 其消费的组件与共享内核） |
+| 适用范围 | `hrm-dev/hrm-demo` 移动端管理端（`mobile.html`，`roles: ['ADMIN']` 的 21 个页面 + 其消费的组件与共享内核） |
 | 交付对象 | 主智能体（评审）→ 前端工程师（照本文件逐项落地）→ 测试工程师（照第 10 章验收） |
 | 本轮产出 | **仅本设计规范，不改任何源码** |
 | 依据文档 | [demo-ui-redesign.md](demo-ui-redesign.md)（Token 三层体系）、[demo-ux-improvement.md](demo-ux-improvement.md)（M1 冻结规范）、[demo-mobile-nav-redesign.md](demo-mobile-nav-redesign.md)（三 Tab 信息架构 + 95 条迁移映射）、[demo-leave-design.md](demo-leave-design.md)、[demo-sync-config-design.md](demo-sync-config-design.md) |
 | 上位约束 | 项目规则 §12（`hrm-admin`/`hrm-server` 零改动）、§8.1（先设计后实现）、§5.1（测试工程师视觉/响应式验收） |
+
+### 修订记录
+
+| 版本 | 日期 | 变更 | 落点 |
+| ---- | ---- | ---- | ---- |
+| v1.0 | 2026-09-22 | 首版（§0–§11 + 附录 A–C）；主智能体裁决以 §12 追加 | §0–§12 |
+| v1.1 | 2026-09-23 | 新增「驿站精灵」品牌落位规范、考勤明细页设计规范；新增附录 D（本轮色值实算） | **§13、§14、附录 D** |
+
+**章节索引（v1.1 全文）**：§0 取证与范围 / §1 组件库清单与缺口 / §2 响应式与多设备 / §3 UI/UX 一致性（Token）/ §4 加载性能 / §5 交互反馈 / §6 RBAC 展示口径 / §7 跨浏览器 / §8 数据可视化 / §9 反模式清单 / §10 走查检查表 / §11 开放问题 / §12 主智能体裁决 / **§13 「驿站精灵」品牌落位规范（新增）** / **§14 考勤明细页设计规范（新增）** / 附录 A 对比度实算 / 附录 B Vant 反馈分布 / 附录 C 与既有文档关系 / **附录 D 本轮新增对比度实算（新增）**
+
+> 与 §12 的关系：§12 为 v1.0 主智能体裁决，**继续有效且优先级最高**；§13/§14 为其后新增规范，冲突时以 §12 的裁决原则（复用优先、不改共享内核语义、绝不用 0/`—` 冒充业务结论）为准。
 
 ---
 
@@ -17,13 +29,13 @@
 
 ### 0.1 范围界定（不可扩张）
 
-- **本次范围**：仅移动老板端。PC 管理台（`src/pc/**`）与移动员工端（`src/mobile/views/staff/**`）**不作为设计对象**；但员工端与老板端**共用的共享内核**（`src/mobile/components/**`、`src/mobile/composables/**`、`src/shared/**`）在老板端消费面上必须一并纳入，并逐项标注「改动需评审」。
+- **本次范围**：仅移动管理端。PC 管理台（`src/pc/**`）与移动员工端（`src/mobile/views/staff/**`）**不作为设计对象**；但员工端与管理端**共用的共享内核**（`src/mobile/components/**`、`src/mobile/composables/**`、`src/shared/**`）在管理端消费面上必须一并纳入，并逐项标注「改动需评审」。
 - **不计入范围**：`hrm-admin/**`、`hrm-server/**`、`hrm-android-shell/**` 一律零改动；一期占位页不删除。
 - **本轮产出形态**：只出规范。主智能体评审通过后由前端工程师实现，测试工程师按第 10 章逐条验证。
 
 ### 0.2 取证方式
 
-1. **静态阅读**：完整阅读老板端 21 个页面、25 个组件、`mobile.scss` / `tokens.scss` / `shared/styles/tokens.base.scss`、`router/index.js`、`shared/domain/{permission,mask}.js`、`mobile/utils/bridge.js`、`mobile/api/index.js`，逐条标注 `文件:行号`。
+1. **静态阅读**：完整阅读管理端 21 个页面、25 个组件、`mobile.scss` / `tokens.scss` / `shared/styles/tokens.base.scss`、`router/index.js`、`shared/domain/{permission,mask}.js`、`mobile/utils/bridge.js`、`mobile/api/index.js`，逐条标注 `文件:行号`。
 2. **对比度实算**：全部色值对比度用 node 按 WCAG 2.x 相对亮度公式实算，**不手算、不估数**（工程既有教训：`--gauge-fill` 曾记「约 3.1:1」实算为 2.839:1 不达标，见 `SESSION-STATE.md` M10 决策 15）。计算方式与结果见附录 A。
 3. **未使用浏览器实测**：TRAE Chrome 扩展在本机不可用（`os error 10061`，`SESSION-STATE.md` 环境约束表）。因此本文中**一切依赖运行时渲染的结论**（Vant 组件内部像素、真实手机竖屏、iOS Safari、壳内状态栏）一律标注「未验证」，**不得当作已验证**。
 
@@ -45,11 +57,11 @@
 
 ## 1. 组件库清单与缺口
 
-### 1.1 老板端消费面总表（21 页 / 25 组件）
+### 1.1 管理端消费面总表（21 页 / 25 组件）
 
 **直接 import 统计**（源：`views/boss/*.vue` 的 import 行）：
 
-| 组件 | 直接消费页数 | 消费页面（老板端） | 状态覆盖自评 |
+| 组件 | 直接消费页数 | 消费页面（管理端） | 状态覆盖自评 |
 | ---- | ---- | ---- | ---- |
 | `PageNav` | 18 | attendance, alerts, attendanceRecords, attendanceRule, flow, flowDetail, hr, hrDetail, kpi, leaveSettings, makeupApproval, notificationPublish, payroll, payrollDetail, rank, schedule, trend, workorder | ① 已满足 |
 | `PageState` | 18 | 同上 + home | ① 已满足 |
@@ -67,7 +79,7 @@
 | `MyPayrollCard` | 1 | payrollDetail | ① 已满足 |
 | `WorkOrderCopyButton` | 1 | workorder | ① 已满足 |
 
-**传递消费（经 MessagePage / 子组件 / 员工端复用页间接进入老板端）**：
+**传递消费（经 MessagePage / 子组件 / 员工端复用页间接进入管理端）**：
 
 | 组件 | 进入路径 | 证据 |
 | ---- | ---- | ---- |
@@ -79,9 +91,9 @@
 | `IdentitySwitcher` | `MeSection` | [MeSection.vue:5](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/MeSection.vue#L5) |
 | `KpiGauge`、`KpiIndicatorCard` | `/boss/kpi/:employeeId` 复用 `staff/kpi.vue` | [router/index.js:109-114](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L109-L114)、[staff/kpi.vue:4-5](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/kpi.vue#L4-L5) |
 
-**老板端不可达（本次不动）**：`AttendanceStatusBar`（仅 `/staff/home` 消费，[staff/home.vue:4](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/home.vue#L4)）。
+**管理端不可达（本次不动）**：`AttendanceStatusBar`（仅 `/staff/home` 消费，[staff/home.vue:4](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/home.vue#L4)）。
 
-> **结论**：25 个组件中 **24 个在老板端可达**（唯一不可达为 `AttendanceStatusBar`），且这 24 个**全部位于共享内核 `src/mobile/components/`**（员工端也在消费）→ 任何改动均需主智能体评审；**0 个是老板端专属组件**——这是本次要补的最大结构性缺口（见 1.3）。
+> **结论**：25 个组件中 **24 个在管理端可达**（唯一不可达为 `AttendanceStatusBar`），且这 24 个**全部位于共享内核 `src/mobile/components/`**（员工端也在消费）→ 任何改动均需主智能体评审；**0 个是管理端专属组件**——这是本次要补的最大结构性缺口（见 1.3）。
 
 ### 1.2 缺口分类
 
@@ -98,7 +110,7 @@
 | G-03 | `MonthPicker` | 无 `disabled` / `loading`；账期切换触发整页重载时控件仍可连点 | [MonthPicker.vue:9-12](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/MonthPicker.vue#L9-L12) | 补 `disabled` prop；`kpi.vue` / `payroll.vue` 在 `loading` 期间禁用 |
 | G-04 | `NoticeList` 行 | 有全局 loading/error/empty，但**行级「标记已读写入中」无视觉反馈**，点击后先 await 再跳转 | [NoticeList.vue:103-112](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/NoticeList.vue#L103-L112) | 补行级 `pending` 态（行内骨架/`aria-busy`），见 5.1 |
 | G-05 | `MeSection` | **无 loading / error**，直接渲染 `auth.user.*`，取数失败静默 | [MeSection.vue:36-84](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/MeSection.vue#L36-L84) | 账号信息区抽成带三态的子块；或在 store 层暴露 `userLoaded/userError` |
-| G-06 | 组内局部空态 | 老板端 4 处手写 `…class="empty muted">…`，未走 `PageState`，样式与文案各行其是 | [alerts.vue:151](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L151)、[:180](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L180)、[:201](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L201)、[:259](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L259) | 抽 `InlineEmpty`（见 1.3 N-05），避免第四次、第五次重复 |
+| G-06 | 组内局部空态 | 管理端 4 处手写 `…class="empty muted">…`，未走 `PageState`，样式与文案各行其是 | [alerts.vue:151](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L151)、[:180](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L180)、[:201](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L201)、[:259](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L259) | 抽 `InlineEmpty`（见 1.3 N-05），避免第四次、第五次重复 |
 
 #### ③ 缺能力需新增
 
@@ -108,16 +120,16 @@
 | G-08 | **占比展示**（采集四态 / 考勤构成的构成比） | 手写「四态计数按钮」代替任何占比表达 | [alerts.vue:243-257](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L243-L257)、[attendance.vue:88-107](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/attendance.vue#L88-L107) |
 | G-09 | **环比/差值徽标**（±% 或 ±金额，三态配色） | 内嵌在 `StatCard` 内，其他场景（排行、明细、调薪差额）各自手写 | [StatCard.vue:35-46](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/StatCard.vue#L35-L46)、[hrDetail.vue:234-237](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/hrDetail.vue#L234-L237) |
 | G-10 | **口径说明条**（「口径：…」统一容器） | 手写 `.tip` 多处，且出现「同一页两种写法」 | [alerts.vue:277-280](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L277-L280)、[trend.vue:103](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/trend.vue#L103)、[rank.vue:133](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/rank.vue#L133) |
-| G-11 | **统一二次确认** | `showConfirmDialog` 在老板端被直接调用 12 个文件、63 处 Vant 反馈调用，文案模板各写 | [payroll.vue:136-141](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/payroll.vue#L136-L141)、[schedule.vue:293-305](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/schedule.vue#L293-L305)、[flowDetail.vue:33-59](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/flowDetail.vue#L33-L59) |
+| G-11 | **统一二次确认** | `showConfirmDialog` 在管理端被直接调用 12 个文件、63 处 Vant 反馈调用，文案模板各写 | [payroll.vue:136-141](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/payroll.vue#L136-L141)、[schedule.vue:293-305](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/schedule.vue#L293-L305)、[flowDetail.vue:33-59](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/flowDetail.vue#L33-L59) |
 
-#### ④ 共享内核改动 / 老板端专属（改动归属裁决）
+#### ④ 共享内核改动 / 管理端专属（改动归属裁决）
 
 | 分类 | 组件 | 落地要求 |
 | ---- | ---- | ---- |
 | **共享内核（改动需评审）** | 24 个（1.1 表全部） | 改动必须保持员工端行为不回归；`AttendanceStatusBar` 不在本次范围 |
-| **老板端专属（可新增，不动内核）** | 本规范提案的 `RankBar` / `DonutChart` / `MetricDelta` / `ScopeNote` / `InlineEmpty` / `BossActionBar`（可选） | 统一放 `src/mobile/modules/boss/components/`，命名前缀 `Boss`，**禁止**把老板端专属样式写进 `mobile.scss` 全局工具类（避免污染员工端） |
+| **管理端专属（可新增，不动内核）** | 本规范提案的 `RankBar` / `DonutChart` / `MetricDelta` / `ScopeNote` / `InlineEmpty` / `BossActionBar`（可选） | 统一放 `src/mobile/modules/boss/components/`，命名前缀 `Boss`，**禁止**把管理端专属样式写进 `mobile.scss` 全局工具类（避免污染员工端） |
 
-> 裁决理由：25 个组件 0 专属 → 老板端所有视觉差异只能靠页面级 `<style scoped>` 硬写（现状 `home.vue` 已累积 7 个自有 class）。按域拆模块的既定形态（用户已拍板）应落成一个**老板端专属组件目录**，而不是继续在共享组件上加 `isBoss` 分支。
+> 裁决理由：25 个组件 0 专属 → 管理端所有视觉差异只能靠页面级 `<style scoped>` 硬写（现状 `home.vue` 已累积 7 个自有 class）。按域拆模块的既定形态（用户已拍板）应落成一个**管理端专属组件目录**，而不是继续在共享组件上加 `isBoss` 分支。
 
 ### 1.3 新增组件接口草案（props / emits / 状态矩阵 / 无障碍）
 
@@ -186,7 +198,7 @@ props:  text: String                // 「口径：…」
         ariaLive?: 'off' | 'polite'
 ```
 
-替换老板端全部手写 `.tip` / 口径段落。**为什么必须统一**：口径文案是「数据可信度」的唯一表达，散写必然出现「同一数字两个口径」的表述冲突（工程内已有先例：同步成功率前端样本聚合 vs `/sync/overview` 权威计数，[demo-ux-improvement.md A4-3]）。
+替换管理端全部手写 `.tip` / 口径段落。**为什么必须统一**：口径文案是「数据可信度」的唯一表达，散写必然出现「同一数字两个口径」的表述冲突（工程内已有先例：同步成功率前端样本聚合 vs `/sync/overview` 权威计数，[demo-ux-improvement.md A4-3]）。
 
 #### N-05 `BossInlineEmpty`（组内空态，Atom）
 
@@ -206,7 +218,7 @@ emits:  action
                     → Promise<boolean>
 ```
 
-强制四要素：`action`（动词短语标题）、`target`（作用对象）、`impact`（影响面/数量）、`irreversible`（不可逆时正文必须显式声明）。收敛老板端 12 个文件、63 处直接调用（附录 B 清单）。
+强制四要素：`action`（动词短语标题）、`target`（作用对象）、`impact`（影响面/数量）、`irreversible`（不可逆时正文必须显式声明）。收敛管理端 12 个文件、63 处直接调用（附录 B 清单）。
 
 ---
 
@@ -283,7 +295,7 @@ emits:  action
 
 ## 3. UI/UX 一致性规范
 
-### 3.1 老板端 Token 子集（可直接消费，不得重定义）
+### 3.1 管理端 Token 子集（可直接消费，不得重定义）
 
 > 真源：`shared/styles/tokens.base.scss`（143 条）+ `mobile/styles/tokens.scss`（移动端私有）。**任何页面/组件出现十六进制色值即视为缺陷**（[mobile.scss:4](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L4) 已有此验收口径）。
 
@@ -302,25 +314,25 @@ emits:  action
 | 图表系列 | `--chart-inbound` / `--chart-pickup` / `--chart-abnormal` / `--chart-area` / `--chart-axis` / `--chart-skeleton` | [tokens.base.scss:183-190](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/styles/tokens.base.scss#L183-L190) |
 | 环形仪表 | `--gauge-fill` / `--gauge-track` / `--gauge-size` / `--gauge-stroke` | 5.388:1 ✓（[tokens.scss:175-180](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/tokens.scss#L175-L180)） |
 | 字号阶梯（移动端） | `--fs-h1-m` / `--fs-h2` / `--fs-h3` / `--fs-body` / `--fs-body-strong` / `--fs-caption` / `--fs-micro` | [tokens.scss:33-47](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/tokens.scss#L33-L47) |
-| 数值字号 | `--fs-num-lg-boss`(24) / `--fs-num-md`(18) / `--fs-num-sm`(15) | 老板端主指标专用 24px |
+| 数值字号 | `--fs-num-lg-boss`(24) / `--fs-num-md`(18) / `--fs-num-sm`(15) | 管理端主指标专用 24px |
 
 **硬规则**：
 1. 500 档（`--color-primary-icon`）**不得承载文字**，只做图标/线/描边/进度条（`tokens.base.scss:84-90` 已固化）。
 2. 浅底块内文字**一律 `--text-2`**，禁用 `--text-3`（`--text-3` 对 `--surface-subtle` 实算仅 4.23:1，工程内已有明文禁令，见 [leaveSettings.vue:171](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/leaveSettings.vue#L171) 注释）。
 3. 字号层级**不超过 3 级同屏**（H3 区块标题 / Body 正文 / Caption 辅助），数值另计一列不得混入正文阶梯。
 
-### 3.2 老板端「经营数据密度」表达（不破坏既有 Token 体系）
+### 3.2 管理端「经营数据密度」表达（不破坏既有 Token 体系）
 
-老板端与员工端的核心差异是**信息密度**，不是视觉风格。落地手段只有三条，全部基于既有 Token：
+管理端与员工端的核心差异是**信息密度**，不是视觉风格。落地手段只有三条，全部基于既有 Token：
 
 | 手段 | 具体做法 | 依据 |
 | ---- | ---- | ---- |
-| **A. 区块间距加档** | 老板端 `.stat-grid` 用 `--roomy` 变体（16px）而非员工端 12px；区块标题上 20 / 下 8 | [mobile.scss:149-152](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L149-L152)、[:125-134](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L125-L134) |
-| **B. Hero 底色区分角色** | 老板端 `hero--deep`（neutral-800→900 深蓝灰）表「经营报告」；员工端 `hero--brand`（blue-700→800） | [mobile.scss:176-182](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L176-L182)；两段渐变**全段任意位置承白字 ≥6:1**，副文本 `rgba(255,255,255,.82)` 合成后对 blue-700 实算 4.715:1 ✓ |
+| **A. 区块间距加档** | 管理端 `.stat-grid` 用 `--roomy` 变体（16px）而非员工端 12px；区块标题上 20 / 下 8 | [mobile.scss:149-152](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L149-L152)、[:125-134](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L125-L134) |
+| **B. Hero 底色区分角色** | 管理端 `hero--deep`（neutral-800→900 深蓝灰）表「经营报告」；员工端 `hero--brand`（blue-700→800） | [mobile.scss:176-182](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L176-L182)；两段渐变**全段任意位置承白字 ≥6:1**，副文本 `rgba(255,255,255,.82)` 合成后对 blue-700 实算 4.715:1 ✓ |
 | **C. 数值字号分档** | 主指标 24（`--fs-num-lg-boss`）、次级 18、行内 15；**不新增第 4 档** | [tokens.scss:41-44](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/tokens.scss#L41-L44) |
 
 **密度表达的禁区**：
-- ❌ 不新增老板端专属色板（现状已有 3 处自发名次色，见 9 章 AP-06）；
+- ❌ 不新增管理端专属色板（现状已有 3 处自发名次色，见 9 章 AP-06）；
 - ❌ 不引入「卡片套卡片」（`alerts.vue` 的 `.group__body .list-item` 把内层卡改成浅底是**正确**做法，[alerts.vue:351-355](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L351-L355)，须作为范式推广）；
 - ❌ 不为「更密」把字号压到 12px 以下（`--fs-micro` 11px 已限定为图表轴标签与徽标计数，[tokens.scss:40](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/tokens.scss#L40)）。
 
@@ -328,7 +340,7 @@ emits:  action
 
 | 需求 | 建议 Token | 与既有体系的关系 | 裁决 |
 | ---- | ---- | ---- | ---- |
-| 老板端 Hero 渐变 | 已有 `--grad-hero-deep` | 无需新增 | 复用 |
+| 管理端 Hero 渐变 | 已有 `--grad-hero-deep` | 无需新增 | 复用 |
 | 环形仪表尺寸 | 已有 `--gauge-size: 80` / `--gauge-stroke: 8` | 无需新增 | 复用 |
 | **占比环图尺寸/厚度** | `--donut-size: 120px` / `--donut-stroke: 12px` | 属移动端私有 L3 尺寸（与 `--gauge-*` 同类，不进真源） | **新增到 `mobile/styles/tokens.scss`**，非真源 |
 | **排行条形高度/圆角** | `--rank-bar-h: 8px` | 与 `--van-progress` 现有 `stroke-width="8"` 一致 | **复用既有值，不新增** |
@@ -341,7 +353,7 @@ emits:  action
 
 ## 4. 加载性能规范
 
-### 4.1 首屏预算（老板端）
+### 4.1 首屏预算（管理端）
 
 > 现状基线：`npm run build` EXIT=0，**2421 modules**（`SESSION-STATE.md` 实测结论）。移动端为 hash 路由 MPA，首屏即 `mobile.html` 入口。
 
@@ -352,7 +364,7 @@ emits:  action
 | 首屏可交互（模拟 4G） | ≤ 2.5s | 目标值，未验证 |
 | 骨架出现延迟 | 200ms | `PageState` 既有设计：`SKELETON_DELAY = 200`（[PageState.vue:21-22](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/PageState.vue#L21-L22)）——**快请求不闪骨架**，该口径不得改 |
 
-### 4.2 分层加载策略（老板端 home 为经营总览，聚合多接口）
+### 4.2 分层加载策略（管理端 home 为经营总览，聚合多接口）
 
 现状已实现三级降级，规范将其固化为**强制模式**：
 
@@ -385,7 +397,7 @@ emits:  action
 
 ### 4.5 列表虚拟化评估（核实结论）
 
-**核实结果：老板端存在 7 条真实长列表（无上限），现状全部为 `van-list` 无限追加，未做虚拟化。**
+**核实结果：管理端存在 7 条真实长列表（无上限），现状全部为 `van-list` 无限追加，未做虚拟化。**
 
 | 页面 | 数据规模 | 分页方式 | 证据 |
 | ---- | ---- | ---- | ---- |
@@ -409,7 +421,7 @@ emits:  action
 
 ## 5. 交互反馈规范
 
-### 5.1 状态逐项定义（老板端强制口径）
+### 5.1 状态逐项定义（管理端强制口径）
 
 | 状态 | 触发 | 表现 | 时限 | 禁止 |
 | ---- | ---- | ---- | ---- | ---- |
@@ -481,7 +493,7 @@ emits:  action
 
 ### 6.1 角色与路由真源
 
-- `/boss/*` 全部页面 `roles: [ROLE.ADMIN]`（[router/index.js:35-163](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L35-L163)）。**老板端不存在第二角色可见的页面**。
+- `/boss/*` 全部页面 `roles: [ROLE.ADMIN]`（[router/index.js:35-163](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L35-L163)）。**管理端不存在第二角色可见的页面**。
 - 例外：`/boss/kpi/:employeeId`、`/boss/hr/:employeeId` 等复用员工端页面的路由，`meta.roles` **仍为 ADMIN**（复用只发生在路由层面，权限不收窄，[router/index.js:109-114](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L109-L114)）。
 - 判定单点化：`canAccess(roles, user)`（[permission.js:5-8](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/domain/permission.js#L5-L8)）——路由守卫与宫格项级白名单共用同一函数（[HomeQuickGrid.vue:32](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/HomeQuickGrid.vue#L32)）。
 
@@ -508,13 +520,13 @@ emits:  action
 **现状核实**：
 - 脱敏**全部发生在 Mock 层**：`db.js`（[db.js:954](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/db.js#L954)）、`hrStore.js`（[:379,:395,:398](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/hrStore.js#L379)）、`station.js`（[station.js:41](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/station.js#L41)）、`parcelStore.js`（[:233-234](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/parcelStore.js#L233-L234)）。
 - `shared/domain/mask.js` 提供 `maskPhone` / `maskName` / `maskBankAccount`（[mask.js:9-33](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/domain/mask.js#L9-L33)），头部注明「后端脱敏生效后本文件整体可删」。
-- **老板端页面自身不做二次脱敏**：`hrDetail.vue` 仅注释说明依赖契约出参（[hrDetail.vue:175](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/hrDetail.vue#L175)）；`MeSection.vue` 直接渲染 `auth.user.phone`（[MeSection.vue:80](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/MeSection.vue#L80)）。
-- 唯一的兜底例外是员工端 `staff/profile.vue`（[staff/profile.vue:15](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/profile.vue#L15) 注释），**老板端没有对应兜底**。
+- **管理端页面自身不做二次脱敏**：`hrDetail.vue` 仅注释说明依赖契约出参（[hrDetail.vue:175](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/hrDetail.vue#L175)）；`MeSection.vue` 直接渲染 `auth.user.phone`（[MeSection.vue:80](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/MeSection.vue#L80)）。
+- 唯一的兜底例外是员工端 `staff/profile.vue`（[staff/profile.vue:15](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/profile.vue#L15) 注释），**管理端没有对应兜底**。
 
 **规范**：
 1. **脱敏以服务端为权威**（对齐 `api.md` 1.4 口径），前端不重复实现。
-2. **但老板端必须补一层展示兜底**（与员工端 `profile.vue` 同策略）：手机号、银行卡、身份证类字段在 `van-cell` 的 `:value` 上经过 `maskPhone` / `maskBankAccount` 兜底——理由：`/auth/me` 与 `/hr/profiles/:id` 的出参是否已脱敏**未逐字段核实**（见 11 章 Q5），兜底是幂等操作（对已脱敏值再 `maskPhone` 会得到不同串，需用「值中包含 `*` 则原样透传」的判定短路）。
-3. **禁止**在老板端页面新增「查看完整手机号」类解掩码交互（演示态无鉴权审计，解掩码无意义）。
+2. **但管理端必须补一层展示兜底**（与员工端 `profile.vue` 同策略）：手机号、银行卡、身份证类字段在 `van-cell` 的 `:value` 上经过 `maskPhone` / `maskBankAccount` 兜底——理由：`/auth/me` 与 `/hr/profiles/:id` 的出参是否已脱敏**未逐字段核实**（见 11 章 Q5），兜底是幂等操作（对已脱敏值再 `maskPhone` 会得到不同串，需用「值中包含 `*` 则原样透传」的判定短路）。
+3. **禁止**在管理端页面新增「查看完整手机号」类解掩码交互（演示态无鉴权审计，解掩码无意义）。
 4. 脱敏字段的读屏播报口径：播报脱敏后的值（不额外提示「已脱敏」）。
 
 ### 6.5 禁用 vs 隐藏（取舍规则，可直接判定）
@@ -550,10 +562,10 @@ emits:  action
 | **企业微信内置浏览器** | ① 内核差异（Android 走 X5/系统 WebView、iOS 走 wkwebview）导致 `position: fixed`、`env()`、`100vh` 表现不一；② **工程内无任何证据** | ① `mobile.scss` 已用 `overflow-x: hidden` 兜底；② 固定栏一律 `position: fixed` + 底部 `--safe-bottom`；③ 若企微内出现固定栏错位 → 提供「内嵌模式」开关（`position: static` 降级，登记 `TODO(扩展)`） | **未验证（无工程证据）** |
 | **桌面浏览器窄窗** | ① `#app` 480 居中 → 窄窗（<480）铺满、宽窗（>480）居中；② 固定栏限宽依赖媒体查询 source order，改动顺序会破版 | ① 已由 `mobile.scss` 末尾媒体查询 + 三处固定栏同步覆盖处理；② 实现新固定栏时必须加入 `mobile.scss:422-428` 的选择器列表 | **部分验证**（固定栏限宽实测不冲突，宽屏 ≥1280 未验证） |
 | **桌面浏览器宽窗（≥1280）** | 未验证（`SESSION-STATE.md` 遗留 25） | 无降级；只需确认「居中列 + 固定栏对齐」 | **未验证** |
-| **键盘导航全链路** | ① Vant Tabbar 不处理 Enter（已自补，[TabbarLayout.vue:62-67](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/layout/TabbarLayout.vue#L62-L67)）；② Vant 不输出 `aria-current`（已自补）；③ **老板端仍有 3 处可点 `div` 无 `role`/`tabindex`**（见下） | ① 修 alerts 三处（`role="button"` + `tabindex="0"` + `keydown.enter/space`）；② 焦点环已有全局规则（[mobile.scss:38-42](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L38-L42)），需实测未被 `overflow:hidden` 裁切 | **静态审出缺陷；全链路未验证** |
+| **键盘导航全链路** | ① Vant Tabbar 不处理 Enter（已自补，[TabbarLayout.vue:62-67](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/layout/TabbarLayout.vue#L62-L67)）；② Vant 不输出 `aria-current`（已自补）；③ **管理端仍有 3 处可点 `div` 无 `role`/`tabindex`**（见下） | ① 修 alerts 三处（`role="button"` + `tabindex="0"` + `keydown.enter/space`）；② 焦点环已有全局规则（[mobile.scss:38-42](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L38-L42)），需实测未被 `overflow:hidden` 裁切 | **静态审出缺陷；全链路未验证** |
 | **`prefers-reduced-motion`** | 全局已降级（[tokens.base.scss:244-253](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/styles/tokens.base.scss#L244-L253)） | 新增动效不得绕过该媒体查询 | 代码级已验证 |
 
-**老板端跨浏览器必修项**（清点）：
+**管理端跨浏览器必修项**（清点）：
 1. [alerts.vue:152-157](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L152-L157)（超 48h 未取件行）；
 2. [alerts.vue:181](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L181)（同步失败驿站行）；
 3. [alerts.vue:202-207](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/alerts.vue#L202-L207)（超时未处理工单行）。
@@ -596,7 +608,7 @@ emits:  action
 
 **`KpiGauge.vue`（环形仪表）**：`viewBox="0 0 80 80"` 固定、半径 36、描边 8px（与 `--gauge-size: 80` 1:1 不缩放，[:37-39](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/KpiGauge.vue#L37-L39)）；达成率 **>100% 时环封顶但中心数字显示真实值**（[:26-28](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/KpiGauge.vue#L26-L28)）；空/错误态渲染灰环 + `—`（[:36](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/KpiGauge.vue#L36)）；`role="img"` + `aria-label`（[:29-31](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/KpiGauge.vue#L29-L31)）。限制：**仅支持单值达成率**，不能表达分段进度。
 
-### 8.2 图表类型选择（老板端）
+### 8.2 图表类型选择（管理端）
 
 | 场景 | 图表类型 | 现用组件 | 决定 |
 | ---- | ---- | ---- | ---- |
@@ -681,7 +693,7 @@ emits:  action
 
 ### 8.8 图表组件接口草案（可复用）
 
-#### C-01 `BossLineChart`（`LineChart` 的老板端超集，建议**原地扩展**而非新写）
+#### C-01 `BossLineChart`（`LineChart` 的管理端超集，建议**原地扩展**而非新写）
 
 ```text
 props:
@@ -708,7 +720,7 @@ a11y:
 
 ---
 
-## 9. 反模式清单（老板端禁止项 + 可检查判定标准）
+## 9. 反模式清单（管理端禁止项 + 可检查判定标准）
 
 | # | 反模式 | 判定标准（可机械检查） | 现状是否已违反 |
 | ---- | ---- | ---- | ---- |
@@ -728,7 +740,7 @@ a11y:
 | **AP-14** | 长列表无边界 | 列表页面无软上限、无虚拟化、且筛选默认「全部」→ 违规 | **待办**：`attendanceRecords` / `workorder` / `NoticeList` 需按 4.5 加软上限 |
 | **AP-15** | 骨架与真实内容不等高 | 骨架块高度 ≠ 内容高度 → 数据到达时跳动即违规 | 未违反（`home.vue` / `attendance.vue` 均按真实版面给高） |
 | **AP-16** | 图表内系列色唯一定义 | 图表里出现非 `--chart-*` 的系列色 → 违规 | 未违反 |
-| **AP-17** | 员工端样式写入全局工具类 | 老板端专属样式写进 `mobile.scss` 通用类 → 违规 | 未违反（本次新增须放 `components/boss/`） |
+| **AP-17** | 员工端样式写入全局工具类 | 管理端专属样式写进 `mobile.scss` 通用类 → 违规 | 未违反（本次新增须放 `components/boss/`） |
 | **AP-18** | 前端推导权限 | 页面内写 `if (role === 'ADMIN')` 自行判权（而非取服务端派生标志 / `canAccess`）→ 违规 | 未违反 |
 
 ---
@@ -767,7 +779,7 @@ a11y:
 - [ ] 无权限的宫格入口**不渲染**（非置灰）
 - [ ] 只读态页面（含离职员工、已终审单据）有显式只读说明；可写控件为 `readonly`/`disabled` + 原因
 - [ ] 服务端派生标志（`canRevoke` 等）变更后界面同步（不出现「按钮可点但接口 403」）
-- [ ] 敏感字段（手机号/银行卡）在老板端各页均以脱敏形态出现
+- [ ] 敏感字段（手机号/银行卡）在管理端各页均以脱敏形态出现
 
 ### E. 无障碍
 
@@ -802,11 +814,11 @@ a11y:
 
 | # | 问题 | 影响面 | 我的建议 |
 | ---- | ---- | ---- | ---- |
-| Q1 | 是否采纳 `src/mobile/modules/boss/components/` **老板端专属组件目录**？（现状 25 组件 0 专属，老板端差异只能靠页面级样式硬写） | 组件库结构、评审边界、后续维护成本 | 采纳。专属组件不改共享内核，符合「单工程内按域拆模块」的既定形态 |
+| Q1 | 是否采纳 `src/mobile/modules/boss/components/` **管理端专属组件目录**？（现状 25 组件 0 专属，管理端差异只能靠页面级样式硬写） | 组件库结构、评审边界、后续维护成本 | 采纳。专属组件不改共享内核，符合「单工程内按域拆模块」的既定形态 |
 | Q2 | 平板档（768–992）保持 **480 居中单列**，还是引入双列？ | 响应式方案、可能波及员工端共用样式 | 保持单列（信息密度稳定、零改动、与既有实测不冲突）。若业务要求双列，须单独出方案 |
 | Q3 | 趋势数据契约是否支持**缺失日（null）**与**负值**？ | 决定图表是否需支持断点与双向轴（现 `LineChart` 均不支持） | 先核实契约；契约不支持则用 `BossScopeNote` 显式声明「缺失日按 0」，并把双向轴登记 `TODO(扩展)` |
 | Q4 | `attendanceRecords` / `workorder` / `NoticeList` 的**长列表软上限（500 条）**是否接受？虚拟化是否排入下一轮？ | 二期 20 万级数据下的 DOM 与滚动性能 | 本轮加软上限（低成本），虚拟化排下一轮并登记 `TODO(扩展)` |
-| Q5 | `/auth/me` 与 `/hr/profiles/:id` 的出参**是否已对手机号脱敏**？老板端是否补前端兜底？ | 敏感字段展示合规性、脱敏双份实现的取舍 | 先核实契约；未脱敏则补前端兜底（幂等短路，参考 `staff/profile.vue`），并保留「后端接管后删除」的 `TODO(扩展)` |
+| Q5 | `/auth/me` 与 `/hr/profiles/:id` 的出参**是否已对手机号脱敏**？管理端是否补前端兜底？ | 敏感字段展示合规性、脱敏双份实现的取舍 | 先核实契约；未脱敏则补前端兜底（幂等短路，参考 `staff/profile.vue`），并保留「后端接管后删除」的 `TODO(扩展)` |
 
 ---
 
@@ -830,7 +842,7 @@ node -e "function L(h){h=h.replace('#','');const c=[0,2,4].map(i=>parseInt(h.sub
 
 > 本文所有数值均由该函数实算，**未使用手算估值**（工程既有教训：`--gauge-fill` 手算记「约 3.1:1」，实算 2.839:1 不达标）。
 
-### A.2 实算结果（老板端消费面）
+### A.2 实算结果（管理端消费面）
 
 | # | 前景 / 背景 | 用途 | 实算 | 判定 |
 | ---- | ---- | ---- | ---- | ---- |
@@ -862,11 +874,11 @@ node -e "function L(h){h=h.replace('#','');const c=[0,2,4].map(i=>parseInt(h.sub
 | 26 | `#D7E2F4`（白 82% 合成）/ `#0958D9` | Hero 副文本 | **4.715** | ✓ AA（余量小，**不得改透明度**） |
 | 27 | 白 / `--c-neutral-800` `#1F2937` | Hero 深蓝灰底文字 | **14.679** | ✓ |
 
-**结论**：老板端现存**唯一硬性超标项**为 #14（`home.vue:411-415` 第 3 名徽标配色分叉），另有 2 项需登记监控（#18 占位符、#20 警告图标）。
+**结论**：管理端现存**唯一硬性超标项**为 #14（`home.vue:411-415` 第 3 名徽标配色分叉），另有 2 项需登记监控（#18 占位符、#20 警告图标）。
 
 ---
 
-## 附录 B：老板端 Vant 反馈调用分布（用于 `BossConfirm` 收敛范围）
+## 附录 B：管理端 Vant 反馈调用分布（用于 `BossConfirm` 收敛范围）
 
 `showConfirmDialog|showSuccessToast|showFailToast|showToast` 命中分布（`grep -c` 实测，共 63 处 / 12 文件）：
 
@@ -893,8 +905,8 @@ node -e "function L(h){h=h.replace('#','');const c=[0,2,4].map(i=>parseInt(h.sub
 
 | 既有文档 | 本规范的处理 |
 | ---- | ---- |
-| `demo-ui-redesign.md` | 全部 Token / 尺寸 / 对比度结论**继承不推翻**；仅补充「老板端消费面」视角与实算复核（附录 A） |
-| `demo-ux-improvement.md` | M1 冻结规范；本规范未推翻任何 A/B 章条目，仅将其中与老板端相关的准入、降级、文案口径**固化** |
+| `demo-ui-redesign.md` | 全部 Token / 尺寸 / 对比度结论**继承不推翻**；仅补充「管理端消费面」视角与实算复核（附录 A） |
+| `demo-ux-improvement.md` | M1 冻结规范；本规范未推翻任何 A/B 章条目，仅将其中与管理端相关的准入、降级、文案口径**固化** |
 | `demo-mobile-nav-redesign.md` | 三 Tab 信息架构与 95 条迁移映射**为生效真源**；本规范不新增/移动任何入口，只对该架构下的页面做精细化 |
 | `demo-leave-design.md` / `demo-sync-config-design.md` | 业务语义（两级审批、采集四态）**为真源**；本规范只定义其展示口径与状态呈现 |
 | 待回写项 | 若本规范的 ①`modules/boss/components/` 目录（**已采纳**，回写口径见 §12） ②长列表软上限 ③`LineChart` 接口扩展 被采纳，需在 `demo-mobile-nav-redesign.md` 与 `SESSION-STATE.md` 追加注记（由主智能体执行） |
@@ -909,11 +921,11 @@ node -e "function L(h){h=h.replace('#','');const c=[0,2,4].map(i=>parseInt(h.sub
 
 | # | 裁决 | 复核与依据 |
 |----|----|----|
-| Q1 | **采纳老板端专属组件目录，但落点改为 `src/mobile/modules/boss/components/`**（非 `components/boss/`） | 复核：`eslint.config.js:25` 的 `'src/**/components/**'` 已覆盖该路径，lint 零额外成本；归属清晰、与 staff 域同构。**实质要求不变**：命名前缀 `Boss*`；专属样式禁止写入 `mobile.scss` 全局工具类 |
+| Q1 | **采纳管理端专属组件目录，但落点改为 `src/mobile/modules/boss/components/`**（非 `components/boss/`） | 复核：`eslint.config.js:25` 的 `'src/**/components/**'` 已覆盖该路径，lint 零额外成本；归属清晰、与 staff 域同构。**实质要求不变**：命名前缀 `Boss*`；专属样式禁止写入 `mobile.scss` 全局工具类 |
 | Q2 | **平板档（768–992）保持 480 居中单列**，不引入双列 | 移动端为手机形态壳，双列会波及员工端共用样式；既有实测（375px 横向溢出 0px）不受影响。双列若确有业务需要，须单独出方案 |
 | Q3 | **本轮不改趋势契约**，改由组件层防御 | 契约扩展会波及 Mock 与 878 项冻结断言（`verify-mock.mjs` 不可改写）。要求：非有限值（`null`/`NaN`/负值）**不参与绘制**，并在图例区显示「数据缺失 / 负值不展示」的可见提示 + `BossScopeNote` 声明口径。**禁止**把缺失日按 `0` 绘制——用 0 冒充缺失会把「无数据」画成「量为 0」，与工程「绝不用 0 表示加载失败」同源红线。双向轴登记 `TODO(扩展)` |
 | Q4 | **本轮加 500 条软上限；虚拟化登记 `TODO(扩展)`** | Vant 4 无官方虚拟列表组件，需自研窗口化，成本超本轮范围；软上限为低成本止血 |
-| Q5 | **老板端不补前端兜底脱敏**（推翻本文建议） | **复核证明 Mock 层（服务端语义）已统一脱敏**：`shared/mock/hrStore.js:379,395,585`、`shared/mock/parcelStore.js:234`（`receiverPhone`）、`shared/mock/db.js:954`、`shared/mock/routes/station.js:41` 均已调用 `maskPhone`/`maskBankAccount`。前端再打码会造成**双重脱敏**（`138****5678` → `138****`）。§6.4 口径改为：**展示层不得自行脱敏，也不得从其他字段还原明文**；`shared/domain/mask.js:1` 的 `TODO(扩展): 后端脱敏生效后删除前端兜底` 保持不变（那是给真实后端的） |
+| Q5 | **管理端不补前端兜底脱敏**（推翻本文建议） | **复核证明 Mock 层（服务端语义）已统一脱敏**：`shared/mock/hrStore.js:379,395,585`、`shared/mock/parcelStore.js:234`（`receiverPhone`）、`shared/mock/db.js:954`、`shared/mock/routes/station.js:41` 均已调用 `maskPhone`/`maskBankAccount`。前端再打码会造成**双重脱敏**（`138****5678` → `138****`）。§6.4 口径改为：**展示层不得自行脱敏，也不得从其他字段还原明文**；`shared/domain/mask.js:1` 的 `TODO(扩展): 后端脱敏生效后删除前端兜底` 保持不变（那是给真实后端的） |
 
 ### 12.2 关键数值与缺陷复核（主智能体独立验证）
 
@@ -922,7 +934,7 @@ node -e "function L(h){h=h.replace('#','');const c=[0,2,4].map(i=>parseInt(h.sub
 | `--c-orange-600`（`#D46B08`）承白字 **3.556:1** 不达 AA | 独立按 WCAG 2.x 相对亮度公式实算 | ✅ 数值一致，确为 **3.5555** |
 | `--rank-3-bg`（`--c-bronze-700` `#92400E`）**7.090:1** | 同上 | ✅ 数值一致，确为 **7.0888** |
 | `alerts.vue` 3 处可点 `<div>` 无 `role`/`tabindex` | 独立读 `alerts.vue:152-157`、`:181`、`:202-207` | ✅ 属实，键盘不可达，判为遗漏（同形态在 `rank`/`workorder`/`home` 已正确） |
-| 25 个 `mobile/components/*` 中 24 个老板端可达、0 个专属 | 独立读 import 分布 + 架构师 P-05 交叉 | ✅ 属实 |
+| 25 个 `mobile/components/*` 中 24 个管理端可达、0 个专属 | 独立读 import 分布 + 架构师 P-05 交叉 | ✅ 属实 |
 
 **据此，D-1 / D-2 / D-3 三项已由主智能体追加进本轮实现范围**（详见 `demo-boss-module-plan.md` §10.3），不再停留在「待决策」。
 
@@ -931,3 +943,437 @@ node -e "function L(h){h=h.replace('#','');const c=[0,2,4].map(i=>parseInt(h.sub
 - **保留**：`AP-06`（同一语义两套色）在复审后**降级为 D-1 单一缺陷**——问题只出在 `home.vue:411-415` 一处，`rank.vue` 的 `--rank-3-bg` 本身正确，不构成「系统性双色板」。
 - **保留**：`--text-3` 对 `--surface-page` 的 4.505:1「余量极小，不得再降档」——该约束具有实际防护价值，实现阶段必须遵守。
 - 附录 A 全部数值采信（已抽查 2 项一致），后续如需新增对比度结论，必须沿用附录 A 的 `node` 实算命令，禁止手算估值。
+
+---
+
+## 13. 「驿站精灵」品牌落位规范（v1.1 新增）
+
+### 13.1 结论与边界
+
+- **拍板结论**：应用名「驿站精灵」**只绑定「移动端 + 管理员（ADMIN）视角」**。PC 端、移动员工端、工程名「快递驿站智汇系统」、安卓壳 `strings.xml` 的 `app_name` **一律不变**。
+- **判定依据**：品牌名是「角色视角」的属性，不是「端」的属性。同一份 `mobile.html` 同时承载管理员与员工两个视角，改名必须按**登录后的角色**分流，不能按「移动端」一刀切。
+- **硬边界**：`hrm-admin/**`、`hrm-server/**`、`hrm-android-shell/**` 零改动；员工端域（`src/mobile/views/staff/**`、`src/mobile/modules/staff/**`）文案零改动。
+
+### 13.2 品牌落位清单（逐条）
+
+| # | 位置 | 落点文件:行 | 现文案 | 建议文案 | 视觉处理 | 裁决 |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| B1 | 门户卡片名 | [portal/main.js:29](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/portal/main.js#L29) | `管理端（经营视角）` | `驿站精灵（经营视角）` | 沿用门户页 `.card__name` 既有样式，仅换字，字号/字重/色值不动 | **改**（前端同步 [e2e/01-load.spec.js:32](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/e2e/01-load.spec.js#L32) 断言；该串是界面可见名） |
+| B2 | 门户卡片描述行 | [portal/main.js:30-32](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/portal/main.js#L30-L32) | `ADMIN 身份的移动视图：…` / `→ 进入移动端（已预填「管理员」账号）` | **不改**（无「管理端」字样，「管理员」指人） | — | 不改 |
+| B3 | 移动端登录页主标题 | [login/index.vue:64](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/login/index.vue#L64) | `快递驿站智汇系统` | **不改**（共用页 + 未认证无从判定角色，见 13.3） | 保持 `--fs-h1` / `--fw-semibold` / `--lh-h1` | 不改 |
+| B4 | 移动端登录页品牌行（**新增**） | [login/index.vue:64-66](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/login/index.vue#L64-L66) | 无 | `?as=boss` 时渲染一行：`驿站精灵 · 管理员经营视角`；无 `as` 或 `as=station|staff` 一律不渲染 | `--fs-caption` / `--fw-medium` / `--text-2`（对浅底 6.771:1 ✓，见附录 D #4）；置于主标题与既有副标题之间，上边距 `--sp-2` | **改（新增行）** |
+| B5 | 管理端首页 Hero 品牌行（**新增**） | [home.vue:170-179](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/views/home.vue#L170-L179) | 无（Hero 主标题 `今日经营`） | Hero 顶部左侧新增品牌行 `驿站精灵`；**`今日经营` 保留原样**（品牌 → 页面主张两级） | `--fs-caption` / `--fw-medium` / `--text-inverse`（白 14.679:1 ✓）；置于 `.hero__title` 之上，间距 `--sp-1` | **改（新增行）** |
+| B6 | 管理端各业务页 NavBar 标题 | `modules/boss/router.js` 各 `meta.title` | `考勤概览`/`经营总览`/… | **不改**（品牌不逐页重复，理由见 13.4） | 保持 `--van-nav-bar-title-font-size`(`--fs-h2`) / `--fw-semibold` | 不改 |
+| B7 | 管理端「我的」页顶部 | [modules/boss/views/me.vue](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/views/me.vue) + `MeSection` | 用户身份卡 | **不放品牌名**（理由见 13.4） | — | 不改 |
+| B8 | `document.title` / `<title>` | [mobile.html:16](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/mobile.html#L16) | `移动端 · 快递驿站智汇系统` | 静态 `<title>` **不改**；管理端域由路由层运行时写 `驿站精灵`（见 13.6） | 不影响界面视觉（页签/壳内不可见） | 分层处理，见 13.6 |
+| B9 | 安卓壳应用名 | `hrm-android-shell/…/strings.xml` | `快递驿站` | **不改**（壳零改动硬约束） | — | 不改（仅登记：壳名是容器名，与应用内品牌名可不同） |
+
+### 13.3 共用登录页的矛盾与解法（权衡）
+
+**矛盾**：登录页由管理端与员工端共用，`?as=boss|station|staff` 只做**预填提示**，且手输账号可覆盖它；无 `as` 时更无从判定角色。若把标题改成「驿站精灵」，员工端必然看到管理端品牌，违背「仅移动端管理端视角」拍板。
+
+**判定（取 B3 + B4 组合）**：
+1. 登录页**主标题不变**（`快递驿站智汇系统`）——它是「系统入口」而非「某角色视角」，且未认证时角色不可知。
+2. 仅在 `?as=boss` 时，在主标题下**追加一行品牌副标题**「驿站精灵 · 管理员经营视角」。`?as=boss` 是演示入口明确声明的意图（门户卡片直达管理员账号），用它驱动展示名成立；`as=station|staff` 与无 `as` 一律不渲染该行。
+3. 登录成功后，品牌由**角色**驱动（ADMIN → 管理端品牌），不再依赖 query → 员工端不可能看到管理端品牌，矛盾闭环。
+
+**被否方案**：
+- 否①：登录页标题始终显示「驿站精灵」→ 员工端可见管理员品牌，违背拍板。
+- 否②：登录后按 `auth.role` 回写登录页标题 → 登录页已卸载，无意义。
+- 否③：`as=boss` 时**替换**既有副标题 → 会丢掉「移动端演示 · 纯 Mock」这条演示关键信息，故用**追加**而非替换。
+
+### 13.4 不该放品牌名的位置（附理由）
+
+| 位置 | 不放的理由 |
+| ---- | ---- |
+| 管理端各业务页 NavBar（B6） | NavBar 标题已被 `PageNav` 限宽 60%，再塞品牌会挤压页面名；品牌是「应用级」信息，逐页重复对用户**增量为 0**。标签页/导航栏的职责是「我在哪」，不是「这是什么应用」 |
+| 管理端「我的」页顶部（B7） | 该位承载个人身份（姓名/角色/驿站），品牌名会与身份信息争夺注意力；品牌在登录后**首个落脚页（首页 Hero）出现一次**即可建立认知 |
+| 员工端一切位置 | 用户明确选择「仅移动端管理端视角」，员工端显示管理员品牌属越界 |
+| 安卓壳 `app_name`（B9） | 壳是容器，`app_name` 是桌面图标名，改它超出「移动端管理端视角」范围，且与硬约束冲突 |
+
+### 13.5 系统提示核查（toast / notice-bar / 空态，逐项）
+
+对 `src/**` 全量检索 `管理端 | 管理员` 与 `快递驿站智汇系统`，界面可见串逐条判定：
+
+| 位置 | 类型 | 是否含应用名 | 裁决 |
+| ---- | ---- | ---- | ---- |
+| 员工端各 toast / tip（如「等待管理员审批」「提交后需管理员审批」） | toast / tip | 否（「管理员」指**人**，非应用名） | **不改** |
+| 员工端状态文案（`待管理员终审`/`管理员未通过`，`dict.js`、`utils/leave.js`） | 字典/状态 | 否（角色名） | **不改** |
+| 管理端 notice-bar（`attendance.vue` 异常提示） | notice-bar | 否 | **不改** |
+| 管理端空态（`BossInlineEmpty` / `PageState` 文案） | 空态 | 否 | **不改** |
+| 消息页空态（`MessagePage.vue`） | 空态 | 否 | **不改** |
+| **演示公告正文** [db.js:877](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/db.js#L877) | 系统提示（公告内容，走 `NoticeList`） | **是**（`PC 端、管理端与员工端数据同源…`） | **建议改**为 `PC 端、驿站精灵与员工端数据同源…` —— 属 hrm-demo Mock 文案，改前须先确认 `verify:mock` / e2e 无该串断言（登记为开放问题 Q3） |
+| **包裹详情只读提示** [parcelDetail.vue:130](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/parcelDetail.vue#L130) | tip（ADMIN 可见） | **是**（`管理端仅查看包裹明细…`） | **检出，暂不改**：该串活在 **员工端域文件**，与硬约束 2（staff 域文案零改动）冲突 → 登记为开放问题 Q4，建议改「本页仅查看包裹明细；取件核销在员工端操作」（去掉应用名引用，语义不变） |
+
+> 结论：除 B1 外，移动端界面上**唯一**的「管理端」应用名引用是上表最后两条；其余命中全在代码注释或指「人」。任务前提「只有门户卡片一处」经复核**不成立**，以本表为准。
+
+### 13.6 `document.title` 口径
+
+- **静态 `<title>` 不改**：`mobile.html` 是三端共享的 MPA 入口，静态标题**不可能**按角色区分——改了会让员工端页签也显示管理员品牌。
+- **运行时按域写入**（建议落地，低成本）：在 [mobile/router/index.js](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js) 的 `afterEach` 单点写：`to.path.startsWith('/boss')` → `document.title = '驿站精灵'`；否则恢复 `移动端 · 快递驿站智汇系统`。
+- **优先级**：页签/壳内均不可见，故**不阻塞**本轮到验收；若本轮不实现，登记 `TODO(扩展): 管理端 document.title 未按域切换`。
+
+### 13.7 品牌视觉规范（Token 映射）
+
+| 属性 | 取值 | 依据 |
+| ---- | ---- | ---- |
+| 品牌行字号 | `--fs-caption`(12px) | B4/B5 均为辅助位，不得进位到 `--fs-h3` 与页面标题争层级（§3.1 硬规则 3：同屏不超过 3 级） |
+| 品牌行字重 | `--fw-medium`(500) | 低于页面主标题 600，高于正文 400 |
+| 品牌行色（深底 Hero） | `--text-inverse` | 白对 `--grad-hero-deep` 两端 14.679 / 17.740:1 ✓（附录 D #8/#9） |
+| 品牌行色（浅底登录页） | `--text-2` | 对 `--color-primary-surface` 6.771:1 ✓；**不得用 `--text-3`**（同底实测 4.332:1 ✗，见附录 D #3） |
+| 图片 Logo | **不使用** | 工程内无品牌图片资产，且新增图片资产超出「演示工程零额外依赖」边界；纯文字品牌名 + 既有 Hero 顶部 2px 主色条（`.hero::before`）即品牌识别锚点 |
+
+---
+
+## 14. 考勤明细页设计规范（v1.1 新增）
+
+### 14.1 目标与范围
+
+- **目标**：为考勤概览的六个分区各提供可点入口，下钻到一页**完整的该维度人员明细**，含姓名 / 日期 / 打卡时间 / 异常说明，交互顺滑且有明确返回路径，风格与既有规范一致。
+- **本页只做「出勤维度 × 人员名单」**；打卡事实流水仍是 [attendanceRecords.vue](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/views/attendanceRecords.vue) 的语义（日期/驿站/状态三维筛选），**本页不扩展它的语义，两者不重叠**。
+
+### 14.2 路由与维度参数
+
+| 项 | 取值 | 说明 |
+| ---- | ---- | ---- |
+| path | `/boss/attendance/detail` | **新增**，追加到 [modules/boss/router.js](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/router.js)；**既有 `/boss/*` 的 path/name/meta 一律冻结不改** |
+| name | `bossAttendanceDetail` | — |
+| meta | `{ roles: [ROLE.ADMIN], title: '考勤明细' }` | **不进 tabbar**（`tabbar` 字段不给），二级页自带返回 |
+| query | `?dim=SHOULD\|ACTUAL\|NORMAL\|LATE\|EARLY_LEAVE\|ABSENT` | 采纳主智能体建议的六个码（与 `attendanceSummary` 字段名对齐：`shouldCount`/`actualCount`/`normalCount`/`lateCount`/`earlyLeaveCount`/`absentCount`） |
+| 缺省/非法 dim | 回落 `SHOULD` | 与 `attendanceRecords.vue` 对 `status` 的非法值回落同口径（[:47](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/views/attendanceRecords.vue#L47)） |
+
+### 14.3 六维度口径与展示映射（真源不可演绎）
+
+| dim | 页内标题 | 口径（真源 [attendanceStore.js:748-767](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/attendanceStore.js#L748-L767)） | 名单构成 | 有无打卡时间 |
+| ---- | ---- | ---- | ---- | ---- |
+| `SHOULD` | 应到明细 | 当日**有排班**的人（`shouldCount`） | `schedules` 当日人员 | **可能有 / 可能无**（未打卡者无） |
+| `ACTUAL` | 实到明细 | 当日有**有效上班卡**的人（`actualCount`；ABNORMAL 不计入） | 有效 `ON` 卡持有者去重 | 有上班卡时间 |
+| `NORMAL` | 正常明细 | 有效上班卡且状态 `NORMAL` | 有效 `ON` 且 `NORMAL` | 有 |
+| `LATE` | 迟到明细 | 有效上班卡且状态 `LATE` | 有效 `ON` 且 `LATE` | 有（上班卡） |
+| `EARLY_LEAVE` | 早退明细 | 有效**下班卡**且状态 `EARLY_LEAVE` | 有效 `OFF` 且 `EARLY_LEAVE` | 有（下班卡；通常也有上班卡） |
+| `ABSENT` | 缺卡明细 | 应到 − 实到（**差集，不是打卡事实**） | `schedules` − 有效 `ON` 持有者 | **无任何打卡时间** |
+
+**必须守住的四条边界**（写入页内 `BossScopeNote`）：
+1. 校验未通过的**异常卡（ABNORMAL）不计入实到/正常/迟到/早退**，六个维度都不承载它——异常卡在「打卡记录」页按「异常」状态查看。
+2. **早退发生在到达之后、与到达状态重叠**，故早退不并入出勤构成（概览页已声明）。
+3. 缺卡 = 应到 − 实到，是**差集**，不是「异常卡」。
+4. 演示数据仅城东驿站有排班与打卡，故全域口径与城东驿站一致（沿用概览页 tip）。
+
+### 14.4 明细行数据契约（展示层锁死；数据源见 Q1）
+
+每行 = 「一个人 + 当天在该维度的事实」，六个维度**结构一致**：
+
+```text
+{
+  employeeId, employeeName, stationId, stationName,
+  shiftName?, periodName?,               // 应到维度给时段/班次；其余可空
+  onCheck:  { time, status } | null,     // 有效上班卡（无 → null）
+  offCheck: { time, status } | null,     // 有效下班卡（无 → null）
+  dayState: 'NORMAL' | 'LATE' | 'EARLY_LEAVE' | 'MISS',  // 取 DAY_ATTENDANCE_STATE
+  remark: string | null                  // 记录自带 remark（缺卡维度为 null）
+}
+```
+
+- `dayState` 取值**必须**走 [DAY_ATTENDANCE_STATE](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/constants/dict.js#L395-L402)（`MISS` 对应「缺卡」，`type: info` + `variant: outline`），不得自造第二个考勤状态字典。
+- 一个员工当天可**同时**是「迟到（到达）」与「早退（签退）」→ 由 `onCheck.status` + `offCheck.status` 分别表达（见 14.5-B）。
+
+### 14.5 三个设计难点的明确答案
+
+**A. 「应到 / 实到 / 缺卡」的人可能没有打卡记录 → 行如何呈现？如何区分「未打卡」与「数据缺失」？**
+
+行内固定**双时间槽**，无打卡的槽给**业务占位文案**，取值三态互斥：
+
+| 事实态 | 触发 | 展示 | 颜色 |
+| ---- | ---- | ---- | ---- |
+| `NONE`（未打卡） | 该员工当天**确实没有**该类型有效卡（业务结论） | 槽位渲染文字 `未打上班卡` / `未打下班卡` | `--text-3`（对白卡 4.834:1 ✓） |
+| `MISSING`（数据缺失） | 取数失败 / 字段未上报（系统问题） | 槽位渲染 `—`，并在页级走 `PageState` 错误态；**绝不用「未打卡」冒充** | `--text-3` |
+| `PARTIAL`（部分） | 有上班卡、无下班卡（如迟到维度里的人） | 上班槽给时间，下班槽给 `未打下班卡` | 有时间槽用 `--text-2`/命中色 |
+
+- **判定标准**：沿用 §5.3「0 是结论还是缺失」同源原则——「未打卡」是**结论**，用**文字**；「取不到」是**缺陷**，用 `—` + 可重试错误态。二者**禁止**同形。
+- 缺卡维度整页均为 `NONE`：页顶 `BossScopeNote` 必须先声明「缺卡 = 应到 − 实到，这些人当天没有有效打卡记录」，避免用户误判「系统漏了数据」。
+
+**B. 「迟到 / 早退」是一张卡的两种事实（上班卡 / 下班卡）→ 行如何同时容纳两个时间？**
+
+- 不拆行、不因维度改列：**双时间槽常驻**（`上班 HH:mm` 与 `下班 HH:mm` 两个槽位在任何维度都同时存在），列位置稳定，用户跨维度切换不需重新学习版式（Nielsen 一致性）。
+- **命中槽高亮**：迟到维度高亮**上班槽**（`--color-warning` + 该槽后附「迟到」状态胶囊），早退维度高亮**下班槽**。未命中槽走中性 `--text-2`。
+- 状态胶囊最多两枚，按「到达状态 + 签退状态」：主胶囊（`#title` 槽）取到达状态（正常/迟到/缺卡）；若 `offCheck.status === 'EARLY_LEAVE'` 则追加「早退」胶囊到 `#tags` 槽 → 正确表达「迟到了又早退」并存。
+- 否方案：只显示命中槽 → 六维度行结构不一致，跨维度扫读成本升高。
+
+**C. 「异常情况说明」展示什么？缺卡没有 `remark` 怎么给？**
+
+分两类，**优先级从上到下**：
+
+| 顺序 | 来源 | 示例 | 视觉 |
+| ---- | ---- | ---- | ---- |
+| 1 | 记录自带 `remark`（原样，不加工） | `迟到超过 30 分钟` / `演示异常卡：WiFi 未命中` | `.list-item__meta--danger`（与打卡记录页同口径，[:228](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/views/attendanceRecords.vue#L228)） |
+| 2 | 维度级**固定**说明（无 `remark` 时） | 缺卡：`当日无有效打卡记录（应到未到）`；迟到：`晚于班次上班时间打卡`；早退：`早于班次下班时间打卡` | 同上一行样式 |
+| 3 | **不渲染** | 正常 / 实到且准时 | 正常维度**不硬凑说明**，避免噪音 |
+
+- 关键裁决：**不给缺卡行伪造 `remark` 字段**。缺卡人的说明是**维度级固定文案**（上表第 2 行），写在行内；口径级解释（为什么这些人在名单里）写在页顶 `BossScopeNote`，两级分工。
+
+### 14.6 版面结构与复用组件
+
+自上而下（顺序即信息层级）：
+
+1. `PageNav` `title="{维度名}明细"`（如「迟到明细」），`back` 默认 `true`。
+2. **摘要卡**：单张**非可点** `StatCard`（`stat-grid` 单列铺满），`label="{维度名}人数"`、`value=N`、`unit="人"`、`tone` 取该维度语义色（应到 neutral / 实到 primary / 正常 success / 迟到 warning / 早退 warning / 缺卡 danger）——与概览六卡同色同构。
+3. `BossScopeNote`：该维度口径 + 四条边界（14.3）+ 当日日期。
+4. **维度二次切换**（见 14.6.1）：`.fchip` 行，六项。
+5. **明细列表**：`ListItemCard`（`density=2`），每行结构见 14.5-A/B/C；排序按维度（见 14.6.2）。
+6. 底部 `.tip`：补充口径（沿用概览页 tip 文案）。
+
+#### 14.6.1 是否提供「换维度」二次切换 → **提供**
+
+- 理由：六分区是**同一份 summary 的六个切片**，用户下钻后大概率要横向对比（如「迟到的人是不是也早退」）。
+- 实现口径：`router.replace({ query: { dim } })` 更新参数 → **不新增历史条目**，返回仍回概览；页内不重挂 `PageNav`。
+- 与打卡记录页的三维筛选（日期/驿站/状态）**语义不重叠**：明细页的日期/驿站跟随概览的「今天 / 全域」，本轮不做二次筛选。
+- 组件：复用既有 `FilterChips`（若其 props 不匹配六项切换，则按 [attendanceRecords.vue:280-297](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/views/attendanceRecords.vue#L280-L297) 的 `.fchip` 口径页内自绘，**不新造组件**）。
+
+#### 14.6.2 排序规则（各维度不同）
+
+| dim | 排序 |
+| ---- | ---- |
+| `LATE` / `EARLY_LEAVE` | 按命中卡时间**倒序**（越晚越靠前，与打卡记录页同口径） |
+| `ABSENT` | 按员工姓名升序（无时间可排） |
+| `SHOULD` | 缺卡 → 迟到 → 正常（风险优先），同组按姓名 |
+| `ACTUAL` / `NORMAL` | 按上班卡时间倒序 |
+
+**复用组件清单（优先复用，零新造）**：`PageNav`、`PageState`（整页三态）、`StatCard`（摘要卡 + 概览六卡入口）、`ListItemCard`（明细行）、`StatusTag`（`DAY_ATTENDANCE_STATE`）、`BossScopeNote`（口径）、`BossInlineEmpty`（仅当确需区块级空态时；整页空态用 `PageState` 的 `empty`）。
+
+**新增组件裁决：本轮不新增。** 双时间槽与身份行是**本页单点**使用，`ListItemCard` 的 `#title` / 默认槽 / `#tags` 三槽足以承载，无需为单页抽组件。若评审要求抽出以复用，命名与契约如下（**可选，非必须**）：
+
+```text
+BossAttendanceRow（落 src/mobile/modules/boss/components/，Molecule）
+props:  row: Object  // = 14.4 的行契约（必填）
+        hit: 'ON' | 'OFF' | ''  // 命中槽，决定高亮上班/下班槽
+        emptyText?: string      // 缺省「未打上班卡 / 未打下班卡」可覆盖
+emits:  click(row)     // 仅当需要下钻到员工档案时；纯列表可不用
+状态:   default / 无打卡(NONE) / 部分(PARTIAL) / 取数失败(MISSING 走 —)
+a11y:   根元素 role="listitem"；双时间槽用 <time> 并带 aria-label「上班 08:52」
+```
+
+### 14.7 三态与空 / 加载 / 错误文案（与既有口径一致）
+
+| 状态 | 文案 | 组件 | 依据 |
+| ---- | ---- | ---- | ---- |
+| 加载 | 200ms 内不显示骨架；超过则等高骨架（行高 `--row-h-2`×4 行） | `PageState` | [PageState.vue:27-45](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/PageState.vue#L27-L45) |
+| 失败 | `{接口错误文案}` + 「请检查网络后重试，若持续失败请联系管理员」+ 「重新加载」按钮（≥44px） | `PageState` `role=alert` | §5.1 错误态 |
+| 空（该维度 0 人） | 按维度不同（见下） | `PageState :empty` | 空态与错误态**必须文案不同** |
+
+空态文案（六条，逐维度给出，避免「暂无数据」千篇一律）：
+
+| dim | 空态文案 |
+| ---- | ---- |
+| `SHOULD` | `今日无排班，应到 0 人` |
+| `ACTUAL` | `今日暂无有效打卡，实到 0 人` |
+| `NORMAL` | `今日暂无正常打卡记录` |
+| `LATE` | `今日无迟到` |
+| `EARLY_LEAVE` | `今日无早退` |
+| `ABSENT` | `今日无缺卡，全员出勤正常` |
+
+- 六条文案统一**不用「暂无数据」**——它无法区分「业务为空」与「取数失败」（§5.2 静默失败禁区）。
+- 业务确认的零（如「今日无迟到」）**照常显示 0**，不隐藏（§5.3）。
+
+### 14.8 入口（概览页 StatCard）点击与焦点规范
+
+| 项 | 规范 | 现状/依据 |
+| ---- | ---- | ---- |
+| 可点表现 | 六张 `StatCard` **全部**加 `@click` → `router.push('/boss/attendance/detail?dim=…')`；`StatCard` 在有 `onClick` 时自动渲染为 `<button>`，键盘天然可达 | [StatCard.vue:29](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/StatCard.vue#L29)、[:52-58](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/StatCard.vue#L52-L58) |
+| 行为变更 | 现「迟到」「早退」卡绑的是 `/boss/attendance/records?status=…` → **改指明细页**（[attendance.vue:108-121](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/views/attendance.vue#L108-L121)）；「应到/实到/正常/缺卡」四张**新增** `@click` | 打卡记录页语义不变 |
+| `:active` 按下反馈 | `transform: scale(0.985)`，`transition: transform var(--dur-fast) var(--ease-std)`（120ms） | **已实现**（[StatCard.vue:90-95](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/StatCard.vue#L90-L95)）；本轮沿用不新增数值 |
+| `:focus-visible` 焦点环 | `outline: 2px solid var(--color-primary-icon); outline-offset: 2px`（对白卡 3.245:1 ✓ SC 1.4.11） | **现状缺失**（`StatCard` 只有 `:active`，无焦点样式，属键盘可见性缺口）→ 建议**在 `StatCard` 内补一处**（共享内核改动，需评审；员工端同享，无回归风险） |
+| 触控目标 | `min-height: 88px` ≥ 44px ✓ | 现有 |
+| 重复点击 | 概览页无重复点击风险（跳到独立页） | — |
+
+### 14.9 无障碍
+
+| 项 | 规范 |
+| ---- | ---- |
+| 入口语义 | 六张卡为原生 `<button>`，读屏自动播报「按钮」；`StatCard` 内置 `aria-label="{label} {value}{unit}"` → 播报如「迟到 3人」 |
+| 读屏「该维度共 N 人」 | `StatCard` 现状已能读出数量；为显式补出「打开明细」，**建议给 `StatCard` 增可选 `hint` prop**（默认空，拼进 `aria-label`，仅管理端传 `→ 可查看名单`）。属共享内核改动 → 开放问题 Q2。若评审要求零内核改动，则由页面尝试透传 `aria-label`；**Vue 中「显式绑定 vs 透传属性」谁优先属未验证**，须落地时实测（登记为待验证项，不得口头断言） |
+| 明细行 | 根元素用 `ListItemCard`（不可点时无 `role`，纯展示）；双时间槽用 `<time datetime>`；状态用 `StatusTag`（文字通道） |
+| 颜色以外的第二通道 | ① 状态**文字**（正常/迟到/早退/缺卡）本身就是通道；② 命中槽除颜色外附「迟到/早退」文字；③ 缺卡行给文字占位「未打上班卡」。**禁止**仅用颜色区分维度 |
+| 动态计数播报 | 切换维度后人数变化用 `aria-live="polite"`（摘要卡外层的隐藏计数文本），避免每次切换都打断（§5.5） |
+
+### 14.10 响应式核查（375 / 480）
+
+| 档位 | 核查点 | 结论 |
+| ---- | ---- | ---- |
+| **375px** | 摘要卡单列铺满，数值 24px + 「人」不换行 | ✓ |
+| 375px | **维度 chip 行**：6 项 @ `--fs-caption`，总宽 ≈ 6×(64–76)+5×8 ≈ 424–496px **> 375** | **风险位 ①**：chip 容器必须 `flex-wrap: wrap`（复用 attendanceRecords 口径），**不得**引入横向滚动 |
+| 375px | 明细行双时间槽：「上班 08:52 · 下班 18:05」≈156px < 343px（375−32） | ✓ |
+| 375px | `#title` 槽「姓名 + 到达状态胶囊」同行：姓名 3–4 字 + 胶囊 | **风险位 ②**：姓名须 `min-width:0` + 单行省略（复用 `.list-item__title > span:first-child` 口径，[mobile.scss:248-253](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L248-L253)） |
+| 375px | `BossScopeNote` 长口径文案自动换行 | ✓（`--fs-caption` 自动折行） |
+| **480px** | `#app` 单列 480 居中，行内容左对齐不拉伸，无新增横溢 | ✓（§2.2/§2.5，Q2 裁决：不引双列） |
+
+> 横向溢出三个风险位：① 维度 chip 行（换行兜底）；② 明细行标题槽（省略兜底）；③ 身份行「驿站名 · 时段名」（`--text-3` + 省略）。三处均已给兜底方案，**不依赖 `overflow-x: hidden` 掩盖**。真机 375px 复测沿用 §0.3 U4（本机浏览器窗口受限，375 结论须真机复核）。
+
+### 14.11 本页反模式核对
+
+- ❌ 六卡入口点击后**无任何反馈** → ✅ `:active` scale + 目标页骨架（`PageState` 200ms 防闪）。
+- ❌ 明细页与「打卡记录」页语义重叠 → ✅ 本页只做「维度 × 人员」，日期/驿站/状态筛选留给打卡记录页。
+- ❌ 用 `—` 表示「未打卡」→ ✅ 「未打卡」用文字，`—` 只留给「取数失败」。
+- ❌ 缺卡明细页无口径说明 → ✅ 页顶 `BossScopeNote` 必须先讲差集口径。
+- ❌ 新增页面过渡动画（工程 21 页均无页面级 `transition`）→ ✅ 不新增；「平滑过渡」落在按下反馈 + 就绪即渲染，登记 `TODO(扩展): 若全端统一加页面过渡再一并落地`。
+- ❌ 为单页造组件 → ✅ 复用 `ListItemCard` 三槽，零新组件（可选 `BossAttendanceRow` 契约见 14.6）。
+
+### 14.12 §13/§14 开放问题（请主智能体裁决）
+
+| # | 问题 | 影响面 | 我的建议 |
+| ---- | ---- | ---- | ---- |
+| Q1 | **明细页数据源**：现有 Mock 只有 `attendanceSummary`（计数）与 `queryRecords`（打卡事实）；「应到 / 缺卡」需要「排班名单 − 有效上班卡名单」的**人数级明细**，`queryRecords` 产不出「应到但无记录」的人 | 决定 `src/shared/mock/attendanceStore.js` 是否新增读口（后端语义改动，超 UI/UX 职责） | **Mock 单点新增一个「按维度返回人员明细」读口**（口径与 `attendanceSummary` 同源），不要在前端组合排班与记录（会把口径散到展示层，违反口径单点） |
+| Q2 | `StatCard` 是否增可选 `hint` prop（拼进 `aria-label`，表达「可打开明细」）与 `:focus-visible` 焦点环（均为**共享内核**改动） | 员工端同享，影响 24 个消费面 | 两处均**建议补**（各 1–2 行、向后兼容、无回归）；若不批，接受现状宽限并登记 |
+| Q3 | 演示公告 [db.js:877](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/db.js#L877) 的「管理端」是否同步改「驿站精灵」 | hrm-demo Mock 文案；须先查 `verify:mock`/e2e 是否断言该串 | 建议改（保持品牌一致）；改前先跑一次 `npm run verify:mock` 确认无断言 |
+| Q4 | 员工端域文件 [parcelDetail.vue:130](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/parcelDetail.vue#L130) 的「管理端仅查看包裹明细」是 ADMIN 可见串，但文件在 staff 域（硬约束 2 禁改） | 品牌一致 vs 域约束冲突 | 建议改为「本页仅查看包裹明细；取件核销在员工端操作」（去应用名引用、语义不变），**由主智能体判定是否属 staff 域例外** |
+
+---
+
+## 附录 D：本轮（v1.1）新增对比度实算
+
+计算方式与命令**完全相同**于附录 A.1（`node` 按 WCAG 2.x 相对亮度公式实算，未手算）。
+
+| # | 前景 / 背景 | 用途 | 实算 | 判定 |
+| ---- | ---- | ---- | ---- | ---- |
+| 1 | `--text-3` `#6B7280` / `--surface-card` `#FFFFFF` | 明细元信息、未打卡占位文案 | **4.834** | ✓ AA（同附录 A #1） |
+| 2 | `--text-3` / `--surface-subtle` `#F5F7FA` | 浅底块内辅助文字 | **4.505** | ✓ AA（余量极小，**不得再降档**，同附录 A #2） |
+| 3 | `--text-3` / `--color-primary-surface` `#E8F4FF` | **登录页副标题在渐变顶部的实际底色** | **4.332** | ✗ **< 4.5**（既有潜在缺陷：`login__subtitle` 用 `--text-3` 落在渐变近顶区，登记待修；新品牌行 B4 因此改用 `--text-2`） |
+| 4 | `--text-2` `#4B5563` / `#E8F4FF` | 登录页品牌行（B4） | **6.771** | ✓ AA |
+| 5 | `--text-2` / `--surface-sunken` `#EDF0F4` | sunken 底上的正文 | **6.611** | ✓ AA（`--text-3` 同底仅 4.229 ✗ → **禁止**在 sunken 底上用 `--text-3`） |
+| 6 | `--color-danger` `#CF1322` / `--color-danger-surface` `#FFF1F0` | 危险浅底胶囊 / 说明 | **5.065** | ✓ AA |
+| 7 | `--color-danger-icon` `#FF4D4F` / `--color-danger-surface` `#FFF1F0` | 危险图标若放危险浅底 | **2.971** | ✗ **< 3**（SC 1.4.11）→ 危险图标**不得**放危险浅底，改用 `--color-danger` |
+| 8 | `--color-primary-icon` `#1890FF` / `#FFFFFF` | 焦点环、箭头图标（SC 1.4.11 非文本） | **3.245** | ✓ |
+| 9 | 白 `#FFFFFF` / `--c-neutral-800` `#1F2937` | Hero 深底品牌行（B5） | **14.679** | ✓ AA |
+| 10 | 白 / `--c-neutral-900` `#111827` | 同上，渐变终点 | **17.740** | ✓ AA |
+| 11 | `rgba(255,255,255,.82)` 合成 `#D7D8DB` / `#1F2937` | 深底 82% 副文本（若品牌行改 82% 白） | **10.300** | ✓ AA |
+| 12 | `rgba(255,255,255,.82)` 合成 `#D4D5D8` / `#111827` | 同上，渐变终点 | **12.087** | ✓ AA |
+| 13 | `--color-warning` `#B45309` / `--color-warning-surface` `#FFFBE6` | 迟到命中槽（若用浅底） | **4.829** | ✓ AA |
+| 14 | 白 / `--color-danger` `#CF1322` | 缺卡实心徽标（若需要） | **5.571** | ✓ AA |
+
+**本轮新增结论**：
+1. **#3（4.332:1）** 为既有登录页副标题的潜在不达标项，登记待修（不在本轮 §13 强制范围内，但同页改造时一并处理）。
+2. **#5 / #7** 为两条新的**禁令**：`--text-3` 不得用于 `--surface-sunken` 底；危险图标不得放 `--color-danger-surface` 底。
+3. 其余新增色值组合**全部 ≥ 4.5:1**（文本）或 **≥ 3:1**（非文本），无新增超标项。
+
+---
+
+## 15. 主智能体裁决（§13/§14 Review 结论 · 2026-09-23）
+
+### 15.1 独立复核（不采信转述，逐条实测）
+
+| 复核项 | 结论 |
+| ---- | ---- |
+| `StatCard` 有 `onClick` 时自动渲染 `<button>` | **成立**，见 [StatCard.vue:29](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/StatCard.vue#L29)（`clickable = typeof attrs.onClick === 'function'`）+ [:52-58](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/StatCard.vue#L52-L58)（`:is="clickable ? 'button' : 'div'"`）→ 六卡加 `@click` 即键盘可达，**无需额外 role/tabindex** |
+| `:active` 按下反馈已存在 | **成立**，见 [:90-95](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/StatCard.vue#L90-L95)：`scale(0.985)` + `--dur-fast`。§14.8 请前端**沿用不新增数值** |
+| `:focus-visible` 缺失 | **成立**：该组件 `border: none` 且未定义焦点样式，仅靠浏览器默认 outline；补自定义焦点环属规范化而非新功能 |
+| 界面可见「管理端」不止门户卡一处 | **成立**：公告 [db.js:877](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/db.js#L877)、包裹详情 [parcelDetail.vue:130](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/parcelDetail.vue#L130)；原任务前提「只有门户卡片一处」**已证伪**，以 §13.5 表为准 |
+
+### 15.2 开放问题裁决
+
+**Q1 · 明细页数据源 → 批准新增 Mock 读口**（口径必须与 `attendanceSummary` 同源，禁止在前端组合排班与记录）
+- 接口：`GET /attendance/detail`，query `dim`（必填，白名单 `SHOULD|ACTUAL|NORMAL|LATE|EARLY_LEAVE|ABSENT`，非法 → `fail(BAD_REQUEST)`，与 `records` 对 `status` 的处理同口径）+ `stationId` + `date`（可选，缺省=今天）
+- 响应：`{ dim, date, total, list: [§14.4 行契约] }`
+- 落点三处（缺一不可）：`src/shared/mock/attendanceStore.js`（真源，新读口与 `attendanceSummary` 共用同一套筛选，**不得复制第二套口径**）、`src/shared/mock/routes/attendance.js`（handler + 路由注册）、`src/mobile/api/attendance.js`（`getAttendanceDetail`）
+- 前端对非法 `dim` 回落 `SHOULD`（沿用 `attendanceRecords.vue:47` 对 `status` 的回落写法），Mock 侧仍严校验
+- ⚠️ 新增接口会使 `verify:mock` 计数 **+1**（当前 879），属预期变化，须在该脚本期望值中同步，不得为保计数而不加接口
+
+**Q2 · `StatCard` 两处共享内核改动 → 均批准**（各 1–2 行、向后兼容、员工端同享无回归）
+- 补 `:focus-visible`：`outline: 2px solid var(--color-primary-icon); outline-offset: 2px`（白卡 3.245:1 ✓ SC 1.4.11）
+- 增可选 `hint` prop 拼进 `aria-label`，**必须走 prop**。理由：模板内已有显式 `:aria-label="ariaLabel"`（[:57](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/StatCard.vue#L57)），Vue 3 中模板显式绑定优先于 fallthrough attrs，透传同名属性**不会**生效 —— 设计师标注的"未验证"项在此定论，免去落地时试错
+
+**Q3 · 演示公告 `db.js:877` → 本轮不改**
+- 理由：该文件工作区存在**他人未提交的在途改动**（`git status` 实测 `M src/shared/mock/db.js`），本轮改动会与并行作业混入同一文件，无法干净分离提交范围
+- 处置：登记 `TODO(扩展): 公告文案「管理端」待品牌统一（避开并行改动后单独提交）`，写入 `SESSION-STATE.md`
+
+**Q4 · `parcelDetail.vue:130` → 批准改，并确认为**受限例外**
+- 改法：`管理端仅查看包裹明细；取件核销在员工端操作` → `驿站精灵仅查看包裹明细；取件核销在员工端操作`
+- 例外依据：该句带 `v-if="!isStaffRole"`，**仅 ADMIN 渲染**，员工端不显示 → 不构成「员工端界面文案变更」，与用户拍板的「仅移动端管理端视角」一致；且 §14 硬约束 2 的立法目的是保护员工端用户体验，本改动不触碰该目的
+- 前置校验：该文件当前无在途改动（`git status` 未列出），可安全改动
+
+### 15.3 批准落地的品牌项（§13 清单为准）
+
+| 项 | 裁决 |
+| ---- | ---- |
+| B1 门户卡片名 → `驿站精灵（经营视角）` | **落地**（同步 `e2e/01-load.spec.js:32` 断言，否则门禁红） |
+| B3 登录页主标题不改 + B4 `?as=boss` 追加品牌行 | **落地**（按 §13.3 的 `as` 驱动展示，员工端与无 `as` 均不渲染） |
+| B5 管理端首页 Hero 新增品牌行，`今日经营` 保留 | **落地** |
+| B6 NavBar / B7 我的页不重复品牌 | **采纳设计师判定**，不改 |
+| B8 静态 `<title>` 不改 + `afterEach` 按域写 `document.title` | **落地**（用户明确要求"标题"统一；单点写在 [mobile/router/index.js](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js) 聚合点，`/boss*` → `驿站精灵`，其余恢复原值） |
+| B9 安卓壳 `app_name` | **不改**（壳零改动硬约束） |
+
+### 15.4 已知缺陷处置
+
+- 附录 D #3（登录页副标题 `--text-3` 对 `#E8F4FF` = **4.332:1** ✗）：**本轮不修**。理由：该值基于"渐变近顶区合成色"的推定，本机浏览器窗口受限无法实测真实合成底色，据未验证假设改色违反求证优先原则。登记 `TODO(扩展): 登录页副标题对比度待真机复测后按实测合成色取 `--text-2``
+- 附录 D #5 / #7 两条禁令（`--text-3` 禁用于 `--surface-sunken`；危险图标禁放 `--color-danger-surface`）：**采信并纳入实施约束**
+
+### 15.5 实施范围锁定
+
+必改文件（前端工程师按此清单执行，**清单外不擅动**）：
+1. `src/portal/main.js`（B1）
+2. `src/mobile/views/login/index.vue`（B4）
+3. `src/mobile/modules/boss/views/home.vue`（B5）
+4. `src/mobile/router/index.js`（B8，`afterEach` 单点）
+5. `src/mobile/views/staff/parcelDetail.vue`（Q4，仅改该行文案）
+6. `src/mobile/components/StatCard.vue`（Q2，仅补 `:focus-visible` + `hint` prop）
+7. `src/mobile/modules/boss/views/attendance.vue`（六卡全部接线到明细页）
+8. `src/mobile/modules/boss/views/attendanceDetail.vue`（**新建**，按 §14）
+9. `src/mobile/modules/boss/router.js`（新增 1 条路由；既有 path/name/meta 冻结）
+10. `src/mobile/api/attendance.js` + `src/shared/mock/attendanceStore.js` + `src/shared/mock/routes/attendance.js`（Q1 读口三件套）
+11. `e2e/01-load.spec.js`（B1 断言同步）
+12. `verify:mock` 期望计数同步（新增 1 个接口）
+
+**禁止**：改动 `src/pc/**`、`src/mobile/views/staff/**` 其他文件、`src/mobile/modules/staff/**`、`src/shared/mock/db.js`、任何 `hrm-admin/**` / `hrm-server/**` / `hrm-android-shell/**`。
+
+---
+
+## 16. 落地复核纠正（主智能体 · 2026-09-23 第二轮）
+
+> §15 写完即进入实现，实现自检阶段发现 §15 自身有两处前提错误与一处计数错误，据实纠正如下。§13/§15 保留为决策过程原件，**冲突处以本节为准**。
+
+### 16.1 §13.3 前提证伪 → 登录页主标题必须更名（推翻 B3）
+
+**原论断**：登录页由两端共用，"若把标题改成驿站精灵，员工端必然看到管理端品牌"。
+
+**实测**：不成立。登录页标题取值来自 [`resolveAppName({ as, role })`](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/constants/appName.js#L29-L34)，**按入口 `as` / 登录后 `role` 判端**，并非写死的共用串：
+
+| 入口 | `as` | 主标题实测取值 |
+| ---- | ---- | ---- |
+| 门户 · 员工端卡 | `station` | `驿站助手`（员工端名，HEAD 已是此值，见 commit `5181c20`） |
+| 门户 · 管理端卡 | `boss` | `快递驿站智汇系统`（**仍为系统名，未更名**） |
+
+即：**同一张登录页早已按端显示不同应用名**，员工端不会被"必然"污染；先前担心不成立，而管理端的主标题却漏掉了更名，与员工端先例不一致，且违背用户"标题统一更新"的明确要求。
+
+**纠正**：
+1. [`APP_NAME_BOSS`](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/constants/appName.js#L10) 由 `快递驿站智汇系统` 改为 **`驿站精灵`**（该文件自称「应用名真源（唯一）」，更名必须落在真源，否则界面与真源长期背离）。
+2. **B3 作废**：登录页主标题随 `as=boss` / ADMIN 角色显示 `驿站精灵`。
+3. **B4 降级**：原「驿站精灵 · 管理员经营视角」与主标题重复，改为 **`管理员经营视角`**（去重保留"视角"信息，`as` 驱动机制不变）。
+
+### 16.2 新增 `APP_NAME_SYSTEM`（无 `as` 回落修正）
+
+原 `resolveAppName` 无参时回落 `APP_NAME_BOSS`；一旦 `APP_NAME_BOSS` 变成端品牌，安卓壳 WebView 与裸 `mobile.html` 入口（既非管理端也非员工端）就会透出管理端品牌，属越界。
+
+**纠正**：新增 [`APP_NAME_SYSTEM = '快递驿站智汇系统'`](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/constants/appName.js#L12)，回落改为系统名。判据链：`role` > `as=staff|station` > `as=boss` > **系统名**。同步 [`appName.spec.js`](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/constants/appName.spec.js) 矩阵（含 `as=unknown` 用例）。
+
+### 16.3 §15.2 Q3 反转（已改）+ §15.5 #12 计数纠正
+
+- **Q3 反转为「已改」**（用户 2026-09-23 明确批准「执行吧」）：复核实测 `db.js` 在途改动为**孤立 hunk**（新增预留管理员账号），与本任务无逻辑交叠，原先「无法干净分离」的顾虑不成立。[`db.js:877`](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/db.js#L877) 公告正文 `PC 端、管理端与员工端数据同源…` → `PC 端、驿站精灵与员工端数据同源…`。⚠️ 提交该文件时须**按 hunk 挑选**，不得把预留账号改动捎带进本任务提交范围。
+- **§15.5 #12 计数纠正**：写的是"+1（879 → 880）"，**实测为 +8 → 887**（新增 6 处 `check(...)` + 2 处 `expectCode(...)` 断言）。该脚本**不自带硬编码期望总数**，以自报 `共 N 项` 输出，故无需改期望值。
+
+### 16.4 §15.5 #11 增补：一条 HEAD 陈旧断言
+
+[`e2e/01-load.spec.js:33`](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/e2e/01-load.spec.js#L33) 断言的 `员工端（作业视角）` 早在 commit `5181c20`（员工端更名「驿站助手」）时即已失效——当时改了 `portal/main.js` 却漏改断言，属 **HEAD 基线红灯**，与本次改动无关但阻断 A1-1。本次一并同步为 `员工端 · 驿站助手（作业视角）`。
+
+### 16.5 门禁实测（本机 · 2026-09-23 收口）
+
+| 门禁 | 结果 |
+| ---- | ---- |
+| `lint` | **0 error**（38 warning 均为既有 `max-lines` / `no-restricted-imports`，非本次新增） |
+| `lint:style` | **0 problem**（先前 `comment-empty-line-before` 既有基线红灯已由相关文件各自修复） |
+| `test` | **336/336** 通过（42 文件） |
+| `verify:mock` | **887/887** 通过（+8 项新断言） |
+| `verify:mobile` | **48/48** 通过 |
+| `build` / `build:prod` | **均通过** |
+| `e2e` | **38/38 通过**（含新增 A3-7；A1-1 陈旧断言已修） |
+
+### 16.6 环境阻塞（已解除 · 记录备查）
+
+收口过程中 `build` 曾报 `Could not resolve "../components/ShiftCard.vue" from "src/mobile/views/staff/attendance.vue"`：**另一并行会话正在把员工端考勤页拆分为目录模块**（新增 `src/mobile/views/staff/attendance/`，同时改 `views/staff/attendance.vue`、`composables/useCheckIn.js`），期间工作区瞬时不一致，连带 e2e `A3-2` / `A3-3` 抖动。该会话落盘后全部自动恢复，**本任务全程未代为修改其文件**（本任务文件不 import `ShiftCard`，不受影响）。

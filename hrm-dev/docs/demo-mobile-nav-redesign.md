@@ -5,7 +5,7 @@
 | 文档版本 | v1.0 |
 | 编写日期 | 2026-09-19 |
 | 作者 | UI/UX 设计师 |
-| 适用范围 | `hrm-dev/hrm-demo` 移动端（`mobile.html`，老板端 ADMIN + 员工端 STATION_ADMIN / STAFF） |
+| 适用范围 | `hrm-dev/hrm-demo` 移动端（`mobile.html`，管理端 ADMIN + 员工端 STATION_ADMIN / STAFF） |
 | 交付对象 | 主智能体（评审）→ 前端工程师（照 A/B/C/D 章逐项落地）→ 测试工程师（照 E 章验收） |
 | 依据文档 | [demo-ux-improvement.md](demo-ux-improvement.md)（M1 冻结规范）、[demo-ui-redesign.md](demo-ui-redesign.md)（Token 三层体系）、[demo-milestones.md](demo-milestones.md)（D-1~D-7 决策） |
 | 本轮产出 | **仅本设计文档，不改任何源码** |
@@ -26,8 +26,8 @@
 | 项 | 既有约定 | 本次变更 | 出处与理由 |
 | ---- | ---- | ---- | ---- |
 | **移动端 Tabbar 项数** | 「移动端 Tabbar 两端各 6 项，**不可再加**」 | **改为两端各 3 项**（首页 / 消息 / 我的） | 旧约束见 [demo-ux-improvement.md](demo-ux-improvement.md) B0.1 与 [tabs.js:5-6](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/constants/tabs.js#L5-L6)。**该约束的实质是「防止 Tabbar 超载」**（320px 下每项 <46px 触控不达标），3 项比 6 项更宽松，故本次变更不违反其本意，反而是超载问题的彻底解法：3 项在 320px 下每项约 106px、高 50px，触控余量翻倍。变更理由：需求方要求「首页 / 消息 / 我的」三 Tab 结构；6→3 释放出的容量正好把原有 6 个一级页中的 4 个（考勤/趋势/排行/预警、打卡/包裹/工单/通知）下沉为首页宫格项与消息页子视图，符合「一级页只保留最常用」的信息架构原则。 |
-| **`demo-ui-redesign.md` 7.2「固定 5 项，不增减」** | 固定 5 项 | **本条已失效** | [demo-ui-redesign.md](demo-ui-redesign.md) 7.2 写「老板端 5 / 员工端 5」，但源码实际为两端各 6 项（[tabs.js:8-24](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/constants/tabs.js#L8-L24)），该文档此节在 M1 后已过期。本次以**源码为准**，并统一到 3 项。 |
-| **`demo-ux-improvement.md` A12-3「老板端首页宫格扩到 6 项（3 列 × 2 行）」** | 3 列 × 6 项 | **改为 4 列 × 8 项**（两端一致） | 3 列配 8 项会排成 3+3+2 不齐；4 列配 8 项为整行 4×2。列数变更后每格约 88px（375px 视口），仍 ≥44×44 热区。 |
+| **`demo-ui-redesign.md` 7.2「固定 5 项，不增减」** | 固定 5 项 | **本条已失效** | [demo-ui-redesign.md](demo-ui-redesign.md) 7.2 写「管理端 5 / 员工端 5」，但源码实际为两端各 6 项（[tabs.js:8-24](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/constants/tabs.js#L8-L24)），该文档此节在 M1 后已过期。本次以**源码为准**，并统一到 3 项。 |
+| **`demo-ux-improvement.md` A12-3「管理端首页宫格扩到 6 项（3 列 × 2 行）」** | 3 列 × 6 项 | **改为 4 列 × 8 项**（两端一致） | 3 列配 8 项会排成 3+3+2 不齐；4 列配 8 项为整行 4×2。列数变更后每格约 88px（375px 视口），仍 ≥44×44 热区。 |
 | **`demo-ux-improvement.md` A13-1「员工端宫格 8 项含『通知』」** | 宫格含通知 | **通知移出宫格，升格为「消息」Tab** | 通知本身是「被动接收的信息」，与宫格「主动发起的动作」语义不同（见 A1 划分原则）；通知移出后宫格空出的位置由「我的补卡申请」等**待办动作**填充。 |
 
 > **回写动作（由主智能体执行，本文件不改其他文档）**：在 `demo-ux-improvement.md` B0.1、A12-1、A12-3、A13-1 与 `demo-ui-redesign.md` 7.2 处追加一行注记「已由 `demo-mobile-nav-redesign.md` 0.2 变更，以新文件为准」。
@@ -41,7 +41,7 @@
 | U3 | 消息 Tab 未读角标「未读通知 + 待办」合计口径是否与产品预期一致 | 本文给出明确口径（C4-2），标注为**设计决策**，如需改口径只改一处聚合函数 | 评审确认；口径实现集中在 `MessagePage` 的 computed |
 | U4 | `GET /kpi/scores/:employeeId` 在无考核数据时返回错误码（`KPI_CODE.SCORE_NOT_EXISTS`，见 [kpiStore.js:448](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/kpiStore.js#L448)），前端需把它当「空」而非「错误」 | 规范明确：该码走宫格「空」态（显示「未考核」），不进错误态 | 读 `shared/constants/errorCode.js` 的 `KPI_CODE` 段确认码值与 http 层是否 silent |
 | U5 | Vant `van-badge` 默认底色是否为 `--van-danger-color`（决定角标是否已是 #CF1322） | 规范按「已在 [tokens.scss:188](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/tokens.scss#L188) 设定 `--van-danger-color: var(--color-danger)`＝#CF1322」推断角标底色达标 | 实现后量取角标像素色；若为 Vant 内置红 `#ee0a24`，则为 `--van-badge-background` 显式赋值 |
-| U6 | 老板端是否需在移动端打卡 | 规范判定**不需要**（老板端 `ADMIN` 无排班/打卡语义，`/attendance/status` 对 ADMIN 的返回未验证） | 读 [attendance.js](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/attendance.js) 的 `status` handler 确认 ADMIN 分支 |
+| U6 | 管理端是否需在移动端打卡 | 规范判定**不需要**（管理端 `ADMIN` 无排班/打卡语义，`/attendance/status` 对 ADMIN 的返回未验证） | 读 [attendance.js](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/attendance.js) 的 `status` handler 确认 ADMIN 分支 |
 
 ---
 
@@ -60,16 +60,16 @@
 
 | Tab | 一句话职责 | **承载** | **不承载** |
 | ---- | ---- | ---- | ---- |
-| **首页** | 「我现在要做什么」——高频动作 + 待办入口 + 关键数据概览 | ① 顶部状态区（员工端＝今日出勤状态 + 一键打卡；老板端＝经营概览 + 待办总数）② 快捷功能宫格（带实时数据，见 B 章）③ 1–3 个关键数据区块（员工端＝4 指标卡 + 异常提示条；老板端＝4 指标卡 + 异常提示条 + 趋势卡 + 同步健康度 + 驿站 TOP3 + 组织规模折叠） | ❌ 通知列表（→ 消息）❌ 个人资料/账号/设置（→ 我的）❌ 低频查询列表（打卡记录、我的档案、KPI 明细 → 我的）❌ 配置类表单（打卡规则、排班管理、采集配置 → 我的「管理与配置」或 PC） |
-| **消息** | 「有什么需要我知道/处理」——通知事件流 + 待办快照 | ① **通知**子视图：系统联动通知 + 手工公告（含未读/已读、全部已读、按 `bizType` 一跳到位；ADMIN 页头带「发布」）② **待办**子视图：「待我处理」队列聚合（员工端 3 类 / 老板端 5 类，见 A4） | ❌ 业务台账/历史列表（已处理完的工单去工单页看，不在消息里做「已办」）❌ 新建/编辑类表单（发布通知是页头动作，表单仍走独立二级页）❌ 个人数据（→ 我的） |
+| **首页** | 「我现在要做什么」——高频动作 + 待办入口 + 关键数据概览 | ① 顶部状态区（员工端＝今日出勤状态 + 一键打卡；管理端＝经营概览 + 待办总数）② 快捷功能宫格（带实时数据，见 B 章）③ 1–3 个关键数据区块（员工端＝4 指标卡 + 异常提示条；管理端＝4 指标卡 + 异常提示条 + 趋势卡 + 同步健康度 + 驿站 TOP3 + 组织规模折叠） | ❌ 通知列表（→ 消息）❌ 个人资料/账号/设置（→ 我的）❌ 低频查询列表（打卡记录、我的档案、KPI 明细 → 我的）❌ 配置类表单（打卡规则、排班管理、采集配置 → 我的「管理与配置」或 PC） |
+| **消息** | 「有什么需要我知道/处理」——通知事件流 + 待办快照 | ① **通知**子视图：系统联动通知 + 手工公告（含未读/已读、全部已读、按 `bizType` 一跳到位；ADMIN 页头带「发布」）② **待办**子视图：「待我处理」队列聚合（员工端 3 类 / 管理端 5 类，见 A4） | ❌ 业务台账/历史列表（已处理完的工单去工单页看，不在消息里做「已办」）❌ 新建/编辑类表单（发布通知是页头动作，表单仍走独立二级页）❌ 个人数据（→ 我的） |
 | **我的** | 「我自己是谁、我有什么、账号怎么设」 | ① 我的数据（个人业务数据只读查询）② 管理与配置（仅 ADMIN：KPI/人事/排班/打卡规则/打卡记录/采集状态）③ 账号信息 ④ 演示身份切换 ⑤ 账号安全（修改密码）⑥ 运行环境（Demo 诊断，只读，降级）⑦ 退出登录 | ❌ 待办队列（→ 消息，避免两处口口径漂移）❌ 高频作业动作（→ 首页宫格）❌ 通知列表（→ 消息） |
 
 ## A2 现有入口迁移映射表（全量，不得遗漏）
 
 > 口径：**新归属**只能是 `首页`（快捷宫格 / 顶部状态区 / 首页区块）、`消息`（通知 / 待办）、`我的`（我的数据 / 管理与配置 / 账号信息 / 演示身份 / 账号安全 / 运行环境）、或「降级」为某二级页入口 / 页内动作 / 只读诊断区。
-> 共 **95 条**（老板端 46 条 + 员工端 49 条）。带 ★ 的为「降级处理」项（无法成为某 Tab 的一级模块）。
+> 共 **95 条**（管理端 46 条 + 员工端 49 条）。带 ★ 的为「降级处理」项（无法成为某 Tab 的一级模块）。
 
-### A2-1 老板端（ADMIN）
+### A2-1 管理端（ADMIN）
 
 | # | 现有入口 / 页面 | 出处 | 原位置 | 新归属 | 新落点 | 处理 |
 | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
@@ -174,11 +174,11 @@
 | S48 | 打卡页内入口「打卡记录」 | [staff/attendance.vue:515](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/attendance.vue#L515) | 打卡页底部 | 二级页内就近入口 | 随打卡页保留（非新条目，与 S20 同目标） | 保留 |
 | S49 | 打卡页内入口「补卡申请」 | [staff/attendance.vue:516](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/attendance.vue#L516) | 打卡页底部 | 二级页内就近入口 | 随打卡页保留（非新条目，与 S15 同目标） | 保留 |
 
-**映射条目合计：95 条（老板端 46 + 员工端 49）。无遗漏项。**
+**映射条目合计：95 条（管理端 46 + 员工端 49）。无遗漏项。**
 
 ### A2-3 降级处理项汇总（无法成为某 Tab 一级模块的项）
 
-| 降级类型 | 老板端 | 员工端 | 处理规则 |
+| 降级类型 | 管理端 | 员工端 | 处理规则 |
 | ---- | ---- | ---- | ---- |
 | **降为二级页入口**（入口在 Tab 内，页面本体是二级页） | 考勤概览(B2)、包裹趋势(B3)、驿站排行(B4)、异常预警(B5)、KPI 考核(B11/B17)、人事管理(B18)、排班管理(B19)、打卡记录(B20)、打卡规则(B21)、修改密码(B29) | 打卡(S2)、本站包裹(S3)、工单(S4)、取件核销(S9)、我的档案(S18)、打卡记录(S20)、我的入离职(S21)、同步状态(S22)、修改密码(S29) | 二级页保留路由与组件，一级入口收进首页宫格或我…分组 |
 | **降为页内动作** | 发布通知(B12/B35) | — | 入口做成消息页头右上按钮，表单仍为独立整页（沿用 [B4.6](demo-ux-improvement.md) 决策） |
@@ -186,13 +186,13 @@
 | **降为首页区块**（非路由，页面内内容） | 组织规模（一期指标）、同步健康度、驿站 TOP3、近 7 天趋势卡 | 4 指标卡、异常提示条 | 保持现有区块顺序，不新增路由 |
 | **移动端不做**（登记，无迁移） | 采集配置（PC 专属，移动端只读「采集状态」）、模拟派单（[B3.5](demo-ux-improvement.md) 判定不做，[boss/workorder.vue:21](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/workorder.vue#L21) TODO）、考勤导出（[B5](demo-ux-improvement.md) 判定不做）、驿站/部门/员工 CRUD | 同左 | 维持现状，本次不新增入口 |
 
-## A3 老板端与员工端的三 Tab 差异
+## A3 管理端与员工端的三 Tab 差异
 
-| Tab | 老板端（ADMIN） | 员工端（STATION_ADMIN / STAFF） |
+| Tab | 管理端（ADMIN） | 员工端（STATION_ADMIN / STAFF） |
 | ---- | ---- | ---- |
 | **首页** | 顶部＝经营概览 Hero（今日经营 + 口径：全域 + 数据截止）**无打卡**；指标卡 4 项＝今日入库 / 今日取件 / 待取件 / 异常件；异常提示条；**快捷宫格 8 项（全部计数型，见 B5-1）**；近 7 天趋势卡；同步健康度（含「未配置采集」行）；驿站 TOP3；组织规模（折叠，末位） | 顶部＝Hero（站名 + 角色 chip + 今日待处理 N 条 + 构成说明）+ **今日出勤状态条 + 一键打卡**；指标卡 4 项＝今日入库 / 待取件 / 今日取件 / 异常件；打卡提示条 + 工单超时提示条；**快捷宫格 8 项（6 项带数据 + 2 项纯入口）**；本站包裹总量/取件率口径行 |
 | **消息** | 通知子视图：全部/未读 + 类型筛选 + 全部已读；**页头右上「发布」**；待办子视图 **5 类**：待处理工单 / 待审批补卡 / 待审核工资单 / 进行中入离职 / 采集异常·未配置（只读提醒） | 通知子视图：全部/未读 + 全部已读；**无发布**；待办子视图 **3 类**：待处理工单 / 待确认工资单 / 我的补卡申请（审批中） |
-| **我的** | 分组＝①管理与配置（KPI 考核 / 人事管理 / 排班管理 / 打卡规则 / 打卡记录〔全域〕）②账号信息 ③演示身份（Demo 专用）④账号安全 ⑤运行环境 ⑥退出登录。**无「我的数据」**（老板无个人业务数据） | 分组＝①我的数据（我的 KPI / 我的档案 / 我的排班 / 打卡记录 / 我的入离职 / 同步状态〔站长〕）②账号信息 ③演示身份 ④账号安全 ⑤运行环境 ⑥退出登录。**无管理与配置** |
+| **我的** | 分组＝①管理与配置（KPI 考核 / 人事管理 / 排班管理 / 打卡规则 / 打卡记录〔全域〕）②账号信息 ③演示身份（Demo 专用）④账号安全 ⑤运行环境 ⑥退出登录。**无「我的数据」**（管理员无个人业务数据） | 分组＝①我的数据（我的 KPI / 我的档案 / 我的排班 / 打卡记录 / 我的入离职 / 同步状态〔站长〕）②账号信息 ③演示身份 ④账号安全 ⑤运行环境 ⑥退出登录。**无管理与配置** |
 
 **两端必须一致的部分**（同一组件、同一 Token、同一交互）：Tabbar 结构/尺寸/色值/角标规则、宫格布局与热区、通知子视图的列表与已读规则、账号信息/演示身份/账号安全/运行环境四段、退出登录二次确认文案。
 
@@ -203,7 +203,7 @@
 - 既有 `/staff/notification`（[staff/notification.vue](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/notification.vue)）整体**升格为消息 Tab 的「通知」子视图**，列表交互（van-list 20/页、未读 Tab、全部已读、按 `bizType` 跳转）**全部保留**，不做重写。
 - 消息 Tab = 「通知」+「待办」两段全宽 Tab（`van-tabs`，高 44，与 [demo-ui-redesign.md](demo-ui-redesign.md) 5.6 的 Tabs 规范一致）。
 - 路由：**新增** `/boss/message`（roles `[ADMIN]`）与 `/staff/message`（roles `STAFF_ROLES`），二者渲染同一组件 `views/message/MessagePage.vue`（沿用 [A12-7](demo-ux-improvement.md) 的「同一业务对象两端复用同页 + 按角色渲染」模式）。既有 `/staff/notification` **改为重定向**到 `/staff/message?tab=notice`，保留兼容（该路由当前为 `ALL_ROLES`，[router/index.js:70-72](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L70-L72)），避免旧链接 404。
-- 为什么新增两个路由而不是复用 `/staff/notification`：Tab 根路由应与该端前缀一致（老板端全部 `/boss/*`），避免「老板端 Tabbar 第二项指向 `/staff/*`」的认知负担；且新页面要容纳两类内容，路径名「notification」已不准确。
+- 为什么新增两个路由而不是复用 `/staff/notification`：Tab 根路由应与该端前缀一致（管理端全部 `/boss/*`），避免「管理端 Tabbar 第二项指向 `/staff/*`」的认知负担；且新页面要容纳两类内容，路径名「notification」已不准确。
 
 ### A4-2 两类内容的关系与区分规则
 
@@ -215,7 +215,7 @@
 | 未读/已读区分 | `全部 / 未读` 两 Tab，请求参数 `isRead`（[notification.js:33](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/notification.js#L33)） | 只显示「待处理」，不显示已办；「已办」去对应业务页看历史（如工单列表的「已解决/已关闭」） |
 | 数量上限 | 分页（20/页，`van-list`） | 每类**只显示前 3 条** + 行尾「查看全部 N 条 ›」，避免消息页变成第二个业务列表 |
 | 位置 | Tab 1（默认） | Tab 2 |
-| 空态 | 「暂无通知」/「没有未读通知」（[notification.vue:46](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/notification.vue#L46)） | 「暂无待办，今天只剩你自己了」（员工端）/「暂无待办事项」（老板端），空态**不得**与错误态共用文案 |
+| 空态 | 「暂无通知」/「没有未读通知」（[notification.vue:46](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/notification.vue#L46)） | 「暂无待办，今天只剩你自己了」（员工端）/「暂无待办事项」（管理端），空态**不得**与错误态共用文案 |
 
 **交集处理**：工单指派会产生一条 `bizType='work_order'` 的通知（时间线）与一条「待处理工单」待办（快照）。两者**不合并、不去重**：通知记录「谁在什么时候指派给我」，待办记录「这条工单还没处理」。通知点掉已读不会让待办消失，待办消失（工单被解决）也不会删除通知——这是两个不同的事实。
 
@@ -232,7 +232,7 @@
 > 员工端**不把**「我的入离职」放进待办：`/staff/flow` 是无流程接口权限的只读降级页（[router/index.js:97-98](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/router/index.js#L97-L98) 注释），没有「等我处理」的动作，归入「我的·我的数据」。
 > 员工端**不把**「同步状态」放进待办：站长只读页面，无待办动作，归入「我的·我的数据」。
 
-**老板端（5 类）**
+**管理端（5 类）**
 
 | 序 | 待办分组名 | 数据接口 | 参数 | 取值 | 明细行主文案 | 点击跳转 | 权限 |
 | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
@@ -242,7 +242,7 @@
 | 4 | 进行中入离职 | `GET /hr/onboarding` + `GET /hr/offboarding` | `{ status: 'IN_PROGRESS', pageNum: 1, pageSize: 3 }` | 两个 `total` 之和 / 两个 `list` | `{employeeName} {flowName}（入职/离职）` | `/boss/flow` | ADMIN |
 | 5 | 采集异常·未配置（只读提醒） | `GET /sync/overview` | — | `counts.abnormal + counts.unconfigured`（[syncConfig.js:123-139](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/shared/mock/routes/syncConfig.js#L123-L139)） | `异常 N 站 · 未配置采集 M 站` | `/boss/alerts` | ADMIN |
 
-> 老板端待办口径与首页宫格**同源**（同一批接口），因此实现上应把「待办计数」收敛到一个 store/composable（建议 `stores/todo.js`），首页宫格角标与消息待办共用，避免同一数字两处实现（呼应 A1-1 原则 4）。
+> 管理端待办口径与首页宫格**同源**（同一批接口），因此实现上应把「待办计数」收敛到一个 store/composable（建议 `stores/todo.js`），首页宫格角标与消息待办共用，避免同一数字两处实现（呼应 A1-1 原则 4）。
 
 ### A4-4 消息页信息架构
 
@@ -272,7 +272,7 @@
 
 | 项 | 规范 | 依据 |
 | ---- | ---- | ---- |
-| 列数 | **4 列**（老板端与员工端一致），4×2＝8 项 | 3 列配 8 项排成 3+3+2 不齐；4 列在 375px 视口下每格约 87.75px，仍 ≥44×44 |
+| 列数 | **4 列**（管理端与员工端一致），4×2＝8 项 | 3 列配 8 项排成 3+3+2 不齐；4 列在 375px 视口下每格约 87.75px，仍 ≥44×44 |
 | 行数 | 2 行（上限 8 项，M7 口径）→ **M11 起改为按 4 列自动换行** | 见下方「M11 变更」 |
 | 单元格最小高度 | `88px` | [mobile.scss:345-347](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L345-L347)（`.entry-grid .van-grid-item__content { min-height: 88px }`） |
 | 图标尺寸 | `24px`，色 `var(--color-primary-icon)`（#1890FF） | [mobile.scss:340](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L340)、[:349-351](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L349-L351) |
@@ -282,16 +282,16 @@
 | **单项热区** | 88 × (视口/4) ≈ **88×88**，**≥44×44 达标** | WCAG 2.5.5 (AAA)，[demo-ui-redesign.md](demo-ui-redesign.md) 7.4 |
 | 名称文案长度 | **≤5 个汉字**（4 列下每格可用宽度 ≈ 87.75 − 2×12 ≈ 64px，5×12px＝60px 恰好一行）；超过 5 字**换行**（最多 2 行，行高 16px），**不用省略号**（省略后用户无法知道全称） | 量算，非臆断 |
 | 超过 8 项的处理 | **不翻页、不做「更多」**：第 9 项起一律下沉到「我的」（我的数据 / 管理与配置）。理由：宫格承载「高频动作」，第 9 项已属低频；引入翻页或「更多」会破坏「一屏可达」并增加一次点击 | A1-1 原则 3 |
-| 宫格标题 | 统一「快捷功能」（员工端）/「快捷功能」（老板端）；老板端标题右侧可挂 `--fs-caption` 的说明「按待办优先排序」 | 与 [mobile.scss:122-136](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L122-L136) 的 `.section-title` 一致 |
+| 宫格标题 | 统一「快捷功能」（员工端）/「快捷功能」（管理端）；管理端标题右侧可挂 `--fs-caption` 的说明「按待办优先排序」 | 与 [mobile.scss:122-136](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L122-L136) 的 `.section-title` 一致 |
 | 排序规则 | **按待办优先**：待办类（有角标）在前，纯入口/状态类在后；同组内按业务频次降序。员工端固定「打卡」为第 1 项（**决策已确认**） | 需求确认项 |
 
-> **M11 变更（2026-09-20）**：请假模块给首页宫格新增入口 —— 老板端「请假审批」、员工端「请假」、站长额外可见「请假初审」，结果为**老板端 9 项 / 员工端 9 项 / 站长 10 项，已超出 M7 约定的 4 列 × 2 行（8 项）**。
+> **M11 变更（2026-09-20）**：请假模块给首页宫格新增入口 —— 管理端「请假审批」、员工端「请假」、站长额外可见「请假初审」，结果为**管理端 9 项 / 员工端 9 项 / 站长 10 项，已超出 M7 约定的 4 列 × 2 行（8 项）**。
 > 裁决：**接受，改按 4 列自动换行**（第 3 行不满 4 项，左对齐），不翻页、不做「更多」、不下沉到「我的」。理由：
-> 1. 请假是 M11 核心链路（员工申请 → 站长初审 → 老板终审），下沉会让高频动作多一次点击，与 A1-1 原则 3 冲突；
+> 1. 请假是 M11 核心链路（员工申请 → 站长初审 → 管理员终审），下沉会让高频动作多一次点击，与 A1-1 原则 3 冲突；
 > 2. 实测 375px 竖屏下每格仍约 88×88（≥44×44），4 列布局与热区均有 e2e 用例守护（`A3-1`/`A3-2`/`B1-2`/`B1-3`）；
 > 3. 项数由配置数组驱动，两端首页零改动；继续增长时的处置见 [HomeQuickGrid.vue](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/HomeQuickGrid.vue) 的 `TODO(扩展)`。
 
-## B2 老板端功能项清单（逐项）
+## B2 管理端功能项清单（逐项）
 
 | # | 名称 | 图标（Vant，已核实） | 类型 | 实时数据 | 数据来源 | 交互 |
 | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
@@ -348,11 +348,11 @@
 2. **绝不用 `0` 表示「加载失败/未知」**：`0` 是「没有待办」这一结论，与「拿不到数据」是两件事（先例 [boss/home.vue:24-25](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/home.vue#L24-L25) 注释：`null` 表示接口不可用）。
 3. **不显示假数据**：接口失败时不显示上一次的缓存值，避免误导。
 
-## B5 老板端 / 员工端宫格设计决策（必须遵守，避免实现时反复）
+## B5 管理端 / 员工端宫格设计决策（必须遵守，避免实现时反复）
 
 | # | 决策 | 理由 |
 | ---- | ---- | ---- |
-| B5-1 | 老板端 8 项**全部**带实时数据（6 计数 + 2 状态），无纯入口项 | 老板端 8 项均为「异常/待办/概览」，都对应一个可计数的业务事实，不存在无数据的动作入口 |
+| B5-1 | 管理端 8 项**全部**带实时数据（6 计数 + 2 状态），无纯入口项 | 管理端 8 项均为「异常/待办/概览」，都对应一个可计数的业务事实，不存在无数据的动作入口 |
 | B5-2 | 员工端「本站包裹」「取件核销」为**纯入口**，不承载数据 | 其核心数值（待取件、异常件）已由首页 4 指标卡承载（[staff/home.vue:156-159](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/home.vue#L156-L159)），宫格再显示同一数字会形成两个真源（违反 A1-1 原则 4）；且这两项的动作语义是「进入列表/开始核销」，不是「有 N 件事等我」 |
 | B5-3 | 员工端宫格**不含「通知」** | 通知已升格为消息 Tab（A2-2 S11），宫格不再重复 |
 | B5-4 | 「我的排班」「我的 KPI」「我的补卡申请」**同时**出现在宫格与「我的」 | 宫格是高频直达（一线现场），「我的」是兜底查询（低频）；两者是同一目标的不同路径，**不视为重复入口**（与 A1-1 原则 2 的「同一队列不两处挂」不同：这里不是「队列」，是「查询」） |
@@ -381,7 +381,7 @@
 
 **为什么本期不新增聚合端点**：
 1. `src/shared/**` 已冻结（[demo-ux-improvement.md](demo-ux-improvement.md) 0.2 推论 3）；新增端点须主智能体解冻共享层，成本高于收益。
-2. 首屏并发请求量本就在既有水平：老板端现状已并发 12 个请求（[boss/home.vue:39-55](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/home.vue#L39-L55)），重构后宫格 8 项复用了其中大部分（工单/同步/采集/包裹），**净增仅 3–4 个**（补卡/工资单/入离职）。
+2. 首屏并发请求量本就在既有水平：管理端现状已并发 12 个请求（[boss/home.vue:39-55](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/home.vue#L39-L55)），重构后宫格 8 项复用了其中大部分（工单/同步/采集/包裹），**净增仅 3–4 个**（补卡/工资单/入离职）。
 3. 既有单接口即可精确表达每个宫格项的实时值，聚合端点只省请求数、不增信息量。
 
 ### B6-2 可选聚合端点（**提案，本期不落地**，仅在请求数成为瓶颈时启用）
@@ -391,7 +391,7 @@
 | 项 | 内容 |
 | ---- | ---- |
 | 方法 + 路径 | `GET /mobile/home/summary` |
-| 鉴权 | 需登录；返回内容按登录角色收敛（`ADMIN` 返老板端字段，`STATION_ADMIN`/`STAFF` 返员工端字段），**不接受前端传角色参数**，与服务端既有收敛口径一致（[api/index.js:6-7](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/api/index.js#L6-L7)） |
+| 鉴权 | 需登录；返回内容按登录角色收敛（`ADMIN` 返管理端字段，`STATION_ADMIN`/`STAFF` 返员工端字段），**不接受前端传角色参数**，与服务端既有收敛口径一致（[api/index.js:6-7](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/api/index.js#L6-L7)） |
 | 入参 | 无（月份由服务端取当前月；驿站范围按登录身份强制收敛） |
 | 返回结构 | `{ code, message, data: { generatedAt, badges: { workorder, makeup, payroll, flow, attendanceAbnormal, alert, … }, status: { attendanceProgress: { done, total }, shiftName, kpiScore, todayPickup, topStationName } } }` |
 | 字段含义 | `generatedAt`：服务端聚合时间（用于页面「数据截止 HH:mm」文案）<br>`badges.*`：各宫格项的计数值（整数，缺失表示该端无此项）<br>`status.attendanceProgress`：员工端今日打卡进度（`done` 已完成卡数 / `total` 应打总数）<br>`status.shiftName`：员工端今日班次名，无排班为 `null`<br>`status.kpiScore`：员工端本月 KPI 总分，未考核为 `null`<br>`status.todayPickup`：今日取件件数<br>`status.topStationName`：包裹量 TOP1 驿站名 |
@@ -422,13 +422,13 @@
 | 上边框 | `border-top: 1px solid var(--border-line)`（#E3E7ED），**不用阴影** | [TabbarLayout.vue:54-56](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/layout/TabbarLayout.vue#L54-L56) |
 | 层级 z-index | 沿用 Vant 默认 `--van-tabbar-z-index: 1`；**不新增**（项目固定底栏另有 `ActionBar`，二者不同页并存，无叠压冲突） | Vant 4 Tabbar 主题变量 |
 | 内容区底部留白 | `padding-bottom: var(--page-pad-bottom-tab)`（= tabbar 高 + 安全区 + 8px），**不再使用 Vant 的 `placeholder`** | [TabbarLayout.vue:49-52](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/layout/TabbarLayout.vue#L49-L52)（注释已说明两者叠加会多出一屏空白） |
-| 项数 | **固定 3 项**，两端一致（老板/员工按角色渲染标签与路由） | [TabbarLayout.vue:20](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/layout/TabbarLayout.vue#L20) |
+| 项数 | **固定 3 项**，两端一致（管理员/员工按角色渲染标签与路由） | [TabbarLayout.vue:20](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/layout/TabbarLayout.vue#L20) |
 
 ## C2 图标与文字
 
 | 项 | 规范 | 依据 |
 | ---- | ---- | ---- |
-| Tab 定义（老板端） | ① 首页 `/boss/home` ② 消息 `/boss/message` ③ 我的 `/boss/me` | 本次新增 `/boss/message` |
+| Tab 定义（管理端） | ① 首页 `/boss/home` ② 消息 `/boss/message` ③ 我的 `/boss/me` | 本次新增 `/boss/message` |
 | Tab 定义（员工端） | ① 首页 `/staff/home` ② 消息 `/staff/message` ③ 我的 `/staff/me` | 本次新增 `/staff/message` |
 | 图标名 | 首页 `wap-home-o`、消息 `chat-o`、我的 `user-o` | `wap-home-o` / `user-o` 已在 [tabs.js:9,14,18,23](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/constants/tabs.js#L9-L23) 实际使用；`chat-o` 见 Vant 4 官方 Icon 文档示例（`<van-icon name="chat-o" />`），非臆造 |
 | 图标尺寸 | `--van-tabbar-item-icon-size: 22px` | [tokens.scss:214](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/tokens.scss#L214) |
@@ -457,7 +457,7 @@
 | 底色 / 字色 / 字号 | 底 `--color-danger`（#CF1322）白字 `10px`；`--r-full` | [TabbarLayout.vue:58-62](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/layout/TabbarLayout.vue#L58-L62)（既有：`.van-badge { font-size: 10px; background: var(--color-danger) }`） |
 | 上限 | **> 99 显示 `99+`**（前端格式化，Vant 支持字符串 badge） | Vant 4 Icon/Tabbar 官方文档示例 `badge="99+"` |
 | `0` 时 | **不渲染**（`badge` 传空串） | [TabbarLayout.vue:24-26](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/layout/TabbarLayout.vue#L24-L26)（既有 `notify.unread > 0 ? notify.unread : ''`） |
-| **口径（本次定义）** | `消息 Tab 角标 = 未读通知数 + 待我处理待办总数`（两类的合计，与首页 Hero 的「今日待处理」口径一致：员工端先例 [staff/home.vue:51](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/home.vue#L51)；老板端先例 [boss/home.vue:67-72](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/home.vue#L67-L72)）。<br>**理由**：消息 Tab 同时承载「通知」与「待办」两个子视图，角标必须覆盖两类，否则用户看到无角标却有待办。 | 设计决策，登记为 0.3 U3 |
+| **口径（本次定义）** | `消息 Tab 角标 = 未读通知数 + 待我处理待办总数`（两类的合计，与首页 Hero 的「今日待处理」口径一致：员工端先例 [staff/home.vue:51](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/home.vue#L51)；管理端先例 [boss/home.vue:67-72](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/boss/home.vue#L67-L72)）。<br>**理由**：消息 Tab 同时承载「通知」与「待办」两个子视图，角标必须覆盖两类，否则用户看到无角标却有待办。 | 设计决策，登记为 0.3 U3 |
 | 失败降级 | 未读数取失败 → 角标为 `0`（不渲染）；待办取失败 → 该部分计 0。角标属辅助信息，**静默失败**，不弹 Toast | 先例 [stores/notify.js:22-24](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/stores/notify.js#L22-L24) |
 
 ## C5 交互
@@ -567,7 +567,7 @@
 | 空 | 不适用（宫格项由前端配置恒有 8 项）；若过滤后为 0 项，显示一行 `--fs-caption` 文案「暂无可用的快捷功能」而非插画 |
 | 错误 | **整体不进入错误态**（逐项降级，见 B4-2 硬规则 1）；仅当配置数组本身为空才提示 |
 | 禁用 | 不存在（项级无禁用） |
-| 无权限 | 按角色过滤后不渲染该项（老板端/员工端各自一份配置数组） |
+| 无权限 | 按角色过滤后不渲染该项（管理端/员工端各自一份配置数组） |
 | 边界 | 8 项为硬上限；第 9 项一律下沉到「我的」（B1 表） |
 
 - **Token 映射**：`.entry-grid` 既有全套（[mobile.scss:334-351](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/mobile.scss#L334-L351)）；区块标题 `--fs-h3` + `--fw-semibold`。
@@ -586,7 +586,7 @@
 | 空 | `rule` 为空 → 显示「该驿站尚未配置打卡规则」+ 次按钮「查看打卡详情」（对应 `no-rule` 变体） |
 | 错误 | 状态文案「出勤状态获取失败」+ 次按钮「重试」（**不阻塞首页其余内容**，先例 [staff/home.vue:77-84](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/home.vue#L77-L84) 的降级口径） |
 | 禁用 | 无可打卡槽位（未到时间窗 / 已全部完成）→ 主按钮降级为「查看打卡详情」（语义从主操作变次操作），不保留一个点不动的灰按钮 |
-| 无权限 | 老板端**不渲染**该组件 |
+| 无权限 | 管理端**不渲染**该组件 |
 | 边界 | 支持每日 2 段（4 张卡）场景（[staff/attendance.vue:26-34](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/attendance.vue#L26-L34) 注释）；跨日时间窗文案走 `periodWindowText`（[utils/attendance.js:51-57](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/utils/attendance.js#L51-L57)） |
 
 - **Token 映射**：状态色 `--color-warning` / `--color-success` + 对应 `--color-*-surface`（先例 [staff/home.vue:54-75](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/views/staff/home.vue#L54-L75)）；按钮走 `van-button` primary（`--van-button-primary-background` → `--color-primary`）；主按钮 `min-height: 44px`。
@@ -622,10 +622,10 @@
 | ---- | ---- |
 | 默认 | 每组 ≤3 行 + 「查看全部 N 条 ›」 |
 | 加载 | 分组标题先渲染（配置静态），行区用 3 条 48px 块骨架 |
-| 空 | 整页无待办 → 「暂无待办事项」（老板端）/「暂无待办，今天只剩你自己了」（员工端）；**单组为空则该组不渲染**（不显示「0 条」分组） |
+| 空 | 整页无待办 → 「暂无待办事项」（管理端）/「暂无待办，今天只剩你自己了」（员工端）；**单组为空则该组不渲染**（不显示「0 条」分组） |
 | 错误 | 该组取数失败 → 组内显示「加载失败，点击重试」一行，**不影响其他组**（逐组独立降级） |
 | 禁用 | 不存在 |
-| 无权限 | 按角色过滤分组（员工端不渲染采集组、老板端不渲染「待确认工资单」组） |
+| 无权限 | 按角色过滤分组（员工端不渲染采集组、管理端不渲染「待确认工资单」组） |
 | 边界 | 每组只渲染 3 行（超出走「查看全部」）；`total > 99` 显示 `99+` |
 
 - **Token 映射**：分组标题 `--fs-h3` / `--fw-semibold`；计数 `--fs-caption` / `--text-3`；行高 ≥48；状态标签复用 `StatusTag`（`--state-*`，映射见 [demo-ux-improvement.md](demo-ux-improvement.md) C2）。
@@ -635,7 +635,7 @@
 
 - **Anatomy**：`个人信息 Hero` + 若干 `van-cell-group` 分组（我的数据 / 管理与配置 / 账号信息 / 演示身份 / 账号安全 / 运行环境）+ `退出登录`。
 - **Variants**：`boss`（无「我的数据」，有「管理与配置」）/ `staff`（有「我的数据」，无「管理与配置」）。
-- **变化点（相对现状 [MeSection.vue](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/MeSection.vue)）**：① 删除「待办审批」/「我的待办」分组（迁往消息 Tab，见 A2，避免两处入口）；② 老板端原「我的数据」标题改为「管理与配置」，成员＝KPI 考核 / 人事管理 / 排班管理 / 打卡规则 / 打卡记录（全域）；③ 员工端「我的数据」成员保持现状不变＝我的 KPI / 我的档案 / 我的排班 / 打卡记录 / 我的入离职 / 同步状态（仅站长可见），**不新增项**。
+- **变化点（相对现状 [MeSection.vue](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/MeSection.vue)）**：① 删除「待办审批」/「我的待办」分组（迁往消息 Tab，见 A2，避免两处入口）；② 管理端原「我的数据」标题改为「管理与配置」，成员＝KPI 考核 / 人事管理 / 排班管理 / 打卡规则 / 打卡记录（全域）；③ 员工端「我的数据」成员保持现状不变＝我的 KPI / 我的档案 / 我的排班 / 打卡记录 / 我的入离职 / 同步状态（仅站长可见），**不新增项**。
 - **States（7 态）**：本组件无远程取数（均为静态 cell + 账号信息来自 store），故 默认 / 空（不适用）/ 加载（不适用）/ 错误（不适用）/ 禁用（不适用）/ 无权限（按角色过滤分组）/ 边界（「我的数据」项数随角色变化，最长 6 项，无需分页；运行环境 2 项固定置末）。
 - **Token 映射**：Hero 用 `--grad-hero`；分组标题 `--fs-h3`；cell 走 `--van-cell-*`（[tokens.scss:216-223](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/tokens.scss#L216-L223)）；运行环境降级为 `--fs-caption` + `--text-3`（现状已如此，[MeSection.vue:109-113](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/MeSection.vue#L109-L113)）。
 - **无障碍**：cell 为链接，`:focus-visible` 焦点环；「切换演示身份」分组必须保留「Demo 专用」标识（[MeSection.vue:83](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/MeSection.vue#L83)）；退出登录必须二次确认（现状已有，[MeSection.vue:19-27](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/components/MeSection.vue#L19-L27)），文案沿用「退出登录 / 退出后需重新登录，确定继续？」。
@@ -706,7 +706,7 @@
 - [x] **宫格恒为 8 项**（4×2），第 9 项下沉「我的」；每项热区 ≥44×44。
 - [x] **角标 0 不渲染**、**> 99 显示 `99+`**、**失败不显示 `0`**。
 - [x] **逐项/逐组降级**：单个宫格项或待办组取数失败不影响整页。
-- [x] **消息页两类内容齐备**：通知子视图（含全部已读与 `bizType` 跳转）+ 待办子视图（老板 5 类 / 员工 3 类）。
+- [x] **消息页两类内容齐备**：通知子视图（含全部已读与 `bizType` 跳转）+ 待办子视图（管理员 5 类 / 员工 3 类）。
 - [x] **入口无遗漏**：A2 表 95 条逐条可点到位；原 6 Tab 中的 12 个一级页全部有新的可达路径。
 - [x] **「我的」不再出现待办队列**（避免与消息重复）。
 - [x] **无障碍**：`nav` 语义 + `aria-current` + 角标可播报 + 选中态双通道 + 焦点环未被裁。
@@ -722,21 +722,21 @@
 | Tabbar 项数 | [demo-ux-improvement.md](demo-ux-improvement.md) B0.1「各 6 项不可再加」 | **3 项** | 已在 0.2 登记变更与理由，需回写前序文档注记 |
 | Tabbar 项数 | [demo-ui-redesign.md](demo-ui-redesign.md) 7.2「固定 5 项」 | **3 项** | 7.2 本节在 M1 后已与源码不符（源码为 6），本次统一为 3，并登记该节失效 |
 | Tabbar 文字字号 | [demo-ui-redesign.md](demo-ui-redesign.md) 7.2「10/400（Vant 默认）」 | **12px**（Vant 默认＝`--van-font-size-sm`＝`--fs-caption`） | 以源码为准（[tokens.scss:201](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/styles/tokens.scss#L201)），登记偏差 |
-| 老板端宫格列数/项数 | [demo-ux-improvement.md](demo-ux-improvement.md) A12-3「3 列 × 6 项」 | **4 列 × 8 项** | 已在 0.2 登记变更与理由 |
+| 管理端宫格列数/项数 | [demo-ux-improvement.md](demo-ux-improvement.md) A12-3「3 列 × 6 项」 | **4 列 × 8 项** | 已在 0.2 登记变更与理由 |
 | 员工端宫格含通知 | [demo-ux-improvement.md](demo-ux-improvement.md) A13-1「8 项含通知」 | 通知升格为消息 Tab，宫格补入「我的补卡申请」 | 已在 0.2 登记变更与理由 |
 | 「待办审批」入口位置 | [demo-ux-improvement.md](demo-ux-improvement.md) A12-4「我的页拆待办审批 + 我的数据」 | **待办统一收进消息 Tab，我的页不再放待办** | 已在 A2（B13-B16、S15-S16）与 A4 说明；属对 A12-4 的修正，建议一并回写 |
 | 消息 Tab 与通知中心 | 既有无「消息」概念 | **通知中心升格为消息 Tab 的通知子视图，新增待办子视图** | A4 定义 |
 
 ---
 
-## 附：路径变更注记（2026-09-22 · 老板端按域拆模块）
+## 附：路径变更注记（2026-09-22 · 管理端按域拆模块）
 
-老板端 21 个页面已从 `src/mobile/views/boss/` 迁入 **`src/mobile/modules/boss/views/`**，路由定义迁入 `src/mobile/modules/boss/router.js`（导出 `bossRoutes`，23 条），并由 `src/mobile/router/index.js` 单点聚合展开。
+管理端 21 个页面已从 `src/mobile/views/boss/` 迁入 **`src/mobile/modules/boss/views/`**，路由定义迁入 `src/mobile/modules/boss/router.js`（导出 `bossRoutes`，23 条），并由 `src/mobile/router/index.js` 单点聚合展开。
 
 **本文件前述章节的全部结论均为生效真源、未作废**：三 Tab 信息架构、95 条入口迁移映射、宫格项数与列数、角标口径、Tabbar 行为实测结论（含 Vant 重复点击不触发 `change`、不输出 `aria-current`、不处理 Enter 三项）**全部不变**。本次仅改**文件物理位置**：
 
 - `/boss/*` 的 **URL 与 meta（`tabbar`/`roles`/`title`）逐字未变** —— 共享内核 `TabbarLayout.vue:33,79` 与 e2e 的 3 处 `/boss/*` URL 断言均依赖这些字面值；
 - `src/mobile/constants/quickEntries.js` **原地未动**（`e2e/03-mobile-nav.spec.js:2` 以源码相对路径直连它，迁移会直接打断该 spec）；
 - 文中出现的 `views/boss/<页面>.vue` 请按 `modules/boss/views/<页面>.vue` 理解；`views/message/MessagePage.vue`（双端共用的中立共享页）与 `views/staff/**` **未迁移**；
-- 老板端专属组件新增于 `src/mobile/modules/boss/components/`（`Boss*` 前缀），命名与接口见 `demo-boss-ui-spec.md`。
+- 管理端专属组件新增于 `src/mobile/modules/boss/components/`（`Boss*` 前缀），命名与接口见 `demo-boss-ui-spec.md`。
 

@@ -57,7 +57,7 @@
 | 状态键 | 中文名 | Token 色族 | `variant` | 语义 | 是否终态 |
 | --- | --- | --- | --- | --- | --- |
 | `PENDING_STATION` | 待站长初审 | `--color-warning` / `--color-warning-surface` | `soft` | 员工已提交，等本站站长初审 | 否 |
-| `PENDING_BOSS` | 待老板终审 | `--color-primary` / `--color-primary-surface` | `soft` | 站长已初审通过（或站长的单跳过初审直入） | 否 |
+| `PENDING_BOSS` | 待管理员终审 | `--color-primary` / `--color-primary-surface` | `soft` | 站长已初审通过（或站长的单跳过初审直入） | 否 |
 | `APPROVED` | 已通过 | `--color-success` / `--color-success-surface` | `soft` | 终审通过，已写考勤标记、已生效 | 是（可被撤回） |
 | `REJECTED` | 已驳回 | `--color-danger` / `--color-danger-surface` | `soft` | 初审或终审驳回，靠 `rejectStage` 区分 | 是（可修改重提） |
 | `CANCELLED` | 已撤销 | `--state-outline-*`（`--state-outline-border` 描边 + `--text-3` 类文字） | `outline` | 申请人自行撤销，从未写考勤标记 | 是 |
@@ -75,7 +75,7 @@
 - 拆状态的代价：筛选字典要出现「初审驳回」「终审驳回」两个等价值项，员工在列表上要理解两级差异才能筛选；服务端算薪/统计也要两处判等。
 - 保留字段的收益：展示层用「已驳回」+ 副信息「初审驳回 · 王站长」一句话讲清；重提逻辑对两级完全一致（都允许修改重提）。
 - **两级驳回对申请人的差异只有两点**，均通过副信息表达，不升级为状态：
-  1. **文案**：初审驳回 = 「站长未通过，可修改后重新提交」；终审驳回 = 「老板未通过，可修改后重新提交」。
+  1. **文案**：初审驳回 = 「站长未通过，可修改后重新提交」；终审驳回 = 「管理员未通过，可修改后重新提交」。
   2. **是否需要再走初审**：两者重提**都必须回 `PENDING_STATION`**（终审驳回后重提若不重走初审，站长就失去了对本站数据的把关，D1 的两级设计被绕过）。
 
 ### 1.3 状态流转矩阵
@@ -83,7 +83,7 @@
 | # | 动作 | 触发角色 | 前置状态 | 前置条件 | 结果状态 | 副作用 |
 | --- | --- | --- | --- | --- | --- | --- |
 | T1 | 提交 `SUBMIT` | 申请人本人（`STAFF` / `STATION_ADMIN`） | —（新建） | `startDate ≥ 今天`；与本人占用单无半日区间重叠；假别/事由合法 | `STAFF` → `PENDING_STATION`；`STATION_ADMIN` → `PENDING_BOSS`（**D1 跳过初审**） | 写单 + 留痕 `SUBMIT`；**发通知**（见 §6） |
-| T2 | 初审通过 `STATION_APPROVE` | 本站 `STATION_ADMIN` | `PENDING_STATION` | 审批人 `station_id` === 单 `stationId`；审批人 ≠ 申请人 | `PENDING_BOSS` | 留痕；通知老板 |
+| T2 | 初审通过 `STATION_APPROVE` | 本站 `STATION_ADMIN` | `PENDING_STATION` | 审批人 `station_id` === 单 `stationId`；审批人 ≠ 申请人 | `PENDING_BOSS` | 留痕；通知管理员 |
 | T3 | 初审驳回 `STATION_REJECT` | 本站 `STATION_ADMIN` | `PENDING_STATION` | 同上；**驳回原因必填 2–100 字** | `REJECTED`（`rejectStage='STATION'`） | 留痕（含原因）；通知申请人 |
 | T4 | 终审通过 `FINAL_APPROVE` | `ADMIN` | `PENDING_BOSS` | 审批人 ≠ 申请人 | `APPROVED` | **写 `LEAVE` 考勤标记**（= 该单计薪天数并入「已批请假天数」）；**落 `countedDaysSnapshot`**；留痕；通知申请人 |
 | T5 | 终审驳回 `FINAL_REJECT` | `ADMIN` | `PENDING_BOSS` | **驳回原因必填 2–100 字** | `REJECTED`（`rejectStage='BOSS'`） | 留痕（含原因）；通知申请人 |
@@ -102,7 +102,7 @@ D3 规定「批准后写 `LEAVE` 考勤标记，缺勤口径改为 `排班天数
 2. **口径回滚**：该员工该账期的 `absentCount` 恢复为 `max(0, scheduledDays − attendedDays)`，全勤奖、缺勤扣款随之回到未请假状态。
 3. **账期锁**：撤回前必须逐个检查该单覆盖到的账期（跨月单可能涉及 2 个月），只要任一月已存在 `PENDING_APPROVAL / APPROVED / PUBLISHED / CONFIRMED` 的工资单，**拒绝撤回并返回 9606**，文案：「{月份} 工资单已{dicLabel(PAYROLL_STATUS)}，撤回会导致工资数据不一致。请先在财务管理中作废该单据。」（工资单状态字典见 `dict.js:137-144`）
 4. **撤回原因必填**（2–100 字），写入留痕与通知正文——撤回等于撤销一次已生效的公司决定，必须留因。
-5. **撤回权归 `ADMIN`**：终审通过的决定由老板做出，撤销该决定也应由老板做出，符合最小权限。**（开放问题 Q1：是否给站长同等的撤回权，见附录 C）**
+5. **撤回权归 `ADMIN`**：终审通过的决定由管理员做出，撤销该决定也应由管理员做出，符合最小权限。**（开放问题 Q1：是否给站长同等的撤回权，见附录 C）**
 
 ---
 
@@ -110,11 +110,11 @@ D3 规定「批准后写 `LEAVE` 考勤标记，缺勤口径改为 `排班天数
 
 ### 2.1 三端 × 三角色逐格矩阵
 
-| 能力 | ADMIN（老板） | STATION_ADMIN（站长） | STAFF（员工） |
+| 能力 | ADMIN（管理员） | STATION_ADMIN（站长） | STAFF（员工） |
 | --- | --- | --- | --- |
 | **看**：PC 请假管理页 | 全域全驿站 | **仅本站**（`station_id` 服务端强制覆盖） | 不可见（PC 无请假入口） |
 | **看**：移动请假列表 | 不可用（ADMIN 无请假业务） | 本站全量（初审视角） | 仅本人 |
-| **做**：提交申请 | ❌ 9605（老板无上级可审，见 §2.3） | ✅ | ✅ |
+| **做**：提交申请 | ❌ 9605（管理员无上级可审，见 §2.3） | ✅ | ✅ |
 | **做**：编辑（`PENDING_STATION`） | — | ✅ 自己的单 | ✅ 自己的单 |
 | **做**：撤销（`PENDING_*`） | — | ✅ 自己的单 | ✅ 自己的单 |
 | **做**：初审通过/驳回 | ❌（初审是站长职责） | ✅ **仅本站**、**不能审自己** | ❌ |
@@ -128,7 +128,7 @@ D3 规定「批准后写 `LEAVE` 考勤标记，缺勤口径改为 `排班天数
 
 - 站长**只能审本站员工**的单：`leave.stationId === user.station_id`，否则 9605。
 - 站长**不能审自己**的单：`leave.employeeId === user.id` → 9605。**实际上站长的单因 D1 直接进 `PENDING_BOSS`，本站不会出现「站长待初审自己的单」**，该拦截是纵深防御（防止构造请求或未来流程变更）。
-- 老板**能审所有**（含站长的单）：终审端点 `roles: ['ADMIN']`（对齐补卡审批 `src/shared/mock/routes/attendance.js:561` 的写法）。
+- 管理员**能审所有**（含站长的单）：终审端点 `roles: ['ADMIN']`（对齐补卡审批 `src/shared/mock/routes/attendance.js:561` 的写法）。
 
 ### 2.2 双保险清单（渲染层隐藏 + 服务端兜底）
 
@@ -136,11 +136,11 @@ D3 规定「批准后写 `LEAVE` 考勤标记，缺勤口径改为 `排班天数
 
 | 位置 | 规则 | 依据 |
 | --- | --- | --- |
-| 老板端宫格「请假审批」 | 仅 `isAdmin` 渲染 | `src/mobile/views/boss/home.vue` 宫格按角色注入（现有模式） |
+| 管理端宫格「请假审批」 | 仅 `isAdmin` 渲染 | `src/mobile/views/boss/home.vue` 宫格按角色注入（现有模式） |
 | 员工端宫格「请假申请」 | `STATION_ADMIN` / `STAFF` 均显示 | `STAFF_QUICK_ENTRIES`（`quickEntries.js:27-36`） |
 | 员工端宫格「请假初审」 | **仅 `role === 'STATION_ADMIN'`** | 需给宫格项新增 `roles` 过滤能力（现有项无此字段） |
 | 消息 Tab 待办分组「待初审请假」 | 仅 `STATION_ADMIN` | 需给 `STAFF_TODO_GROUPS` 新增 `roles` 字段支持 |
-| 「我的」页 cell | 老板看「请假扣款设置」；员工/站长看「我的请假」；站长额外看「请假初审」 | `src/mobile/components/MeSection.vue:48-66` 分区渲染 |
+| 「我的」页 cell | 管理员看「请假扣款设置」；员工/站长看「我的请假」；站长额外看「请假初审」 | `src/mobile/components/MeSection.vue:48-66` 分区渲染 |
 | PC 侧边栏「请假管理」 | `MENU_WHITELIST` 白名单驱动 | `src/shared/constants/role.js:27-31` |
 | PC 侧边栏「运行日志」 | 白名单仅 `ADMIN` | 同上 |
 | 扣款设置卡片 | PC `/leave` 页内 `v-if="isAdmin"` | 移动 `/boss/leave/settings` 本身就是 ADMIN-only 路由 |
@@ -159,7 +159,7 @@ D3 规定「批准后写 `LEAVE` 考勤标记，缺勤口径改为 `排班天数
 
 ### 2.3 ADMIN 为何不能提交请假
 
-老板无上级可审，若允许提交则只能自审自批，会污染审批数据与审计链（D6 要求留痕可审计）。因此：**服务端 `POST /leave` 对 `ADMIN` 返回 9605**，文案「超级管理员无需提交请假申请」；渲染层所有请假入口对 ADMIN 不显示。演示态下用 `admin` 账号体验请假时，应切换到 `st001_admin`（`src/demo/accounts.js:10`）或 `st001_staff`（`:11`）。
+管理员无上级可审，若允许提交则只能自审自批，会污染审批数据与审计链（D6 要求留痕可审计）。因此：**服务端 `POST /leave` 对 `ADMIN` 返回 9605**，文案「超级管理员无需提交请假申请」；渲染层所有请假入口对 ADMIN 不显示。演示态下用 `admin` 账号体验请假时，应切换到 `st001_admin`（`src/demo/accounts.js:10`）或 `st001_staff`（`:11`）。
 
 ---
 
@@ -172,8 +172,8 @@ D3 规定「批准后写 `LEAVE` 考勤标记，缺勤口径改为 `排班天数
 | P1 | 移动·员工端 | `/staff/leave/apply` | `STATION_ADMIN`, `STAFF` | 新建请假申请 | 表单（假别/时段/事由）+ 天数摘要 + 底部固定操作栏 | 主：提交申请；次：取消返回 |
 | P2 | 移动·员工端 | `/staff/leave` | `STATION_ADMIN`, `STAFF` | 我的请假列表 + 状态跟踪 + 撤销/编辑/重提 | 状态 chip 筛选 + 列表行 + 详情弹层（含审批链与操作留痕时间线） | 主：申请请假（空态）；行内：撤销 / 编辑 / 修改重提 |
 | P3 | 移动·员工端 | `/staff/leave/review` | **`STATION_ADMIN`** | 本站请假初审（列表 + 通过/驳回） | 状态 chip（默认 `PENDING_STATION`）+ 计数条 + 列表行 + 审批底部弹层 | 行内：通过 / 驳回 |
-| P4 | 移动·老板端 | `/boss/leave` | `ADMIN` | 终审（列表 + 通过/驳回 + 撤回） | 状态 chip（默认 `PENDING_BOSS`）+ 列表行 + 审批弹层 + 撤回弹层 | 行内：通过 / 驳回 / 撤回 |
-| P5 | 移动·老板端 | `/boss/leave/settings` | `ADMIN` | 请假扣款设置（全局单开关） | 开关卡片 + 影响说明 + 底部保存栏 | 主：保存 |
+| P4 | 移动·管理端 | `/boss/leave` | `ADMIN` | 终审（列表 + 通过/驳回 + 撤回） | 状态 chip（默认 `PENDING_BOSS`）+ 列表行 + 审批弹层 + 撤回弹层 | 行内：通过 / 驳回 / 撤回 |
+| P5 | 移动·管理端 | `/boss/leave/settings` | `ADMIN` | 请假扣款设置（全局单开关） | 开关卡片 + 影响说明 + 底部保存栏 | 主：保存 |
 | P6 | PC | `/leave` | `ADMIN`, `STATION_ADMIN` | 请假管理：审批 + 全量列表 + 筛选 + 扣款开关 | 顶部扣款设置卡片（仅 ADMIN）+ 待审计数 + 筛选栏 + 表格 + 审批弹窗 + 详情抽屉 | 行内：通过 / 驳回 / 撤回 / 详情 |
 | P7 | PC | `/system/logs` | `ADMIN` | 运行日志查看 | 统计条 + 筛选栏 + 表格 + 详情抽屉 + 导出 | 主：刷新 / 导出；次：清空 |
 
@@ -229,7 +229,7 @@ export const MENU_WHITELIST = {
 
 1. **`/boss/*` 全部是 `roles:[ADMIN]`**：`src/mobile/router/index.js:41-150` 逐条核对，`/boss/home`(:41)、`/boss/workorder`(:85)、`/boss/attendance/makeup`(:91)、`/boss/kpi`(:106)… 无一例外。站长进 `/boss/*` 会被守卫按 `meta.roles` 弹回（`router/index.js:4` 的 `canAccess`）。
 2. **站长移动端已被定位在员工端**：`HOME_BY_ROLE.STATION_ADMIN = '/staff/home'`（`src/mobile/constants/accounts.js:11`），且与 STAFF **完全共用**宫格（`quickEntries.js:27-36`）、待办（`todoGroups.js:113-163`）、Tabbar（`tabs.js:15-19`，实际由 `TabbarLayout.vue:29` 的 `auth.isAdmin ? BOSS_TABS : STAFF_TABS` 决定 → 站长走 `STAFF_TABS`）。
-3. **改造 `/boss/*` 的代价远大于收益**：需逐条改 ~110 行 route meta，并调整 Tabbar 分流逻辑（现在只按 `isAdmin` 二分，一旦 `/boss/*` 对站长部分开放，分流要变成三分支）；而项目对站长 vs 员工的差异目前**刻意只保留 2 处**（`mobile/router/index.js:232` 的 `/staff/sync` 与 `stores/auth.js:28` 的 `canSeeSync`），保持这个「差异最小化」约定比新增一整套老板端路由更稳。
+3. **改造 `/boss/*` 的代价远大于收益**：需逐条改 ~110 行 route meta，并调整 Tabbar 分流逻辑（现在只按 `isAdmin` 二分，一旦 `/boss/*` 对站长部分开放，分流要变成三分支）；而项目对站长 vs 员工的差异目前**刻意只保留 2 处**（`mobile/router/index.js:232` 的 `/staff/sync` 与 `stores/auth.js:28` 的 `canSeeSync`），保持这个「差异最小化」约定比新增一整套管理端路由更稳。
 4. **一致性**：PC 端站长已有 `/attendance`、`/schedule` 等域内页面（`src/pc/router/index.js:100-111`），移动端沿用「站长在员工端域内加站长专属页」的同一模式，三端心智一致。
 
 **因此需要给两个配置文件增加「按角色过滤」能力**（这是本模块唯一的机制性改动）：
@@ -252,7 +252,7 @@ export const MENU_WHITELIST = {
 
 | 端 | 文件 | 新增项 | 形态 | 说明 |
 | --- | --- | --- | --- | --- |
-| 老板端 | `src/mobile/constants/quickEntries.js:16-25` | `{ key:'leaves', text:'请假审批', icon:'notes-o', to:'/boss/leave', type:'count' }` | `count` | 插在「入离职审批」之后；计数 = `PENDING_BOSS` 的 `total` |
+| 管理端 | `src/mobile/constants/quickEntries.js:16-25` | `{ key:'leaves', text:'请假审批', icon:'notes-o', to:'/boss/leave', type:'count' }` | `count` | 插在「入离职审批」之后；计数 = `PENDING_BOSS` 的 `total` |
 | 员工端 | `src/mobile/constants/quickEntries.js:27-36` | `{ key:'leave', text:'请假', icon:'notes-o', to:'/staff/leave/apply', type:'plain' }` | `plain` | 纯入口（发起请假无实时数据可显示）；排在「我的补卡申请」之后 |
 | 员工端（站长） | 同上 | `{ key:'leaveReview', text:'请假初审', icon:'notes-o', to:'/staff/leave/review', type:'count', roles:['STATION_ADMIN'] }` | `count` | 站长专属，计数 = `PENDING_STATION` 的 `total` |
 
@@ -264,12 +264,12 @@ export const MENU_WHITELIST = {
 
 | 分组 | 归属文件 | 分组名 | 计数口径 | 落点 |
 | --- | --- | --- | --- | --- |
-| 老板 | `src/mobile/constants/todoGroups.js:41-111`（`BOSS_TODO_GROUPS`） | **待终审请假** | `GET /leave/list?status=PENDING_BOSS` 的 `total` | `/boss/leave` |
+| 管理员 | `src/mobile/constants/todoGroups.js:41-111`（`BOSS_TODO_GROUPS`） | **待终审请假** | `GET /leave/list?status=PENDING_BOSS` 的 `total` | `/boss/leave` |
 | 员工/站长 | `src/mobile/constants/todoGroups.js:113-163`（`STAFF_TODO_GROUPS`） | **我的请假申请** | `GET /leave/my?status=PENDING` 的 `total`（`PENDING` 为服务端展开的聚合值，见附录 A） | `/staff/leave` |
 | 员工/站长（站长专属） | 同上 | **待初审请假** | `GET /leave/list?status=PENDING_STATION` 的 `total` | `/staff/leave/review` |
 
 - 行文案模板（沿 `makeupRow` 的写法，`todoGroups.js:35-39`）：
-  - 老板：`title = \`${item.employeeName} ${LEAVE_TYPE[item.leaveType].label}\``，`meta = \`${item.startDate} ~ ${item.endDate} · ${item.countedDays} 天\``
+  - 管理员：`title = \`${item.employeeName} ${LEAVE_TYPE[item.leaveType].label}\``，`meta = \`${item.startDate} ~ ${item.endDate} · ${item.countedDays} 天\``
   - 员工：`title = \`${item.startDate} ~ ${item.endDate} ${类型}\``，`meta = '审批中，通过后生效'`
   - 站长：`title = \`${item.employeeName} ${item.startDate} ~ ${item.endDate}\``，`meta = \`${item.leaveType.label} · 待初审\``
 - **Tabbar 角标自动纳入**：`messageBadge = badgeText(notify.unread + todo.total)`（`src/mobile/layout/TabbarLayout.vue:31`），`todo.total` 由待办分组求和，新增分组后自动计入，无需改角标逻辑。
@@ -278,7 +278,7 @@ export const MENU_WHITELIST = {
 
 | 分区 | 现状行 | 新增 |
 | --- | --- | --- |
-| 老板区（`v-if="auth.isAdmin"`，`:49-55`） | KPI / 人事 / 排班 / 打卡规则 / 打卡记录 | `<van-cell title="请假扣款设置" label="全局单开关：请假是否影响工资" is-link to="/boss/leave/settings" />` |
+| 管理员区（`v-if="auth.isAdmin"`，`:49-55`） | KPI / 人事 / 排班 / 打卡规则 / 打卡记录 | `<van-cell title="请假扣款设置" label="全局单开关：请假是否影响工资" is-link to="/boss/leave/settings" />` |
 | 员工区（`v-else`，`:56-66`） | 我的 KPI / 工资单 / 档案 / 排班 / 打卡记录 / 我的补卡申请 / 我的入离职 /（站长）同步状态 | `<van-cell title="我的请假" label="申请记录与审批进度" is-link to="/staff/leave" />`；<br>`<van-cell v-if="auth.role === 'STATION_ADMIN'" title="请假初审" label="本站员工请假待初审" is-link to="/staff/leave/review" />` |
 
 > 「我的」页顶部注释明确写了「待办队列不在这里：统一收进『消息』Tab」（`MeSection.vue:44-45`），故以上 cell **不带计数**，只做低频兜底入口 —— 与既有「我的补卡申请」一致（`MeSection.vue:62-63`）。
@@ -308,7 +308,7 @@ export const MENU_WHITELIST = {
   component: () => import('../views/staff/leaveReview.vue'),
   meta: { roles: [ROLE.STATION_ADMIN], title: '请假初审' } },
 
-// 老板端域（roles 一律 [ROLE.ADMIN]）
+// 管理端域（roles 一律 [ROLE.ADMIN]）
 { path: '/boss/leave', name: 'bossLeave',
   component: () => import('../views/boss/leaveApproval.vue'),
   meta: { roles: [ROLE.ADMIN], title: '请假审批' } },
@@ -337,7 +337,7 @@ export const MENU_WHITELIST = {
 
 **提交成功文案**：
 - 员工提交 → Toast「已提交，等待站长初审」
-- 站长提交 → Toast「已提交，等待老板终审」
+- 站长提交 → Toast「已提交，等待管理员终审」
 
 ### 4.2 半天粒度定义
 
@@ -453,7 +453,7 @@ countedDays = countedHalfUnits / 2
 
 **为什么只软提示不硬拦**：急事请假时需要「提交」这个动作先能落地，硬拦会让员工被迫先沟通再回系统提交，反而延长了信息滞后的窗口。审批人看到「今天上午已过」的单子可自行判断。
 
-**上限护栏**：单次连续跨度 **≤ 30 个自然日**（超出返回 9604，文案「单次请假最长 30 天，如需更长请分次申请或联系老板」）。**该数值为建议值，列为开放问题 Q2。**
+**上限护栏**：单次连续跨度 **≤ 30 个自然日**（超出返回 9604，文案「单次请假最长 30 天，如需更长请分次申请或联系管理员」）。**该数值为建议值，列为开放问题 Q2。**
 
 ### 4.6 修改规则（对应需求「申请提交与修改功能」）
 
@@ -542,7 +542,7 @@ countedDays = countedHalfUnits / 2
 | --- | --- | --- | --- | --- | --- |
 | C1 | `FilterChips.vue` | 移动端（分子） | 横向可换行状态筛选 chip 组：`props: items[{value,label}]`、`active`；`emit('change', value)`；每个 chip `min-height: 44px`、`aria-pressed` | **抽取自既有三处重复**：`src/mobile/views/staff/makeupList.vue:84-96` + `:129-155`、`src/mobile/views/boss/makeupApproval.vue:148-160` + `:237-261`；请假的三页成为**第三、四、五处消费方**，触发项目规则「同一逻辑不得重复实现三次以上」→ 必须抽取 | 无功能差异，纯抽公共；抽后补卡两页应一并替换（见 §9 静态核查项） |
 | C2 | `DayPeriodRange.vue` | 移动端（分子） | 「开始日期 + 上午/下午 + 结束日期 + 上午/下午」四控件组 + 天数摘要只读行 | 仅 P1 申请页使用 | 一次性使用，**本可不抽**；但它是表单中最易出错的区块（半天边界）且未来「编辑」「重提」两个入口都要复用同一表单，故抽为组件，避免三处各写一遍校验 |
-| C3 | `LeaveManagement.vue` | PC（view 内区块） | 审批表格 + 筛选 + 待审计数 + 审批弹窗 + 详情抽屉 | 结构镜像 `src/pc/views/attendance/components/MakeupApproval.vue` | 差异：新增「终审通过后的撤回」入口；筛选默认值按角色不同（站长 `PENDING_STATION`，老板 `PENDING_BOSS`）；无页头驿站选择联动（审批是全域待办语义，同 `MakeupApproval.vue:14-15` 的理由） |
+| C3 | `LeaveManagement.vue` | PC（view 内区块） | 审批表格 + 筛选 + 待审计数 + 审批弹窗 + 详情抽屉 | 结构镜像 `src/pc/views/attendance/components/MakeupApproval.vue` | 差异：新增「终审通过后的撤回」入口；筛选默认值按角色不同（站长 `PENDING_STATION`，管理员 `PENDING_BOSS`）；无页头驿站选择联动（审批是全域待办语义，同 `MakeupApproval.vue:14-15` 的理由） |
 | C4 | `ClientLogViewer.vue` | PC（view 内区块） | 运行日志列表 + 筛选 + 抽屉详情 + 导出 | 无直接对标 | 新增（见 §7） |
 
 > C3/C4 按项目习惯放在 `src/pc/views/leave/` 与 `src/pc/views/system/` 下（view 级，不进 `src/pc/components/`，因为它们承载页面语义而非原子能力）。
@@ -562,7 +562,7 @@ countedDays = countedHalfUnits / 2
 /** 请假状态：6 态。PENDING_STATION→PENDING_BOSS→APPROVED；REJECTED 用 rejectStage 区分两级 */
 export const LEAVE_STATUS = {
   PENDING_STATION: { label: '待站长初审', type: 'warning', variant: 'soft' },
-  PENDING_BOSS:    { label: '待老板终审', type: 'primary', variant: 'soft' },
+  PENDING_BOSS:    { label: '待管理员终审', type: 'primary', variant: 'soft' },
   APPROVED:        { label: '已通过',     type: 'success', variant: 'soft' },
   REJECTED:        { label: '已驳回',     type: 'danger',  variant: 'soft' },
   CANCELLED:       { label: '已撤销',     type: 'info',    variant: 'outline' },
@@ -618,8 +618,8 @@ export const LEAVE_LOG_ACTION = {
   CANCEL:          { label: '申请人撤销' },
   STATION_APPROVE: { label: '站长初审通过' },
   STATION_REJECT:  { label: '站长初审驳回' },
-  FINAL_APPROVE:   { label: '老板终审通过' },
-  FINAL_REJECT:    { label: '老板终审驳回' },
+  FINAL_APPROVE:   { label: '管理员终审通过' },
+  FINAL_REJECT:    { label: '管理员终审驳回' },
   REVOKE:          { label: '审批人撤回' }
 }
 
@@ -689,12 +689,12 @@ export const DAY_ATTENDANCE_STATE = {
 站长 id = employees.find(e => e.role === 'STATION_ADMIN'
                           && e.station_id === leave.stationId
                           && e.status === 1 && e.is_deleted === 0)?.id
-老板 id = employees.find(e => e.role === 'ADMIN'
+管理员 id = employees.find(e => e.role === 'ADMIN'
                           && e.status === 1 && e.is_deleted === 0)?.id
 ```
 
 - 每站恰好一名站长：`buildEmployees` 为每个驿站生成一条 `role:'STATION_ADMIN'`（`src/shared/mock/db.js:326`）。
-- 全局恰好一名老板：`list.push(createEmployee(..., { role: 'ADMIN', stationId: null, ... }))`（`src/shared/mock/db.js:330`）。
+- 全局恰好一名管理员：`list.push(createEmployee(..., { role: 'ADMIN', stationId: null, ... }))`（`src/shared/mock/db.js:330`）。
 - **降级规则（必须有）**：若本站无可用站长（不存在或已停用），`STAFF` 提交的单**直接进入 `PENDING_BOSS`**，并给申请人发一条说明通知（场景 9）。这条降级必须与 D1 的「站长跳过初审」共用同一条代码路径，避免出现两条不同的跳级逻辑。
 
 ### 6.2 通知文案模板
@@ -702,15 +702,15 @@ export const DAY_ATTENDANCE_STATE = {
 | # | 场景 | 接收人 | `type` | `title` | `content` | `bizType` / `bizId` | 点击跳转 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 员工提交 | **本站站长** | 5 | `{employeeName} 提交了请假申请` | `{类型} {起} ~ {止} 共 {naturalDays} 天，待您初审` | `leave` / `{id}` | `/staff/leave/review` |
-| 2 | 站长提交（跳过初审） | **老板** | 5 | `{employeeName}（站长）提交了请假申请` | `{类型} {起} ~ {止} 共 {naturalDays} 天，待您终审` | `leave` / `{id}` | `/boss/leave` |
-| 3 | 初审通过 | **老板** | 5 | `请假申请待终审` | `{employeeName} 的{类型} {起} ~ {止} 已通过 {stationName} 站长初审` | `leave` / `{id}` | `/boss/leave` |
+| 2 | 站长提交（跳过初审） | **管理员** | 5 | `{employeeName}（站长）提交了请假申请` | `{类型} {起} ~ {止} 共 {naturalDays} 天，待您终审` | `leave` / `{id}` | `/boss/leave` |
+| 3 | 初审通过 | **管理员** | 5 | `请假申请待终审` | `{employeeName} 的{类型} {起} ~ {止} 已通过 {stationName} 站长初审` | `leave` / `{id}` | `/boss/leave` |
 | 4 | 初审驳回 | **申请人** | 6 | `请假申请未通过初审` | `{类型} {起} ~ {止}，驳回原因：{remark}。可修改后重新提交` | `leave` / `{id}` | `/staff/leave` |
 | 5 | 终审通过 | **申请人** | 6 | `请假申请已通过` | `{类型} {起} ~ {止}，计薪 {countedDays} 天，已生效` | `leave` / `{id}` | `/staff/leave` |
 | 6 | 终审驳回 | **申请人** | 6 | `请假申请被驳回` | `{类型} {起} ~ {止}，驳回原因：{remark}。可修改后重新提交` | `leave` / `{id}` | `/staff/leave` |
-| 7 | 申请人撤销 | **当前待审的那一级审批人**（`PENDING_STATION` → 站长；`PENDING_BOSS` → 老板） | 6 | `请假申请已撤销` | `{employeeName} 已撤销 {类型} {起} ~ {止} 的申请` | `leave` / `{id}` | 站长 → `/staff/leave/review`；老板 → `/boss/leave` |
+| 7 | 申请人撤销 | **当前待审的那一级审批人**（`PENDING_STATION` → 站长；`PENDING_BOSS` → 管理员） | 6 | `请假申请已撤销` | `{employeeName} 已撤销 {类型} {起} ~ {止} 的申请` | `leave` / `{id}` | 站长 → `/staff/leave/review`；管理员 → `/boss/leave` |
 | 8 | 审批人撤回 | **申请人** | 6 | `已批准的请假被撤回` | `{类型} {起} ~ {止} 已被 {revokeByName} 撤回，原因：{revokeReason}。如有疑问请联系站长` | `leave` / `{id}` | `/staff/leave` |
-| 9 | 无可用站长降级 | **申请人** | 6 | `请假申请已直接提交终审` | `本站暂无在职站长，您的申请已直接提交老板终审` | `leave` / `{id}` | `/staff/leave` |
-| 10 | 通知目标缺失（站长/老板账号不存在） | 无（不写通知） | — | — | — | — | 写一条 `leave_logs` 记录 `NOTIFY_SKIP`，便于排障 |
+| 9 | 无可用站长降级 | **申请人** | 6 | `请假申请已直接提交终审` | `本站暂无在职站长，您的申请已直接提交管理员终审` | `leave` / `{id}` | `/staff/leave` |
+| 10 | 通知目标缺失（站长/管理员账号不存在） | 无（不写通知） | — | — | — | — | 写一条 `leave_logs` 记录 `NOTIFY_SKIP`，便于排障 |
 
 **文案规范**：
 - `{起}` / `{止}` 格式：`2026-10-01 上午`（同日区间压缩为 `2026-10-01 上午 ~ 下午`）。
@@ -721,7 +721,7 @@ export const DAY_ATTENDANCE_STATE = {
 
 ### 6.3 前端跳转分支（必须补）
 
-`src/mobile/components/NoticeList.vue:113-133` 已预留 `work_order` / `sync_task` / `parcel` / `payroll` / `flow` 五类 `bizType` 分支，但 Mock 从未产出 `parcel` / `payroll` / `flow`。**请假补一个 `leave` 分支**，且**必须按角色分流**（同一 `NoticeList` 同时服务老板端与员工端，见 `NoticeList.vue` 所在 `MessagePage.vue` 被 `/boss/message`(`mobile/router/index.js:45-49`) 与 `/staff/message`(`:162-166`) 复用）：
+`src/mobile/components/NoticeList.vue:113-133` 已预留 `work_order` / `sync_task` / `parcel` / `payroll` / `flow` 五类 `bizType` 分支，但 Mock 从未产出 `parcel` / `payroll` / `flow`。**请假补一个 `leave` 分支**，且**必须按角色分流**（同一 `NoticeList` 同时服务管理端与员工端，见 `NoticeList.vue` 所在 `MessagePage.vue` 被 `/boss/message`(`mobile/router/index.js:45-49`) 与 `/staff/message`(`:162-166`) 复用）：
 
 ```js
 if (item.bizType === 'leave') {
@@ -732,7 +732,7 @@ if (item.bizType === 'leave') {
 }
 ```
 
-不跳详情页、只用 `bizId` 做后续深链预留：三个落点页的默认筛选已能自动定位到相关单（老板 `PENDING_BOSS`、站长 `PENDING_STATION`、员工全部），且移动端不新增详情路由（见 §3.1）。
+不跳详情页、只用 `bizId` 做后续深链预留：三个落点页的默认筛选已能自动定位到相关单（管理员 `PENDING_BOSS`、站长 `PENDING_STATION`、员工全部），且移动端不新增详情路由（见 §3.1）。
 
 ---
 
@@ -876,12 +876,12 @@ approvedLeaveDays(employeeId, monthStart, monthEnd)
 ### 9.1 状态机与权限
 
 - [ ] `[实测]` 员工提交 → 状态变 `PENDING_STATION`；站长账号登录 → 宫格「请假初审」计数 +1，消息待办「待初审请假」+1，Tabbar「消息」角标 +1。
-- [ ] `[实测]` 站长提交 → **直接** `PENDING_BOSS`（不出现「待初审」），老板端计数 +1。
-- [ ] `[实测]` 站长初审通过 → 老板端「待终审请假」+1；站长端该单从 `PENDING_STATION` 视图消失。
-- [ ] `[实测]` 老板终审通过 → 员工端状态「已通过」；考勤记录页对应日期显示「请假」；若扣款开关为「不扣」，该月缺勤天数**减少** `countedDays`。
+- [ ] `[实测]` 站长提交 → **直接** `PENDING_BOSS`（不出现「待初审」），管理端计数 +1。
+- [ ] `[实测]` 站长初审通过 → 管理端「待终审请假」+1；站长端该单从 `PENDING_STATION` 视图消失。
+- [ ] `[实测]` 管理员终审通过 → 员工端状态「已通过」；考勤记录页对应日期显示「请假」；若扣款开关为「不扣」，该月缺勤天数**减少** `countedDays`。
 - [ ] `[实测]` 初审驳回 / 终审驳回 → 状态「已驳回」，副信息分别为「初审驳回」「终审驳回」，且**驳回原因非空才能提交**。
 - [ ] `[实测]` 申请人在两种待审态均可撤销 → `CANCELLED`，且**不产生任何考勤/工资影响**。
-- [ ] `[实测]` 老板撤回已通过单 → `REVOKED`，考勤缺勤天数**恢复**（验证回滚），撤回原因为必填。
+- [ ] `[实测]` 管理员撤回已通过单 → `REVOKED`，考勤缺勤天数**恢复**（验证回滚），撤回原因为必填。
 - [ ] `[实测]` 该账期工资单为 `PENDING_APPROVAL`/`APPROVED`/`PUBLISHED`/`CONFIRMED` 时撤回 → 报 9606，且状态不变。
 - [ ] `[实测]` 站长无法看到其他驿站的单（切到 `st001_admin` 只出现城东数据）。
 - [ ] `[实测]` 站长的单不出现在自己的初审列表里。
@@ -908,9 +908,9 @@ approvedLeaveDays(employeeId, monthStart, monthEnd)
 ### 9.3 通知与入口
 
 - [ ] `[实测]` 9 个通知场景逐一触发，接收人正确、文案与 §6.2 模板一致、`bizType==='leave'`。
-- [ ] `[实测]` 点击通知按角色跳到正确页面（老板 `/boss/leave`、站长 `/staff/leave/review`、员工 `/staff/leave`）。
+- [ ] `[实测]` 点击通知按角色跳到正确页面（管理员 `/boss/leave`、站长 `/staff/leave/review`、员工 `/staff/leave`）。
 - [ ] `[实测]` `POST /notifications/publish` 的类型校验已放行 5/6（构造 `type: 5` 发布成功）。
-- [ ] `[实测]` 移动端宫格：「请假」对所有员工/站长可见；「请假初审」**仅站长可见**；「请假审批」仅老板可见。
+- [ ] `[实测]` 移动端宫格：「请假」对所有员工/站长可见；「请假初审」**仅站长可见**；「请假审批」仅管理员可见。
 - [ ] `[实测]` 消息待办三分组计数与列表 `total` 一致（含筛选无关性：切筛选后计数不变，对照 `MakeupApproval.vue:79-87` 的 `fetchPendingCount`）。
 - [ ] `[实测]` 「我的」页三个新 cell 按角色正确出现/隐藏。
 - [ ] `[实测]` Tabbar 仅 3 项，未新增第 4 项。

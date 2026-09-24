@@ -62,7 +62,7 @@
 | # | 问题 | 依据 | 修复方向 |
 | --- | --- | --- | --- |
 | P1-1 | **契约色值直出 inline style（体系外颜色通道）**：`shift.color` / `day.color` 由接口下发后直接写进 `background`，绕过 Token。当前取值恰好落在色板（`#0958D9`/`#FA8C16`/`#1F2937`），契约一改即静默脱离色板 | `staff/attendance.vue:361`、`staff/schedule.vue:87`；来源 `shared/mock/attendanceStore.js:63-65` | 经「契约色 → Token」映射表落色，映射失败回落 `--border-line`（§3 N4 + §4 C4） |
-| P1-2 | **员工端主指标字号越级**：KPI 页与老板端共用一页，员工视角仍用老板档 24px | `staff/kpi.vue:113`（`--fs-num-lg-boss`）vs `demo-ui-redesign.md` 3.2 差异表「员工端 22（`--fs-num-lg-staff`）」；对照 `staff/home.vue:162` 已正确用 `value-size="staff"` | 按 `isBossView` 切换字号档 |
+| P1-2 | **员工端主指标字号越级**：KPI 页与管理端共用一页，员工视角仍用管理员档 24px | `staff/kpi.vue:113`（`--fs-num-lg-boss`）vs `demo-ui-redesign.md` 3.2 差异表「员工端 22（`--fs-num-lg-staff`）」；对照 `staff/home.vue:162` 已正确用 `value-size="staff"` | 按 `isBossView` 切换字号档 |
 | P1-3 | **chip/胶囊四套平行实现**（同一视觉，四处样式块） | `mobile.scss:311-334`（`.chip`/`.chip--active`）、`components/FilterChips.vue:48-64`、`staff/makeupList.vue:138-155`（`.fchip`）、`staff/attendance.vue:826-836` + `:881-891`（`.verify__badge` / `.mini-chip`） | 收敛为 `Chip`（交互）+ `MiniChip`（属性标记）两个原子，删各页私有块；`FilterChips.vue:8-9` 的 `TODO(扩展)` 同步销项 |
 | P1-4 | **徽标三套实现**（同尺寸同配色各写一遍） | `components/QuickGridItem.vue:90-103`、`views/message/MessagePage.vue:69-81`、`components/NoticeList.vue:235-247` | 抽 `Badge` 原子（§4 C2），字号/高度/padding 收口到 §3 N3 |
 | P1-5 | **骨架高度六处硬编码且互不相同**（96/108/120/120/148/156） | `staff/sync.vue:208`、`staff/makeupList.vue:158`、`staff/payroll.vue:104`、`components/MyPayrollCard.vue:90`、`components/LeaveApprovalList.vue:283`、`staff/leaveList.vue:272` | 骨架高度必须由 §3 N2 的行高 Token 派生，不写字面量 |
@@ -98,14 +98,14 @@
 
 > **员工端是「作业型界面」，不是「阅读型界面」**：一线员工在驿站现场、单手持机、可能戴手套，任务是「现在这一步做什么」，而不是「看懂一份报表」。
 
-由此推出的 6 条视觉契约（与老板端/PC 端的分界）：
+由此推出的 6 条视觉契约（与管理端/PC 端的分界）：
 
-| 维度 | 员工端（本规范） | 老板端 / PC 端 | 是否共享 Token |
+| 维度 | 员工端（本规范） | 管理端 / PC 端 | 是否共享 Token |
 | --- | --- | --- | --- |
-| 首屏首要目标 | **动作**（一键打卡 + 待办队列），动作不靠滚动可达 | 老板端：**结论**（趋势与异常）；PC：**批量** | 是 |
-| 信息密度 | 列表项 3 行（标题/元信息/警示），行高 76；区块间距 12 | 老板端 2 行、间距 16；PC 表格 44 行高 | 部分（密度值走移动层） |
-| 数值字号 | 主指标 22（`--fs-num-lg-staff`）；同屏数值字号 ≤2 种 | 老板端 24（`--fs-num-lg-boss`） | 名同值不同（合法平台差异） |
-| 主色使用比例 | 蓝主色只出现在**图标、可点文字、主按钮实底、选中态**（≈10% 面积），页面由白卡 + 浅灰底构成 | 老板端 Hero 用深蓝灰建立「报告」心智 | 色值一致，比例不同 |
+| 首屏首要目标 | **动作**（一键打卡 + 待办队列），动作不靠滚动可达 | 管理端：**结论**（趋势与异常）；PC：**批量** | 是 |
+| 信息密度 | 列表项 3 行（标题/元信息/警示），行高 76；区块间距 12 | 管理端 2 行、间距 16；PC 表格 44 行高 | 部分（密度值走移动层） |
+| 数值字号 | 主指标 22（`--fs-num-lg-staff`）；同屏数值字号 ≤2 种 | 管理端 24（`--fs-num-lg-boss`） | 名同值不同（合法平台差异） |
+| 主色使用比例 | 蓝主色只出现在**图标、可点文字、主按钮实底、选中态**（≈10% 面积），页面由白卡 + 浅灰底构成 | 管理端 Hero 用深蓝灰建立「报告」心智 | 色值一致，比例不同 |
 | 卡片与分割线 | 卡片 `--r-lg` + `--e1` 承载「一个可操作对象」；卡内分隔一律 1px `--border-line`，**不用阴影分层** | PC 后台卡片 `--e0` + 1px 描边（避免密集表格噪声） | Token 一致，策略不同 |
 | 危险色语义 | 只给「需要立刻行动」（超时、异常件、未读），不做装饰 | 同 | 是 |
 
@@ -113,7 +113,7 @@
 
 `--color-primary`(#0958D9 承载白字) / `--color-primary-icon`(#1890FF 仅图标线描边) / 语义四族色 / 状态色映射表（状态 → `--state-*`）/ 六态字典 `variant` 语义 / 字号阶梯名与行高 / 间距 `--sp-*` / 圆角 `--r-*` / 阴影 `--e0..e4` / 图表系列色（`--chart-*`）/ `StatusTag` 形态（soft/outline/solid）/ 动效时长与缓动。
 
-### 2.3 员工端与老板端共用组件时的差异化边界
+### 2.3 员工端与管理端共用组件时的差异化边界
 
 同一组件两端复用（`StatCard` / `StatusTag` / `SlaTag` / `PageState` / `ActionBar` / `MeSection` / `NoticeList` / `PayrollStatusSteps` / `MessagePage`）时，**只允许通过显式 prop 表达差异**（如 `StatCard` 的 `value-size`、`MeSection` 按 `auth.isAdmin` 分流分组），**禁止**在组件内写 `if (isStaff)` 式的隐式分支散落在样式里。`staff/kpi.vue` 当前用 `isBossView` 只切了标题（`:59`）没切字号（`:113`），是本条的现存反例（P1-2）。
 
@@ -170,7 +170,7 @@
 | `StatCard.vue` | Molecule | ✓ | ✓（数值位骨架 `:61`） | — | ✓（`—` + 原因 `:66-71`） | — | — | ✓ | 无（`clickable` 判定 `:29` 已防假按钮） |
 | `PageNav.vue` | Organism | ✓ | — | — | — | — | — | ✓（标题 60% 省略 `:43-46`） | 无（返回 44×44 + `aria-label`，`:54-59`） |
 | `ActionBar.vue` | Organism | ✓ | ✓ | ✓（`actions` 空则整栏不渲染 `:40`） | — | ✓（`note` 说明原因 `:46`） | ✓ | ✓（multi 收「更多」） | 按钮高度接 `--touch-min` |
-| `AttendanceStatusBar.vue` | Organism | ✓ | ✓（`···` + 按钮禁用） | ✓（未配规则 `:54-55`） | ✓（`role=status` + 重试 `:52,69`） | ✓（降级为次操作 `:70-71`） | ✓（老板端不渲染） | ✓（2 段 4 卡） | `border-left:3px` → §3/P2-2 |
+| `AttendanceStatusBar.vue` | Organism | ✓ | ✓（`···` + 按钮禁用） | ✓（未配规则 `:54-55`） | ✓（`role=status` + 重试 `:52,69`） | ✓（降级为次操作 `:70-71`） | ✓（管理端不渲染） | ✓（2 段 4 卡） | `border-left:3px` → §3/P2-2 |
 | `HomeQuickGrid.vue` | Organism | ✓ | ✓（项名先渲染 `:42-53`） | △（`nav` 内一行文案 `:55`） | ✓（整体不进错误态，逐项降级） | — | ✓（`canAccess` 过滤 `:32`） | ✓ | 无 |
 | `QuickGridItem.vue` | Molecule | ✓ | ✓（`···` / 不渲染角标 `:33-37`） | ✓（业务零值由调用方给文案） | ✓（`—`，绝不用 0 `:36`） | — | — | ✓（`99+`、名称换行） | 角标改 `Badge`（P1-4）；`line-height:1.4` 收口 |
 | `TodoList.vue` | Organism | ✓ | ✓（3 块骨架 `:27-29`） | ✓ | ✓（逐组降级 `:49-52`） | — | ✓（父级过滤） | ✓ | 空态用 `PageState` 但未传 `variant`，与 C1 一致 |
@@ -189,8 +189,8 @@
 | `LeaveAudit.vue` | Molecule | ✓ | — | ✓（未审批不渲染 `:23`） | — | — | — | ✓ | 无 |
 | `LeaveApprovalList.vue` | Organism | ✓ | ✓（自绘，需并入 PageState，P1-6） | ✓ | ✓ | ✓（`canAct` `:134`） | ✓ | ✓ | 计数条 0 问题（P0-2） |
 | `WorkOrderCopyButton.vue` | Atom | ✓ | ✓（`busy` 防连点 `:30-34`） | — | ✓（失败双通道提示 `:38-39`） | ✓ | — | ✓（44×44 `:63-68`） | 无 |
-| `StationPicker.vue` | Organism | ✓ | — | ✓（`allowAll`） | — | — | — | ✓（48px `:67`） | 无（老板端专用，员工端不消费） |
-| `LineChart.vue` | Organism | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | **指针/键盘读数（P1-10）**；老板端/趋势页消费，员工端不消费 |
+| `StationPicker.vue` | Organism | ✓ | — | ✓（`allowAll`） | — | — | — | ✓（48px `:67`） | 无（管理端专用，员工端不消费） |
+| `LineChart.vue` | Organism | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | **指针/键盘读数（P1-10）**；管理端/趋势页消费，员工端不消费 |
 
 ### 4.2 需新增的组件（9 个）
 
@@ -368,7 +368,7 @@ views/staff/attendance.vue           页面壳：取数 + 四态 + 区块编排
 #### 5.2.4 我的补卡申请 `staff/makeupList.vue`（171 行）
 
 - 目标：查补卡进度与审批意见。
-- 交互：状态筛选（`:84-96`）、无限滚动、审批中给「等老板审批」的明确预期（`:121`）。
+- 交互：状态筛选（`:84-96`）、无限滚动、审批中给「等管理员审批」的明确预期（`:121`）。
 - 待修：① `.fchip` 改 `FilterChips`（P1-3）；② 自绘骨架并入 `PageState`（P1-6）；③ 筛选 `role="group"` 已正确（`:84`）。
 
 ### 5.3 工单域
@@ -383,7 +383,7 @@ views/staff/attendance.vue           页面壳：取数 + 四态 + 区块编排
 
 #### 5.3.2 工单详情 `staff/workorderDetail.vue`（563 行）
 
-- 目标：看清工单全貌并一步完成流转；老板端与员工端共页（`:16-24`）。
+- 目标：看清工单全貌并一步完成流转；管理端与员工端共页（`:16-24`）。
 - 区块顺序：摘要卡 → 工单信息（cell-group）→ 工单描述（`line-height:1.7`，`:414`）→ 处理时间线（最新在上，`:110-112`）→ 转单留痕（有值才出现）→ 无权限说明。
 - 交互：底部 `ActionBar`（`multi` 自动收「更多」）、备注弹层（必填校验）、指派/转单共用人员弹层（每次打开重拉候选，`:178-205`）。
 - 待修：`line-height:1.7` → 用 `--lh-body` 或登记 L3；人员弹层改 `role="listbox"` 或保持 `aria-pressed` 按钮组（现状合法，登记口径）。
@@ -404,7 +404,7 @@ views/staff/attendance.vue           页面壳：取数 + 四态 + 区块编排
 
 #### 5.4.2 包裹详情 `staff/parcelDetail.vue`（152 行）
 
-- 目标：核销前确认；老板端只读（`:130`）。
+- 目标：核销前确认；管理端只读（`:130`）。
 - 交互：`ActionBar dual`（取件核销 + 上报异常），禁用原因由 `note` 承载而非塞进按钮（`:31-36`）。
 - 待修：`cell-group inset` 与 `attendance/sync` 不一致（P1-8）。
 
@@ -418,7 +418,7 @@ views/staff/attendance.vue           页面壳：取数 + 四态 + 区块编排
 
 #### 5.5.1 我的 KPI `staff/kpi.vue`（130 行）
 
-- 目标：看「这分怎么来的」。共享老板端（`/boss/kpi/:employeeId`）。
+- 目标：看「这分怎么来的」。共享管理端（`/boss/kpi/:employeeId`）。
 - 层级：Hero（员工/驿站/月份 + 大号总分 + 等级 + 排名）→ KpiGauge → 口径行 → 指标明细卡。
 - 待修：**P1-2（字号越级）**；`MonthPicker` 顶部无「考核周期」标签时的读屏名依赖 `label` prop（`:61` 已传），保持。
 
@@ -533,7 +533,7 @@ views/staff/attendance.vue           页面壳：取数 + 四态 + 区块编排
 | 横向滚动 | `MonthPicker`（`:37-43`） | 必须隐藏滚动条且不引出整页横向滚动（`mobile.scss:17` 已兜底） |
 | 上拉加载 | `van-list` 20/页 | `immediate-check="false"` 防挂载即触发；单飞保护用独立 `busy` 标记（`parcel.vue:41`） |
 | 左滑删除/操作 | **不允许** | `role=button` 行 + 滑动删除与「键盘可达」冲突，且现场戴手套易误触 |
-| 图表触摸读数 | `LineChart`（老板端） | 需补指针/键盘路径（P1-10） |
+| 图表触摸读数 | `LineChart`（管理端） | 需补指针/键盘路径（P1-10） |
 
 ---
 
@@ -794,9 +794,9 @@ U1 壳 `--status-bar-height` 实测值 / U2 `van-radio` Tab 可达性 / U3 四�
 
 ### 10.1 员工端应用命名命中矩阵（鉴权前无法判角色）
 
-应用名真源：**员工端 = 「驿站助手」**；**老板端 = 「快递驿站智汇系统」**（保持）。判据优先级：登录后 `auth.role`（`stores/auth.js:32-33`） > 登录前 `route.query.as`（`views/login/index.vue:33`；取值仅 `boss|station|staff`，见 `src/demo/accounts.js:8-12`）。
+应用名真源：**员工端 = 「驿站助手」**；**管理端 = 「快递驿站智汇系统」**（保持）。判据优先级：登录后 `auth.role`（`stores/auth.js:32-33`） > 登录前 `route.query.as`（`views/login/index.vue:33`；取值仅 `boss|station|staff`，见 `src/demo/accounts.js:8-12`）。
 
-| 载体 | as=staff / as=station（员工端） | as=boss（老板端） | 无参数 |
+| 载体 | as=staff / as=station（员工端） | as=boss（管理端） | 无参数 |
 | --- | --- | --- | --- |
 | `<h1>` `views/login/index.vue:64` | 驿站助手 | 快递驿站智汇系统 | 快递驿站智汇系统 |
 | 副标题 `views/login/index.vue:65` | 员工端 · 移动端演示 · 纯 Mock 数据，无需后端 | 移动端演示 · 纯 Mock 数据，无需后端 | 移动端演示 · 纯 Mock 数据，无需后端 |
@@ -810,7 +810,7 @@ U1 壳 `--status-bar-height` 实测值 / U2 `van-radio` Tab 可达性 / U3 四�
 
 | 位置 | 值 | 不改理由 | 若需改的改法 |
 | --- | --- | --- | --- |
-| `hrm-android-shell…/values/strings.xml:3` | `快递驿站` | 壳是三端移动端**共用载体**（老板/员工同一 `mobile.html`），非员工端专属 | 不改（改则波及老板端） |
+| `hrm-android-shell…/values/strings.xml:3` | `快递驿站` | 壳是三端移动端**共用载体**（管理员/员工同一 `mobile.html`），非员工端专属 | 不改（改则波及管理端） |
 | `src/portal/main.js:19-41` 卡片名 | 员工端（作业视角） | 属**端选择入口**的「端」名，非「应用名」；范围仅员工端视图 | 仅改卡片③ `name` 为「员工端 · 驿站助手（作业视角）」，`link`/`role` 不动（单字段，零风险） |
 | `package.json:5` description | 快递驿站智汇系统 · 三端演示 Demo | 三端共用描述 | 不改 |
 
@@ -841,7 +841,7 @@ U1 壳 `--status-bar-height` 实测值 / U2 `van-radio` Tab 可达性 / U3 四�
 
 ### 10.3 拆分方案：**采纳方案 A**（员工端自组合壳）
 
-**裁决：方案 A**。理由：① 员工端删「账号信息」块与「运行环境」、老板端二者全保留——差异是**整块级**而非字段级，组件边界是最显式的表达（§2.3 禁止隐式分支）；② 方案 B 需在 `MeSection.vue`（现约 195 行）内塞两套 IA 与多个 `v-if="view==='self'"`，必然破 §4.2「单文件 ≤300 行」，且**老板端将持续暴露在员工端 diff 中**，与「老板端零变化」硬约束相悖；③ 约束 4 已为 `views/staff/me/components/`、`views/staff/me/composables/` 预留落点。取舍：方案 A 需抽共享块并等价改写 `MeSection.vue`（内联块→引用共享组件，**DOM 与类名保持一致**），老板端零变化的验收方式是**逐项视觉/行为比对**——本方案唯一风险点。
+**裁决：方案 A**。理由：① 员工端删「账号信息」块与「运行环境」、管理端二者全保留——差异是**整块级**而非字段级，组件边界是最显式的表达（§2.3 禁止隐式分支）；② 方案 B 需在 `MeSection.vue`（现约 195 行）内塞两套 IA 与多个 `v-if="view==='self'"`，必然破 §4.2「单文件 ≤300 行」，且**管理端将持续暴露在员工端 diff 中**，与「管理端零变化」硬约束相悖；③ 约束 4 已为 `views/staff/me/components/`、`views/staff/me/composables/` 预留落点。取舍：方案 A 需抽共享块并等价改写 `MeSection.vue`（内联块→引用共享组件，**DOM 与类名保持一致**），管理端零变化的验收方式是**逐项视觉/行为比对**——本方案唯一风险点。
 
 新组件清单（共享块落 `src/mobile/components/`，员工端专属落 `views/staff/me/`）：
 
@@ -856,7 +856,7 @@ U1 壳 `--status-bar-height` 实测值 / U2 `van-radio` Tab 可达性 / U3 四�
 
 - composable：**需要 1 个** → `views/staff/me/composables/useMyProfile.js`，暴露 `{ state, retry }`（`state ∈ loading|error|ready`，`retry` 走 `auth.refreshMe()`，与 `MeSection.vue:26-39` 同口径）。**新增理由**：员工端删「账号信息」块后，Hero 成为唯一取数区块，三态必须由 Hero 承担（§0.1）；否则 `auth.userError` 在员工端**无处回显**。
 - `views/staff/me.vue` 壳（≤120 行）：`<PageState :loading :error @retry>` 包 `ProfileHero`（仅 Hero 取数，群导航静态不包）→ `MyDataGroups` → `DemoIdentityGroup` → `AccountSecurityGroup` → `AboutGroup` → `LogoutAction`。
-- `MeSection.vue` 改为**仅服务老板端**：保留「账号信息」5 行块与其 `meState` 骨架/错误（`:99-115`）、「运行环境」块（`:127-132`）；Hero/演示/账号安全/退出改引用上述共享组件（等价替换）。
+- `MeSection.vue` 改为**仅服务管理端**：保留「账号信息」5 行块与其 `meState` 骨架/错误（`:99-115`）、「运行环境」块（`:127-132`）；Hero/演示/账号安全/退出改引用上述共享组件（等价替换）。
 
 ### 10.4 「关于」区规格（替换原「运行环境」）
 

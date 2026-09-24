@@ -57,7 +57,7 @@
 | G8 | **`eslint.config.js:114` 白名单写死了 `src/mobile/utils/workorder.js`**；拆分后该文件必然迁移，白名单会失效（Mock 关闭时的动态 import 兜底属设计允许） | `eslint.config.js:114`、`src/mobile/utils/workorder.js:41-49` | P1 |
 | G9 | **无统一 HTTP 重试/超时判据**：`timeout: 30000` 单一值，GET 网络抖动无重试、写操作无「不重试」的显式约定 | `src/mobile/utils/http.js:18` | P2 |
 | G10 | **401 并发去重缺失**：每个 401 都 `dispatchEvent`，`App.vue` 每次 `router.replace('/login')`；同屏多发请求时会重复触发（当前无可见故障，但属无谓开销且逻辑不收敛） | `utils/http.js:48-53`、`App.vue:21-26` | P2 |
-| G11 | **Vant 组件全局注册 30 个**，其中 `Calendar` / `TimePicker` / `Stepper` 仅老板端 3 页使用，其样式却进了移动端全局 CSS | `vant.js:2-32,75-106`、`:42-73`；使用点见 §7.1 | P2 |
+| G11 | **Vant 组件全局注册 30 个**，其中 `Calendar` / `TimePicker` / `Stepper` 仅管理端 3 页使用，其样式却进了移动端全局 CSS | `vant.js:2-32,75-106`、`:42-73`；使用点见 §7.1 | P2 |
 | G12 | **跨端复用页无明确落点约定**：`/boss/kpi/:employeeId` 复用 `views/staff/kpi.vue`（`router/index.js:110-114`），`MessagePage.vue` 两端复用（`router/index.js:44-49,174-179`），但一个在 `staff/` 一个在 `message/`，命名与落点无规则 | `router/index.js:44-49,110-114,174-179` | P2 |
 | G13 | **`PageState` 无 `denied` 变体**，无权限页 `flow.vue` 手写说明卡，形成第三套降级块 | `demo-staff-ui-redesign.md:167,443`；`views/staff/flow.vue:92-96` | P2 |
 | G14 | **列表页 `immediate-check="false"` + 独立 `busy` 已落地**（正例，勿动），但该范本只写在 `parcel.vue:41` 的注释里，未形成规范 | `views/staff/parcel.vue:41,177` | 记录（正例） |
@@ -71,7 +71,7 @@
 ### 2.1 目录演进（增量，不推倒重来）
 
 > **v1.1 修正（2026-09-22，用户拍板）**：**本轮不改页面文件路径、不动 `router/index.js`**。
-> 原因：`src/mobile/router/index.js` 被并发会话占用（老板端路由抽离，脏在工作区），任何改组件 import 路径的拆分都会把他人未完成改动带入提交。
+> 原因：`src/mobile/router/index.js` 被并发会话占用（管理端路由抽离，脏在工作区），任何改组件 import 路径的拆分都会把他人未完成改动带入提交。
 > 因此页面壳**留在原位** `views/staff/<域>.vue`，域内的组件 / composable / model 放**同名兄弟目录** `views/staff/<域>/`（文件与目录同名可共存，Vue/Vite 解析无冲突）。
 > v1.0 曾写「页面移入 `views/staff/<域>/` 并让壳叫 `index.vue`」——该写法**本轮作废**，`TODO(扩展): 并发占用解除后统一迁移目录并同步 router`。
 
@@ -125,7 +125,7 @@ src/mobile/
 | --- | --- | --- |
 | 同一业务对象两端复用**同一页** | **保留复用，禁止两端各写一份**。差异只允许通过**显式 prop / route.meta** 表达 | 沿用 `demo-design.md` A12-7「同一业务对象两端优先复用」；与 UI 规范 §2.3「禁止组件内 `if (isStaff)` 隐式分支」一致 |
 | `kpi.vue` 的两端差异 | 页面壳接收显式 `view`（`'self' | 'boss'`，由 `route.meta.view` 注入），字号档 `value-size` 同理由 `view` 派生（修 `demo-staff-ui-redesign.md:118` 的现存反例） | 修复 P1-2 字号越级，不新建 boss 副本 |
-| 跨端复用页的**目录落点** | 本轮**不迁移**：`kpi.vue` **留在原位** `views/staff/kpi.vue`（按 §2.1 v1.1，页面一律不移动、不改 router），`MessagePage.vue` 保持 `views/message/`。登记 `TODO(扩展): 跨端复用页统一迁入 views/shared/` | 迁移 `MessagePage` 会牵动老板端路由与 e2e，超出「员工端拆分」范围 |
+| 跨端复用页的**目录落点** | 本轮**不迁移**：`kpi.vue` **留在原位** `views/staff/kpi.vue`（按 §2.1 v1.1，页面一律不移动、不改 router），`MessagePage.vue` 保持 `views/message/`。登记 `TODO(扩展): 跨端复用页统一迁入 views/shared/` | 迁移 `MessagePage` 会牵动管理端路由与 e2e，超出「员工端拆分」范围 |
 | 两端共享的**组件** | 全部落 `mobile/components/`（如 `LeaveApprovalList`），不放 `views/` 内 | 组件与页面分开管理，避免 `views/staff/**` 被 boss 反向 import |
 
 ---
@@ -337,7 +337,7 @@ export function useLatestRequest() {
 | 列表分页数据（工单/包裹/工资单） | **不缓存** | 分页 + 筛选组合爆炸；缓存收益低于一致性风险 |
 | 详情数据（`workorder/:id` 等） | **不缓存** | 详情有状态流转，返回列表后必须取最新 |
 | 字典（`dict.js`） | 无需缓存 | 已是编译期静态常量，不产生请求 |
-| 驿站列表 / 员工候选 | **本轮不缓存**，登记 `TODO(扩展)` | 目前仅老板端多页使用，为它建缓存层属过度设计 |
+| 驿站列表 / 员工候选 | **本轮不缓存**，登记 `TODO(扩展)` | 目前仅管理端多页使用，为它建缓存层属过度设计 |
 | **统一结论** | 本轮**不引入任何请求缓存层**（除 store 持有的共享态） | 沿用 PC 规范 §4「不引入 vue-query 等新依赖」 |
 
 ### 5.5 与 Mock 层的契约对齐与扩展流程
@@ -464,7 +464,7 @@ export function useLatestRequest() {
 
 | 目标项 | before（实测） | 目标 | 手段 | 风险 |
 | --- | --- | --- | --- | --- |
-| 移动端首屏 gzip 合计 | ≈ 157.6 KB | **≤ 150 KB** | 把**仅老板端/单页使用**的 Vant 组件样式（`Calendar` / `TimePicker` / `Stepper` / `Picker`）从 `vant.js` 全局注册中移出，改由使用页局部 `import 'vant/es/<c>/style/index'`（**样式仍加载，仅改加载时机**） | 估算收益 3–8 KB gzip，**收益偏低；若实测 <3 KB 则如实登记不强行凑数** |
+| 移动端首屏 gzip 合计 | ≈ 157.6 KB | **≤ 150 KB** | 把**仅管理端/单页使用**的 Vant 组件样式（`Calendar` / `TimePicker` / `Stepper` / `Picker`）从 `vant.js` 全局注册中移出，改由使用页局部 `import 'vant/es/<c>/style/index'`（**样式仍加载，仅改加载时机**） | 估算收益 3–8 KB gzip，**收益偏低；若实测 <3 KB 则如实登记不强行凑数** |
 | 首屏 JS gzip | ≈ 113.0 KB | **不设硬目标** | 仅登记；移除 `clientLog` 静态依赖违反 `:34-46` 的硬约束，不做 | — |
 | 弹层类重组件 | 随页面 chunk | `defineAsyncComponent` | 补卡弹层、人员选择弹层、日志弹层、日历/时间选择弹层 | 首屏弹层可能多一次网络往返（同 chunk 已 preload 则无感） |
 | 长列表（2000 条 mock 取样） | 未测 | 滚动无可感卡顿 | 保持 `van-list` 20/页；**本期不引入虚拟化**（UI 规范 U5 同结论） | 20 万级真实量未验证 |
@@ -600,7 +600,7 @@ export function useLatestRequest() {
 4. 工单：列表筛选 → 详情接单/解决/关闭 → 指派/转单候选（三角色三路径）→ 失败码 8002/8003/8004 提示。
 5. 包裹：列表搜索 → 详情 → 取件核销 → 状态流转（7002/7003）。
 6. 工资单：列表 → 详情 → 确认 / 提异议（9403 就地对齐）。
-7. 请假：申请 → 试算 → 站长初审 → 老板终审 → 撤回（9602/9603/9606）。
+7. 请假：申请 → 试算 → 站长初审 → 管理员终审 → 撤回（9602/9603/9606）。
 8. 通知：未读角标 → 标记已读/全部已读 → 跳转业务详情。
 
 > 上述链路以 `scripts/verify-mobile-t13-t16.mjs` 与 `e2e/0{3,4,5,7}-*.spec.js` 为回归网，**拆分不得使任一链路退化**。
@@ -640,10 +640,10 @@ export function useLatestRequest() {
 
 | UI 组件 | 落点 | 理由 |
 | --- | --- | --- |
-| `Chip`（C1）/ `Badge`（C2）/ `MiniChip`（C3）/ `ListItemCard`（C4） | `src/mobile/components/` | 移动端跨域原子/分子，老板端亦可用（`ListItemCard` 是 `mobile.scss` 全局类的组件化） |
-| `ShiftCard`（C9） | `src/mobile/views/staff/components/` | 员工端考勤域与排班页共用的**域共享**组件，不下沉到跨域层（老板端不消费） |
+| `Chip`（C1）/ `Badge`（C2）/ `MiniChip`（C3）/ `ListItemCard`（C4） | `src/mobile/components/` | 移动端跨域原子/分子，管理端亦可用（`ListItemCard` 是 `mobile.scss` 全局类的组件化） |
+| `ShiftCard`（C9） | `src/mobile/views/staff/components/` | 员工端考勤域与排班页共用的**域共享**组件，不下沉到跨域层（管理端不消费） |
 | `ClockHero`（C5）/ `CheckSlotRow`（C6）/ `CheckResultPanel`（C7）/ `VerifyCard`（C8） | `src/mobile/views/staff/attendance/components/` | 打卡页专用；`PeriodCard` / `MakeupPopup`（UI 规范 §5.2.1 新增）同目录 |
-| `FilterChips` / `PageState` / `TabbarLayout` 等既有组件改造 | 原位（`mobile/components/`、`mobile/layout/`） | 不搬迁，避免影响老板端 |
+| `FilterChips` / `PageState` / `TabbarLayout` 等既有组件改造 | 原位（`mobile/components/`、`mobile/layout/`） | 不搬迁，避免影响管理端 |
 
 ### 13.3 必须一致的三条
 
@@ -665,16 +665,16 @@ export function useLatestRequest() {
 | --- | --- | --- | --- |
 | R1 | Vant 样式裁剪的实际 gzip 收益（估算 3–8 KB） | **已定（主智能体）**：留到 B8 实测后定 | 收益 <3 KB 时不强行凑数，如实登记未达成 |
 | R2 | 首屏 gzip 目标 ≤150 KB 是否足够激进 | **已定（主智能体）**：保持 ≤150 KB | 不为此动 `clientLog` 静态依赖（违反 `mobile/main.js:34-46` 硬约束）；超目标则如实登记并给出原因 |
-| R3 | `views/staff/components/` 与 `mobile/components/` 的边界在实现中可能反复 | 风险 | 由 review 把关；判定标准：**老板端是否消费** + **是否 ≥2 个员工端域消费** |
+| R3 | `views/staff/components/` 与 `mobile/components/` 的边界在实现中可能反复 | 风险 | 由 review 把关；判定标准：**管理端是否消费** + **是否 ≥2 个员工端域消费** |
 | R4 | 竞态守卫与 `van-list` 单飞叠加的乱序语义 | 待实测 | 单测必须覆盖「过期响应不得关闭新 `loading`」；e2e 不强依赖时序 |
 | R5 | 数据级权限收口（`applyDataScope` + engine 改造）会触及 878 断言 | **已定（用户拍板 2026-09-22）：完整收口** | 纯函数 `applyDataScope` + engine 在调 handler 前统一执行 + 删除各 handler 重复的 `stationId` 覆盖；按 §5.5 流程同步维护断言（**只增不减**）；独立成子任务与独立 commit，便于单独回退 |
 | R6 | 删除 `api/index.js` barrel 后，38 处 import 需一次性改完 | 风险（可控） | B0 一次性完成；`grep -rn "api/index.js" src/mobile` 作为验收 |
 | R7 | **不保留** `api/index.js` 是否影响未来「移动端/PC api 合并」 | 存疑 | 同名同域后合并成本主要在「入参/响应差异」，与是否留 barrel 无关；本轮按 PC 范式执行 |
 | R8 | 壳未编译：`--status-bar-height`、键盘弹起、返回键行为 | 待真机（沿用 UI 规范 U1/U3/U6） | 不在本文档下结论 |
-| R9 | `/boss/kpi/:employeeId` 复用 `views/staff/me/kpi.vue` 的跨端耦合度 | **已定（用户拍板 2026-09-22）：保留复用 + `view` prop** | 不迁 `views/shared/`（会牵动老板端路由与 e2e）；两端渲染差异只由 `view` 驱动 |
+| R9 | `/boss/kpi/:employeeId` 复用 `views/staff/me/kpi.vue` 的跨端耦合度 | **已定（用户拍板 2026-09-22）：保留复用 + `view` prop** | 不迁 `views/shared/`（会牵动管理端路由与 e2e）；两端渲染差异只由 `view` 驱动 |
 | R10 | Mock 扩展后 `verify-mock.mjs` 新增断言计数 | 待登记 | 每次扩展在本文件 §5.5 同步登记「新增 N 项」，便于核对「只增不减」 |
-| R11 | `constants/todoGroups.js` 的 `load()` 迁入 store 后，老板端 `BOSS_TODO_GROUPS` 同受影响 | 风险 | 两表一并迁移（同一文件），老板端回归靠 `verify:mock` + `e2e` 覆盖 |
-| R12 | 移动端 25 组件中 `StationPicker` / `LineChart` 员工端不消费 | 记录 | 不删（老板端消费），不迁（跨端组件层） |
+| R11 | `constants/todoGroups.js` 的 `load()` 迁入 store 后，管理端 `BOSS_TODO_GROUPS` 同受影响 | 风险 | 两表一并迁移（同一文件），管理端回归靠 `verify:mock` + `e2e` 覆盖 |
+| R12 | 移动端 25 组件中 `StationPicker` / `LineChart` 员工端不消费 | 记录 | 不删（管理端消费），不迁（跨端组件层） |
 
 ---
 
