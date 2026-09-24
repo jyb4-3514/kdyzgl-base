@@ -118,7 +118,7 @@ test.describe('A4 表单提交', () => {
     await mobileLoginAs(page, ACCOUNT.staff)
     await page.goto('/mobile.html#/staff/attendance/makeup', { waitUntil: 'domcontentloaded' })
     await expect(page.locator('.makeup-list')).toBeVisible()
-    const chips = page.locator('.fchip')
+    const chips = page.locator('.makeup-list .filter-chips__chip')
     expect(await chips.count()).toBeGreaterThan(1)
     await chips.nth(0).click()
     await expect(chips.nth(0)).toHaveAttribute('aria-pressed', 'true')

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { showFailToast } from 'vant'
+import FilterChips from '../../components/FilterChips.vue'
 import PageNav from '../../components/PageNav.vue'
 import PageState from '../../components/PageState.vue'
 import StatusTag from '../../components/StatusTag.vue'
@@ -81,25 +82,18 @@ onMounted(loadFirst)
   <div class="makeup-list">
     <PageNav title="我的补卡申请" />
     <div class="page page--loose">
-      <div class="filter-row" role="group" aria-label="按审批状态筛选">
-        <button
-          v-for="item in MAKEUP_FILTERS"
-          :key="item.value || 'all'"
-          type="button"
-          class="fchip"
-          :class="{ 'fchip--active': status === item.value }"
-          :aria-pressed="status === item.value"
-          @click="selectStatus(item.value)"
-        >
-          {{ item.label }}
-        </button>
-      </div>
+      <!-- 筛选片走 FilterChips（role="group" + aria-pressed 由组件承担），不再自绘 .fchip -->
+      <FilterChips :items="MAKEUP_FILTERS" :active="status" label="按审批状态筛选" @change="selectStatus" />
 
-      <template v-if="loading">
-        <div v-for="i in 3" :key="i" class="skeleton-block sk-row" />
-      </template>
-
-      <PageState v-else :error="error" :empty="!list.length" :empty-text="emptyText" @retry="loadFirst">
+      <!-- 骨架由 PageState 统一出，不再自绘 .sk-row（骨架尺寸由组件按行高派生） -->
+      <PageState
+        :loading="loading"
+        :error="error"
+        :rows="3"
+        :empty="!list.length"
+        :empty-text="emptyText"
+        @retry="loadFirst"
+      >
         <template #empty-action>
           <p class="tip">已过期的打卡时段可在「打卡」页对应时段上点「申请补卡」</p>
         </template>
@@ -127,38 +121,6 @@ onMounted(loadFirst)
 </template>
 
 <style scoped>
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  margin-top: var(--sp-3);
-}
-
-/* 筛选 chip 是主触控目标，高度 44 达标（7.4） */
-.fchip {
-  display: inline-flex;
-  gap: var(--sp-1);
-  align-items: center;
-  min-height: 44px;
-  padding: 0 var(--sp-3);
-  font-size: var(--fs-caption);
-  color: var(--text-2);
-  background: var(--surface-card);
-  border: 1px solid var(--border-line);
-  border-radius: var(--r-full);
-}
-
-.fchip--active {
-  color: var(--color-primary);
-  background: var(--color-primary-surface);
-  border-color: var(--color-primary-icon);
-}
-
-.sk-row {
-  height: 108px;
-  margin-top: var(--sp-3);
-}
-
 .mk-item {
   margin-top: var(--sp-3);
 }

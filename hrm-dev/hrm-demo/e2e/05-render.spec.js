@@ -128,7 +128,7 @@ test.describe('A5 渲染与图表', () => {
     await expect(page.locator('.makeup-list')).toBeVisible()
 
     // 演示员工无历史补卡 → 按状态筛选必为空，走 PageState 空态分支
-    await page.locator('.fchip', { hasText: '已通过' }).click()
+    await page.locator('.filter-chips__chip', { hasText: '已通过' }).click()
     await expect(page.locator('.page-state__block')).toBeVisible({ timeout: 15_000 })
     await expect(page.locator('.page-state__block')).toContainText('没有已通过的补卡申请')
     // 空态图标（Vant）确实渲染成 <i class="van-icon ...">

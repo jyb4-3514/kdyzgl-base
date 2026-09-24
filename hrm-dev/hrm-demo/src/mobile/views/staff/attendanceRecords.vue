@@ -1,8 +1,10 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import ListItemCard from '../../components/ListItemCard.vue'
 import PageNav from '../../components/PageNav.vue'
 import PageState from '../../components/PageState.vue'
 import StatusTag from '../../components/StatusTag.vue'
+import StepNavButton from './components/StepNavButton.vue'
 import { getMyAttendance, getMySchedules } from '../../api/attendance.js'
 import { ATTENDANCE_STATUS, CHECK_MODE, dictLabel } from '@/shared/constants/dict.js'
 import { clockOf, dayStatusOf, dayText, formatDate, monthShiftMap } from '../../utils/attendance.js'
@@ -99,18 +101,18 @@ onMounted(load)
     <PageNav title="我的打卡记录" />
     <div class="page page--loose">
       <div class="card month-nav">
-        <button type="button" class="month-nav__btn" aria-label="上一月" @click="shiftMonth(-1)">
+        <StepNavButton aria-label="上一月" @click="shiftMonth(-1)">
           <van-icon name="arrow-left" aria-hidden="true" />
-        </button>
+        </StepNavButton>
         <div class="month-nav__center">
           <p class="month-nav__text tabular-nums">{{ monthText }}</p>
           <p class="month-nav__sub tabular-nums">
             出勤 {{ stat.attendance }} 天 · 迟到 {{ stat.late }} · 早退 {{ stat.early }} · 异常 {{ stat.abnormal }}
           </p>
         </div>
-        <button type="button" class="month-nav__btn" aria-label="下一月" @click="shiftMonth(1)">
+        <StepNavButton aria-label="下一月" @click="shiftMonth(1)">
           <van-icon name="arrow" aria-hidden="true" />
-        </button>
+        </StepNavButton>
       </div>
       <button v-if="!isThisMonth" type="button" class="back-month" @click="backToThisMonth">回到本月</button>
 
@@ -122,11 +124,13 @@ onMounted(load)
         empty-text="该月暂无打卡记录"
         @retry="load"
       >
-        <div v-for="day in days" :key="day.workDate" class="list-item list-item--rich record">
-          <div class="list-item__title">
+        <ListItemCard v-for="day in days" :key="day.workDate" class="record" :density="3">
+          <template #title>
             <span>{{ dayText(day.workDate) }}</span>
+          </template>
+          <template #extra>
             <StatusTag v-if="day.state" :dict="ATTENDANCE_STATUS" :value="day.state" />
-          </div>
+          </template>
           <div class="list-item__meta">
             <template v-if="shiftMap[day.workDate] && shiftMap[day.workDate].shiftName">
               {{ shiftMap[day.workDate].shiftName }} · {{ shiftMap[day.workDate].startTime }} -
@@ -154,7 +158,7 @@ onMounted(load)
             打卡方式 {{ dictLabel(CHECK_MODE, day.modeRow.checkMode) }} · 距围栏
             {{ day.modeRow.distance == null ? '未知' : `${day.modeRow.distance} 米` }}
           </p>
-        </div>
+        </ListItemCard>
         <p class="tip">记录为演示数据，按「今天」为锚点生成；异常卡（校验未通过）不计入出勤</p>
       </PageState>
     </div>
@@ -167,20 +171,6 @@ onMounted(load)
   gap: var(--sp-3);
   align-items: center;
   margin-top: var(--sp-3);
-}
-
-.month-nav__btn {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  font-size: var(--fs-h2);
-  color: var(--text-1);
-  background: var(--surface-subtle);
-  border: 1px solid var(--border-line);
-  border-radius: var(--r-sm);
 }
 
 .month-nav__center {
@@ -202,16 +192,18 @@ onMounted(load)
   color: var(--text-3);
 }
 
+/* 「回到本月」对齐 Chip 的 outline 变体风格：白底 + 主色描边 + 胶囊圆角，
+ * 触控高取 --touch-min；与 PageState 重试按钮同为「描边式次要控件」，避免空态区出现强主色块 */
 .back-month {
   display: block;
   width: 100%;
-  min-height: 44px;
+  min-height: var(--touch-min);
   margin-top: var(--sp-3);
   font-size: var(--fs-body);
   color: var(--color-primary);
-  background: var(--color-primary-surface);
-  border: 1px solid var(--color-primary-border);
-  border-radius: var(--r-sm);
+  background: var(--surface-card);
+  border: 1px solid var(--color-primary-icon);
+  border-radius: var(--r-full);
 }
 
 .record {

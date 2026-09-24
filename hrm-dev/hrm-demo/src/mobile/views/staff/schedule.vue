@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import PageNav from '../../components/PageNav.vue'
 import PageState from '../../components/PageState.vue'
+import ShiftCard from './components/ShiftCard.vue'
+import StepNavButton from './components/StepNavButton.vue'
 import { getMySchedules } from '../../api/attendance.js'
 import { addDays, dayText, formatDate, mondayOf } from '../../utils/attendance.js'
 
@@ -52,16 +54,16 @@ onMounted(load)
     <PageNav title="我的排班" />
     <div class="page page--loose">
       <div class="card week-nav">
-        <button type="button" class="week-nav__btn" aria-label="上一周" @click="shiftWeek(-1)">
+        <StepNavButton aria-label="上一周" @click="shiftWeek(-1)">
           <van-icon name="arrow-left" aria-hidden="true" />
-        </button>
+        </StepNavButton>
         <div class="week-nav__center">
           <p class="week-nav__range tabular-nums">{{ rangeText }}</p>
           <p class="week-nav__sub">本周排班 {{ workDays }} 天 · 休息 {{ 7 - workDays }} 天</p>
         </div>
-        <button type="button" class="week-nav__btn" aria-label="下一周" @click="shiftWeek(1)">
+        <StepNavButton aria-label="下一周" @click="shiftWeek(1)">
           <van-icon name="arrow" aria-hidden="true" />
-        </button>
+        </StepNavButton>
       </div>
 
       <button v-if="weekStart !== thisWeekStart" type="button" class="back-today" @click="backToThisWeek">
@@ -82,22 +84,22 @@ onMounted(load)
           class="list-item shift-item"
           :class="{ 'shift-item--today': day.workDate === today }"
         >
-          <span
-            class="shift-item__bar"
-            :style="{ background: day.color || 'var(--border-line)' }"
-            aria-hidden="true"
-          ></span>
-          <div class="shift-item__body">
-            <div class="list-item__title">
-              <span>{{ dayText(day.workDate) }}</span>
-              <span v-if="day.workDate === today" class="shift-item__today">今天</span>
-            </div>
-            <div v-if="day.shiftName" class="list-item__meta">
-              {{ day.shiftName }} · {{ day.startTime }} - {{ day.endTime }}
-              <template v-if="day.restMinutes"> · 休息 {{ day.restMinutes }} 分钟</template>
-            </div>
-            <div v-else class="list-item__meta">休息（未排班）</div>
+          <div class="list-item__title">
+            <span>{{ dayText(day.workDate) }}</span>
+            <span v-if="day.workDate === today" class="shift-item__today">今天</span>
           </div>
+          <!-- 有班次走 ShiftCard（契约色经组件内「契约色 → Token」映射落色，不再直出 hex，修 P1-1）；
+               未排班只给状态文案，不渲染空班次卡 -->
+          <ShiftCard
+            v-if="day.shiftName"
+            class="shift-item__shift"
+            :shift-name="day.shiftName"
+            :start-time="day.startTime"
+            :end-time="day.endTime"
+            :rest-minutes="day.restMinutes"
+            :color-key="day.color"
+          />
+          <div v-else class="list-item__meta">休息（未排班）</div>
         </div>
         <p class="tip">排班由管理员统一维护，本页只读；未排班当天按打卡规则的标准工时判定</p>
       </PageState>
@@ -111,20 +113,6 @@ onMounted(load)
   gap: var(--sp-3);
   align-items: center;
   margin-top: var(--sp-3);
-}
-
-.week-nav__btn {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  font-size: var(--fs-h2);
-  color: var(--text-1);
-  background: var(--surface-subtle);
-  border: 1px solid var(--border-line);
-  border-radius: var(--r-sm);
 }
 
 .week-nav__center {
@@ -150,7 +138,7 @@ onMounted(load)
 .back-today {
   display: block;
   width: 100%;
-  min-height: 44px;
+  min-height: var(--touch-min);
   margin-top: var(--sp-3);
   font-size: var(--fs-body);
   color: var(--color-primary);
@@ -160,9 +148,6 @@ onMounted(load)
 }
 
 .shift-item {
-  display: flex;
-  gap: var(--sp-3);
-  align-items: stretch;
   margin-top: var(--sp-3);
 }
 
@@ -171,15 +156,9 @@ onMounted(load)
   border: 1px solid var(--color-primary-icon);
 }
 
-.shift-item__bar {
-  flex: none;
-  width: 4px;
-  border-radius: var(--r-xs);
-}
-
-.shift-item__body {
-  flex: 1;
-  min-width: 0;
+/* 班次卡与标题之间留一行间距（ShiftCard 自身不带外边距，间距由列表行负责） */
+.shift-item__shift {
+  margin-top: var(--sp-2);
 }
 
 .shift-item__today {
