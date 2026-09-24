@@ -58,7 +58,7 @@ export const MENU_ITEMS = [
   { key: 'attendance', path: '/attendance', title: '考勤管理', icon: 'AlarmClock', group: 'pay' },
   { key: 'schedule', path: '/schedule', title: '排班管理', icon: 'Calendar', group: 'pay' },
   { key: 'finance', path: '/finance', title: '财务管理', icon: 'Money', group: 'pay' },
-  // 请假管理：审批（站长初审 / 老板终审）与扣款开关同屏，Q6 裁决放页内卡片而非独立菜单项
+  // 请假管理：审批（站长初审 / 管理员终审）与扣款开关同屏，Q6 裁决放页内卡片而非独立菜单项
   // 图标不得与「工单管理」重复（原同为 Tickets）：Notebook 语义更贴请假，且未被其它菜单占用（已核实 icons-vue 导出）
   { key: 'leave', path: '/leave', title: '请假管理', icon: 'Notebook', group: 'pay' },
   // 包裹作业：采集配置是「同步任务」页内的第二个视图，不另开菜单键（B1.1）

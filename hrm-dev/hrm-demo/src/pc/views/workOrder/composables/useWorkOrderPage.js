@@ -58,7 +58,7 @@ export function useWorkOrderPage() {
     list.handleSizeChange()
   }
 
-  /** 首屏：列表 + Tab 计数 + 驿站下拉（仅老板需要驿站下拉） */
+  /** 首屏：列表 + Tab 计数 + 驿站下拉（仅管理员需要驿站下拉） */
   async function init() {
     list.refreshPage()
     if (isAdmin.value) await list.loadStations()

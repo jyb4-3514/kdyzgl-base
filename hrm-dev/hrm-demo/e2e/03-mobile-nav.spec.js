@@ -63,11 +63,11 @@ test.describe('A3 移动端导航', () => {
     expectClean(collector, 'A3-1')
   })
 
-  test('A3-2 老板端 Tabbar 3 项且首页宫格项数与配置一致', async ({ page }) => {
+  test('A3-2 管理端 Tabbar 3 项且首页宫格项数与配置一致', async ({ page }) => {
     await mobileLoginAs(page, ACCOUNT.boss)
     await expect(page.locator('.van-tabbar-item')).toHaveCount(3)
     await expect(page.locator('.entry-grid .van-grid-item')).toHaveCount(BOSS_GRID.length)
-    recordMetric({ case: 'A3-2', item: '老板端宫格项数（读配置）', value: BOSS_GRID.length })
+    recordMetric({ case: 'A3-2', item: '管理端宫格项数（读配置）', value: BOSS_GRID.length })
     await shot(page, 'A3-2-老板端首页')
   })
 
@@ -115,13 +115,13 @@ test.describe('A3 移动端导航', () => {
     await shot(page, 'A3-4-移动端404')
   })
 
-  test('A3-5 演示身份切换：员工端切到老板端并跳经营总览', async ({ page }) => {
+  test('A3-5 演示身份切换：员工端切到管理端并跳经营总览', async ({ page }) => {
     const collector = attachCollector(page)
     await mobileLoginAs(page, ACCOUNT.staff)
     await page.locator('.van-tabbar-item', { hasText: '我的' }).click()
     await expect(page).toHaveURL(/#\/staff\/me/, { timeout: 20_000 })
 
-    const switcher = page.locator('.identity-switcher__item', { hasText: '老板' }).first()
+    const switcher = page.locator('.identity-switcher__item', { hasText: '管理员' }).first()
     await expect(switcher).toBeVisible({ timeout: 25_000 })
     const cost = await timeIt(async () => {
       await switcher.click()
@@ -129,11 +129,65 @@ test.describe('A3 移动端导航', () => {
     })
     await shot(page, 'A3-5-身份切换-老板端')
 
-    // 回到「我的」复核选中态已切到老板（切换器只在「我的」页渲染）
+    // 回到「我的」复核选中态已切到管理员（切换器只在「我的」页渲染）
     await page.locator('.van-tabbar-item', { hasText: '我的' }).click()
     await expect(page).toHaveURL(/#\/boss\/me/, { timeout: 25_000 })
-    await expect(page.locator('.identity-switcher__item--active')).toContainText('老板')
-    recordMetric({ case: 'A3-5', item: '演示身份切换(员工→老板)', ms: cost })
+    await expect(page.locator('.identity-switcher__item--active')).toContainText('管理员')
+    recordMetric({ case: 'A3-5', item: '演示身份切换(员工→管理员)', ms: cost })
     expectClean(collector, 'A3-5')
+  })
+
+  test('A3-7 管理端考勤六卡全部可下钻明细页，维度二次切换不新增历史', async ({ page }) => {
+    const collector = attachCollector(page)
+    await mobileLoginAs(page, ACCOUNT.boss)
+    await page.goto('/mobile.html#/boss/attendance', { waitUntil: 'domcontentloaded' })
+
+    // 六张指标卡必须是原生 button（有 @click 时 StatCard 自动渲染为 button），读屏附「可查看名单」
+    const cards = page.locator('.stat-grid button.stat-card')
+    await expect(cards).toHaveCount(6, { timeout: 30_000 })
+    await expect(cards.first()).toHaveAttribute('aria-label', /可查看名单/)
+
+    await page.locator('.stat-grid button.stat-card', { hasText: '应到' }).click()
+    await expect(page).toHaveURL(/#\/boss\/attendance\/detail\?dim=SHOULD/, { timeout: 20_000 })
+    await expect(page.locator('.chips')).toBeVisible()
+    await expect(page.locator('.van-nav-bar__title')).toContainText('应到明细')
+
+    // 维度二次切换走 router.replace：切到缺卡后回退一步应直接回概览页，而不是回上一个维度
+    await page.locator('.chips .fchip', { hasText: '缺卡' }).click()
+    await expect(page).toHaveURL(/dim=ABSENT/, { timeout: 20_000 })
+    await expect(page.locator('.van-nav-bar__title')).toContainText('缺卡明细')
+    await shot(page, 'A3-7-考勤明细-缺卡')
+
+    await page.goBack()
+    await expect(page).toHaveURL(/#\/boss\/attendance$/, { timeout: 20_000 })
+    expectClean(collector, 'A3-7')
+  })
+
+  test('A3-8 员工端通知可打开阅读页：标题全量、公告无动作区、返回回到列表', async ({ page }) => {
+    const collector = attachCollector(page)
+    await mobileLoginAs(page, ACCOUNT.staff)
+    await page.locator('.van-tabbar-item', { hasText: '消息' }).click()
+    await expect(page).toHaveURL(/#\/staff\/message/, { timeout: 20_000 })
+
+    // 「公告」是手工发布通知独有的标签（系统公告通知的类型标签是「系统公告」，故用精确匹配区分）
+    const row = page
+      .locator('.list-item', { has: page.locator('.status-tag', { hasText: /^公告$/ }) })
+      .first()
+    await expect(row).toBeVisible({ timeout: 30_000 })
+    const title = (await row.locator('.list-item__title > span:first-child').textContent()).trim()
+
+    await row.click()
+    await expect(page).toHaveURL(/#\/staff\/message\/notice\?id=\d+/, { timeout: 20_000 })
+
+    // 阅读页标题不被列表的省略规则截断：h1 文本等于列表项标题全文
+    await expect(page.locator('h1')).toHaveText(title, { timeout: 20_000 })
+    // 公告没有业务对象：动作区整块不渲染（[role=toolbar] 计数为 0）
+    await expect(page.locator('[role=toolbar]')).toHaveCount(0)
+    await shot(page, 'A3-8-通知阅读页-公告')
+
+    await page.goBack()
+    await expect(page).toHaveURL(/#\/staff\/message$/, { timeout: 20_000 })
+    await expect(page.locator('.list-item', { hasText: title }).first()).toBeVisible()
+    expectClean(collector, 'A3-8')
   })
 })

@@ -21,8 +21,8 @@ const STAFF_ROLES = [ROLE.STATION_ADMIN, ROLE.STAFF]
  * - tabbar  ：需要底部 Tabbar 的 Tab 页；不标的即详情/表单页（自带返回 NavBar）
  * - title   ：NavBar 标题
  *
- * 说明：/staff/parcel/:id、/staff/workorder/:id 允许 ADMIN 进入 —— 老板端「异常预警」需要下钻到
- * 具体包裹与工单明细，属同一页面的第二种入口，不另写老板端详情页（避免同一逻辑两份实现）。
+ * 说明：/staff/parcel/:id、/staff/workorder/:id 允许 ADMIN 进入 —— 管理端「异常预警」需要下钻到
+ * 具体包裹与工单明细，属同一页面的第二种入口，不另写管理端详情页（避免同一逻辑两份实现）。
  */
 const routes = [
   { path: '/', redirect: '/login' },
@@ -33,8 +33,8 @@ const routes = [
     meta: { public: true, title: '登录' }
   },
 
-  /* ==================== 老板端（ADMIN） ==================== */
-  // 老板端域子表（../modules/boss/router.js）：/boss 重定向 + 21 个老板端页面 + 中立共享页 /boss/message
+  /* ==================== 管理端（ADMIN） ==================== */
+  // 管理端域子表（../modules/boss/router.js）：/boss 重定向 + 22 个管理端页面 + 2 个中立共享页（/boss/message、/boss/message/notice）
   ...bossRoutes,
   // 考核明细复用员工端同页（A12-7：同一业务对象两端优先复用，仅按角色改标题与入口）
   // 跨域复用，刻意留在聚合点；彻底去耦路径见方案 §3.2 的 TODO(扩展)（提升为中立共享页）
@@ -53,12 +53,19 @@ const routes = [
     component: () => import('../views/staff/home.vue'),
     meta: { tabbar: 'staff', roles: STAFF_ROLES, title: '工作台' }
   },
-  // 消息 Tab：与老板端复用同一页（A4-1「同一业务对象两端复用同页 + 按角色渲染」）
+  // 消息 Tab：与管理端复用同一页（A4-1「同一业务对象两端复用同页 + 按角色渲染」）
   {
     path: '/staff/message',
     name: 'staffMessage',
     component: () => import('../views/message/MessagePage.vue'),
     meta: { tabbar: 'staff', roles: STAFF_ROLES, title: '消息' }
+  },
+  // 通知阅读页：管理端 /boss/message/notice 指向同一组件；无 tabbar（二级页自带返回，D2.1）
+  {
+    path: '/staff/message/notice',
+    name: 'staffNoticeReader',
+    component: () => import('../views/message/NoticeReader.vue'),
+    meta: { roles: STAFF_ROLES, title: '通知详情' }
   },
   {
     path: '/staff/me',
@@ -66,7 +73,7 @@ const routes = [
     component: () => import('../views/staff/me.vue'),
     meta: { tabbar: 'staff', roles: STAFF_ROLES, title: '我的' }
   },
-  // 旧通知路由重定向，避免历史链接 404；老板端按角色分流到自己的消息页（原路由为 ALL_ROLES）
+  // 旧通知路由重定向，避免历史链接 404；管理端按角色分流到自己的消息页（原路由为 ALL_ROLES）
   {
     path: '/staff/notification',
     redirect: () => {
@@ -234,6 +241,15 @@ router.beforeEach((to) => {
     return auth.homePath
   }
   return true
+})
+
+/**
+ * 页签标题按域切换（B8）：mobile.html 的静态 <title> 是三端共享入口，无法按角色区分，
+ * 故在路由出口单点改写 —— 只有管理端域显示「驿站精灵」，员工端与登录页保持原值，避免品牌越界。
+ */
+const DEFAULT_DOC_TITLE = '移动端 · 快递驿站智汇系统'
+router.afterEach((to) => {
+  document.title = to.path.startsWith('/boss') ? '驿站精灵' : DEFAULT_DOC_TITLE
 })
 
 export default router

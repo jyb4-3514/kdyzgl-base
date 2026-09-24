@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { routes } from './routes/index.js'
-import { CODE, codeMessage } from '../constants/errorCode.js'
+import { AUTH_BOOST_CODE, CODE, codeMessage } from '../constants/errorCode.js'
 import { ALL_ROLES } from '../constants/role.js'
 import { applyDataScope } from '../domain/applyDataScope.js'
 import { db, findEmployeeById } from './db.js'
@@ -99,6 +99,10 @@ function resolveUser(config) {
   const employee = findEmployeeById(idPart)
   if (!employee || employee.status !== 1) return { error: CODE.UNAUTHORIZED }
   if (db.sessions.get(employee.id) !== jti) return { error: CODE.UNAUTHORIZED }
+  // 会话有效期（登录体系改造，3 天双控的服务端一侧）：到期返回 1108 而非普通 401，
+  // 使前端能区分「会话到期」与「被顶下线/被禁用」，并按设计给出「登录已到期」提示条 + redirect。
+  const meta = db.sessionMeta.get(employee.id)
+  if (meta && meta.expireAt && meta.expireAt <= Date.now()) return { error: AUTH_BOOST_CODE.SESSION_EXPIRED }
   return { employee, token }
 }
 

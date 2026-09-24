@@ -4,8 +4,13 @@ import http from '../utils/http.js'
 export const getNotifications = (params) => http.get('/notifications', { params })
 export const getUnreadCount = () => http.get('/notifications/unread-count', { silent: true })
 /**
- * 标记单条已读：silent —— 端点无入参，失败提示改由 NoticeList 的行级反馈收敛（G-04）。
- * 页面自己会弹一条，http 层再弹一条就是同一次失败两条提示（与 publishNotification 同口径）。
+ * 单条通知详情（通知阅读页）：silent —— 9001（不存在/非本人）与网络失败都由阅读页渲染
+ * 空态/错误态，http 层再弹一条就与页内提示重复（与 markNotificationRead 同口径）。
+ */
+export const getNotification = (id) => http.get(`/notifications/${id}`, { silent: true })
+/**
+ * 标记单条已读：silent —— 端点无入参，失败提示改由通知阅读页顶部提示条收敛（G-04）。
+ * 页面自己会提示一条，http 层再弹一条就是同一次失败两条提示（与 publishNotification 同口径）。
  */
 export const markNotificationRead = (id) => http.put(`/notifications/${id}/read`, {}, { silent: true })
 export const markAllNotificationsRead = () => http.put('/notifications/read-all')

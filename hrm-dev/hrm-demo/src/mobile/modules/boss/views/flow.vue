@@ -8,13 +8,13 @@ import { FLOW_STATUS } from '@/shared/constants/dict.js'
 import { getOffboardingFlows, getOnboardingFlows } from '@/mobile/api/hr.js'
 
 /**
- * B10 老板端 · 入离职审批
+ * B10 管理端 · 入离职审批
  *
  * 两个 Tab 而不是一个混合列表：入职与离职的字段、当前步骤名完全不同，
  * 混在一起列表要按类型分叉渲染（表格列的经典难题），移动端不如直接分开展示。
- * 默认「进行中」：老板进这页是清待办，已办结的是查询。
+ * 默认「进行中」：管理员进这页是清待办，已办结的是查询。
  *
- * 契约口径：入离职流程接口仅 ADMIN 开放 —— 移动端即老板端「审批」，
+ * 契约口径：入离职流程接口仅 ADMIN 开放 —— 移动端即管理端「审批」，
  * 员工端（staff/flow.vue）为无权限降级，只展示本人可解释的信息。
  */
 const PAGE_SIZE = 20

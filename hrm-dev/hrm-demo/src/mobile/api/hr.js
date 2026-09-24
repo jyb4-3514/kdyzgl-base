@@ -10,7 +10,7 @@ export const updateHrSalary = (employeeId, data) =>
   http.put(`/hr/salary-structures/${employeeId}`, data, { silent: true })
 
 /* ==================== 入离职流程（需求10） ==================== */
-/* 契约口径：入离职流程接口仅 ADMIN 开放，移动端即老板端「审批」；员工端为无权限降级（见 staff/flow.vue） */
+/* 契约口径：入离职流程接口仅 ADMIN 开放，移动端即管理端「审批」；员工端为无权限降级（见 staff/flow.vue） */
 
 export const getOnboardingFlows = (params) => http.get('/hr/onboarding', { params })
 export const getOnboardingFlow = (id) => http.get(`/hr/onboarding/${id}`)

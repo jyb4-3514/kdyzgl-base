@@ -40,8 +40,8 @@ const submitLabel = computed(() =>
 /** 站长无上级可审（D1 跳过初审），流程说明必须与状态机一致，避免用户等错人 */
 const flowNote = computed(() =>
   auth.role === 'STATION_ADMIN'
-    ? '站长申请跳过初审，提交后直接进入老板终审'
-    : '提交后进入站长初审，站长通过后由老板终审，终审通过才生效'
+    ? '站长申请跳过初审，提交后直接进入管理员终审'
+    : '提交后进入站长初审，站长通过后由管理员终审，终审通过才生效'
 )
 
 const form = reactive({
@@ -170,7 +170,7 @@ function onPickEnd(date) {
 
 function submitToast(saved) {
   const prefix = mode.value === 'edit' ? '已保存，' : mode.value === 'resubmit' ? '已重新提交，' : '已提交，'
-  return `${prefix}${saved.status === 'PENDING_BOSS' ? '等待老板终审' : '等待站长初审'}`
+  return `${prefix}${saved.status === 'PENDING_BOSS' ? '等待管理员终审' : '等待站长初审'}`
 }
 
 async function onSubmit() {

@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { moneyText, numberText } from '@/mobile/utils/format.js'
 
 /**
- * N-03 环比/差值徽标（老板端专属）
+ * N-03 环比/差值徽标（管理端专属）
  * 为什么不用颜色一条通道：灰度打印与色觉障碍下会完全丢失方向，
  * 故符号（↑/↓/—）+ 文字 + 颜色三通道同时表达，读屏另有 aria-label。
  */

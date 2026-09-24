@@ -15,7 +15,7 @@ import { relativeTime } from '../../utils/format.js'
  * S3 包裹详情
  * 为什么操作栏固定到底部：核销入口原来排在 cell 列表之后，内容一长就要先滑到底，
  * 一线员工单手持机时这是最高频的失败路径（P31，本轮最高优先级修复）。
- * ADMIN（老板端预警下钻）只读，不出现核销入口，避免「替驿站取件」的越界操作。
+ * ADMIN（管理端预警下钻）只读，不出现核销入口，避免「替驿站取件」的越界操作。
  */
 const route = useRoute()
 const auth = useAuthStore()
@@ -127,7 +127,7 @@ onMounted(load)
           <van-cell title="备注" :value="detail.remark || '-'" />
         </van-cell-group>
 
-        <p v-if="!isStaffRole" class="tip">老板端仅查看包裹明细；取件核销在员工端操作</p>
+        <p v-if="!isStaffRole" class="tip">驿站精灵仅查看包裹明细；取件核销在员工端操作</p>
       </PageState>
     </div>
 

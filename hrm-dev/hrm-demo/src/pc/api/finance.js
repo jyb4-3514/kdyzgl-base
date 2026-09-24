@@ -4,7 +4,7 @@ import request from '@admin/utils/request'
  * 财务接口封装（需求9 工资单）
  * 路径与入参逐条对齐 shared/mock/routes/finance.js（即未来后端契约）。
  *
- * 权限口径：规则维护 / 生成 / 提交 / 审核 / 发布 / 改人工项仅老板（ADMIN）；
+ * 权限口径：规则维护 / 生成 / 提交 / 审核 / 发布 / 改人工项仅管理员（ADMIN）；
  * 查询本人工资单与确认 / 提异议任意角色可调，但服务端一律按登录身份过滤，不接受前端传 employeeId。
  *
  * 核心设计约束：算薪结果不由前端推导——金额全部来自服务端的规则项计算，
@@ -93,7 +93,7 @@ export function confirmPayroll(id) {
   return request.post(`/finance/payrolls/${id}/confirm`)
 }
 
-// POST /api/v1/finance/payrolls/{id}/objection 员工提异议（原因 2-200 字）：单据退回待审核，由老板重新核定
+// POST /api/v1/finance/payrolls/{id}/objection 员工提异议（原因 2-200 字）：单据退回待审核，由管理员重新核定
 export function objectPayroll(id, reason) {
   return request.post(`/finance/payrolls/${id}/objection`, { reason })
 }

@@ -29,8 +29,8 @@ test.describe('A1 页面加载与登录', () => {
     const cards = page.locator('#portal-cards .card')
     await expect(cards).toHaveCount(3)
     await expect(page.locator('#portal-cards')).toContainText('网页端（管理后台）')
-    await expect(page.locator('#portal-cards')).toContainText('老板端（经营视角）')
-    await expect(page.locator('#portal-cards')).toContainText('员工端（作业视角）')
+    await expect(page.locator('#portal-cards')).toContainText('驿站精灵（经营视角）')
+    await expect(page.locator('#portal-cards')).toContainText('员工端 · 驿站助手（作业视角）')
     // 剧本自检面板必须给出结果（不再是「校验中…」）
     await expect(page.locator('#portal-scenario')).not.toHaveText('校验中…', { timeout: 10_000 })
     await shot(page, 'A1-1-端选择页')
@@ -52,7 +52,7 @@ test.describe('A1 页面加载与登录', () => {
       await page.locator('.login-btn').click()
       await expect(page).not.toHaveURL(/\/login/, { timeout: 20_000 })
     })
-    // 老板（ADMIN）落地页 = /dashboard
+    // 管理员（ADMIN）落地页 = /dashboard
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 })
     await page.locator('.app-menu').waitFor({ state: 'visible' })
     await expect(page.locator('.app-menu')).toContainText('数据看板')
@@ -115,14 +115,14 @@ test.describe('A1 页面加载与登录', () => {
     expectClean(collector, 'A1-4')
   })
 
-  test('A1-5 移动端老板端登录走通且落地经营总览', async ({ page }) => {
+  test('A1-5 移动端管理端登录走通且落地经营总览', async ({ page }) => {
     await page.goto('/mobile.html#/login', { waitUntil: 'domcontentloaded' })
     await page.locator('.login__card').waitFor()
     const inputs = page.locator('.login__card input')
     await inputs.nth(0).fill(ACCOUNT.boss)
     await inputs.nth(1).fill('demo1234')
     await page.locator('.login__submit button').click()
-    // 老板（ADMIN）落地 = /boss/home
+    // 管理员（ADMIN）落地 = /boss/home
     await expect(page).toHaveURL(/#\/boss\/home/, { timeout: 15_000 })
     await expect(page.locator('.van-tabbar')).toBeVisible()
     await shot(page, 'A1-5-移动端老板端总览')

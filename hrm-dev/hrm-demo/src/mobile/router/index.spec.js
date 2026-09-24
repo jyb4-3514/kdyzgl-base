@@ -53,7 +53,7 @@ const { default: router } = await import('./index.js')
 // jsdom 未实现 scrollTo，router 的 scrollBehavior 每次成功导航都会调用，会产生 jsdomError 噪声
 window.scrollTo = () => {}
 
-const ADMIN = { id: 1, role: 'ADMIN', realName: '老板' }
+const ADMIN = { id: 1, role: 'ADMIN', realName: '管理员' }
 const STAFF = { id: 2, role: 'STAFF', stationId: 1, realName: '员工' }
 
 /** 当前地址在用例间共享：不复位会让「目标与当前同址」的导航被判重复、守卫不跑（假通过） */

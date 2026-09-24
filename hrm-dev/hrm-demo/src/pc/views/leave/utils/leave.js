@@ -7,7 +7,7 @@ import { HALF_DAY, LEAVE_TYPE, dictLabel } from '@/shared/constants/dict'
 
 /** 驳回副信息文案：设计规范 §1.2 要求列表副信息讲「谁没通过」，
  *  与字典 LEAVE_REJECT_STAGE 的「初审驳回 / 终审驳回」（筛选统计口径）刻意分开表述 */
-const REJECT_STAGE_TEXT = { STATION: '站长未通过', BOSS: '老板未通过' }
+const REJECT_STAGE_TEXT = { STATION: '站长未通过', BOSS: '管理员未通过' }
 
 /** 区间展示：同日压缩为「2026-10-01 上午 ~ 下午」，与移动端、通知文案同一口径（设计规范 §4.2） */
 export function rangeText(leave) {
@@ -20,7 +20,7 @@ export function rangeText(leave) {
   return `${head} ~ ${tail}`
 }
 
-/** 驳回副信息：两级驳回共用一个状态，不补这行就分不清是站长否的还是老板否的 */
+/** 驳回副信息：两级驳回共用一个状态，不补这行就分不清是站长否的还是管理员否的 */
 export const rejectStageText = (leave) =>
   leave && leave.status === 'REJECTED' ? REJECT_STAGE_TEXT[leave.rejectStage] || '审批未通过' : ''
 

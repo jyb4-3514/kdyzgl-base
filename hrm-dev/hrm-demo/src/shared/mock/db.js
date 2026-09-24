@@ -11,7 +11,8 @@ import {
   maskPhone
 } from './util.js'
 import { WORK_ORDER_SLA_HOURS } from '../constants/dict.js'
-import { PersistedSessionMap } from './sessionStore.js'
+import { PersistedSessionMap, PersistedSessionMetaMap } from './sessionStore.js'
+import { createPersistBucket } from './persist.js'
 
 /** 相对日期偏移 n 分钟（同步日志/工单节点时间用） */
 const plusMinutes = (date, n) => new Date(new Date(date).getTime() + n * 60000)
@@ -97,6 +98,19 @@ const FIXED_EMPLOYEES = [
     deptId: 2,
     stationId: 1,
     role: 'STAFF',
+    pwdChanged: 1
+  },
+  {
+    // 预留账号（运维方指定）：手机号即登录账号，管理员权限。
+    // pwdChanged=1 免去「首登强制改密」，登录校验通过就直接进系统。
+    username: '16626369983',
+    password: 'Aa16626369983..',
+    realName: '预留管理员',
+    phone: '16626369983',
+    gender: 1,
+    deptId: 1,
+    stationId: null,
+    role: 'ADMIN',
     pwdChanged: 1
   }
 ]
@@ -190,6 +204,9 @@ const USERNAME_PINYIN = [
   'du'
 ]
 
+/** 受信设备持久化桶：信任状态由「服务端」(Mock) 持有，前端只上报弱信号（deviceId），不得自行认定受信 */
+const trustedDeviceBucket = createPersistBucket('trustedDevices')
+
 /** 运行时库：种子实体 + 会话 + 自增序号 */
 export const db = {
   stations: [],
@@ -205,6 +222,16 @@ export const db = {
   notifications: [],
   /** 单会话/账号（api.md 3.1）：employeeId → jti，用于演示被顶下线/被强制下线的 401；落盘以支持刷新不丢登录态（见 sessionStore.js） */
   sessions: new PersistedSessionMap(),
+  /** 会话元数据（登录体系改造）：employeeId → { deviceId, expireAt }，服务「3 天到期强制重登」判定，落盘同 sessions */
+  sessionMeta: new PersistedSessionMetaMap(),
+  /** 受信设备（对齐 auth_trusted_device，只设计不迁移）：服务端签发的信任记录，前端不得持久化信任标志 */
+  trustedDevices: trustedDeviceBucket.read() || [],
+  /** 短信发送审计（对齐 auth_sms_log）：仅存脱敏手机号，不存验证码 */
+  smsLogs: [],
+  /** 验证码暂存：`scene:phone` → { code, expireAt, attempts }（服务端权威，校验成功即删） */
+  smsCodes: new Map(),
+  /** 二次验证票据：ticket → { employeeId, phoneMasked, deviceId, clientType, as, expireAt }（短 TTL） */
+  deviceTickets: new Map(),
   seq: {
     employee: 0,
     department: 0,
@@ -216,8 +243,15 @@ export const db = {
     workOrder: 0,
     workOrderTransfer: 0,
     dispatchRule: 0,
-    notification: 0
+    notification: 0,
+    trustedDevice: 0,
+    smsLog: 0
   }
+}
+
+/** 受信设备写点落盘（与 sessionStore 的「写入即落盘」同口径，写点集中在 auth 路由） */
+export function persistTrustedDevices() {
+  trustedDeviceBucket.write(db.trustedDevices)
 }
 
 /**
@@ -270,6 +304,15 @@ function buildSeed() {
 export function resetDb() {
   buildSeed()
   db.sessions.clear()
+  // 登录体系改造的新增状态同样须随重置清空：否则重置演示数据后旧设备仍被信任、旧验证码仍可复用
+  db.sessionMeta.clear()
+  db.trustedDevices = []
+  trustedDeviceBucket.clear()
+  db.smsLogs = []
+  db.smsCodes.clear()
+  db.deviceTickets.clear()
+  db.seq.trustedDevice = 0
+  db.seq.smsLog = 0
 }
 
 function buildStations() {
@@ -313,7 +356,8 @@ function buildEmployees(random, departments, stations) {
     return {
       id,
       username: item.username,
-      password: DEMO_PASSWORD,
+      // 固定账号可自带口令（预留手机号账号用独立口令），未指定则统一用演示口令
+      password: item.password || DEMO_PASSWORD,
       real_name: item.realName,
       phone: item.phone,
       gender: item.gender,
@@ -860,7 +904,7 @@ function buildNotifications(employees) {
     {
       scope: 'ALL',
       title: '系统公告：三端数据已完成同步',
-      content: '演示公告：PC 端、老板端与员工端数据同源，刷新后保持一致，可直接对外讲解。',
+      content: '演示公告：PC 端、驿站精灵与员工端数据同源，刷新后保持一致，可直接对外讲解。',
       targets: active,
       publishAt: shiftDays(-3, 9, 0, 0)
     },

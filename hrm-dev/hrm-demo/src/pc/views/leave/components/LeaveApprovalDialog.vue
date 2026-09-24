@@ -33,7 +33,7 @@ watch(
 )
 
 const isReject = computed(() => props.mode === 'reject')
-const stageLabel = computed(() => (props.row && props.row.status === 'PENDING_STATION' ? '站长初审' : '老板终审'))
+const stageLabel = computed(() => (props.row && props.row.status === 'PENDING_STATION' ? '站长初审' : '管理员终审'))
 const title = computed(() => `${stageLabel.value} · ${isReject.value ? '驳回请假申请' : '通过请假申请'}`)
 const statusLabel = computed(() => dictLabel(LEAVE_STATUS, props.row && props.row.status))
 const periodText = computed(() => {
@@ -86,7 +86,7 @@ function handleSubmit() {
       <p v-else class="approval-dialog__tip">
         {{
           row.status === 'PENDING_STATION'
-            ? '通过后进入老板终审，站长初审意见会保留在操作留痕中。'
+            ? '通过后进入管理员终审，站长初审意见会保留在操作留痕中。'
             : '终审通过后该单生效：写入请假考勤标记并参与当月算薪。'
         }}
       </p>

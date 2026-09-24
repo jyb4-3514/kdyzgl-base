@@ -3,7 +3,7 @@ import { CHECK_TYPE, dictLabel } from '@/shared/constants/dict.js'
 import { addDays, formatDate, mondayOf } from '@/shared/domain/time.js'
 
 /**
- * 考勤与排班的页面层共用逻辑（打卡页 / 排班页 / 记录页 / 老板端考勤）
+ * 考勤与排班的页面层共用逻辑（打卡页 / 排班页 / 记录页 / 管理端考勤）
  *
  * 打卡时间窗不再由前端推算：/attendance/status 已按时段下发 windowStart / windowEnd
  * （= 时段开始 - allowEarlyMin、时段结束 + allowLateMin），页面直接展示接口值，

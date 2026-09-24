@@ -12,9 +12,9 @@ import { periodLabel } from '@/mobile/utils/attendance.js'
 /**
  * B12 补卡审批（ADMIN · 全驿站）
  *
- * 默认落在「待审批」而不是全部：老板进这一页的动作是「把待办清掉」，历史记录是查询而不是默认视图。
+ * 默认落在「待审批」而不是全部：管理员进这一页的动作是「把待办清掉」，历史记录是查询而不是默认视图。
  * 通过即由服务端补录打卡记录（attendance_record.source = MAKEUP），所以界面上明确写出这一点，
- * 避免老板以为「只是改个状态、出勤还是缺卡」。
+ * 避免管理员以为「只是改个状态、出勤还是缺卡」。
  */
 const PAGE_SIZE = 20
 
@@ -114,7 +114,7 @@ async function submitApprove() {
     })
     showApprove.value = false
     showSuccessToast(approved.value ? '已通过，系统已补录打卡记录' : '已驳回该补卡申请')
-    // 就地更新列表：审批常连着做几单，整表重拉会把老板刚看过的位置闪掉；
+    // 就地更新列表：审批常连着做几单，整表重拉会把管理员刚看过的位置闪掉；
     // 若当前筛选已不含新状态（在「待审批」里批完一单），直接把该行移出，避免残留在筛选结果里
     const index = list.value.findIndex((item) => item.id === updated.id)
     if (index >= 0) {

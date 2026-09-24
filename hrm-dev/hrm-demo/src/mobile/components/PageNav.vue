@@ -7,15 +7,25 @@ import { useRouter } from 'vue-router'
  * 壳内返回键由 bridge.js 的 HrmShell.onBackPressed 复用同一条 history 链路。
  * 返回热区为什么自己写按钮：Vant 默认箭头只是图标，读屏读不出「返回」，
  * 自绘 44×44 的 <button aria-label="返回"> 后键盘与读屏都可达（修 P33）。
+ *
+ * backFallback 用于「深链直达/刷新后历史栈为空」的详情页：此时 router.back() 是空操作，
+ * 用户会以为返回键坏了（通知阅读页 D7.2）。默认 '' 保持原行为，既有 40+ 调用方零回归。
  */
-defineProps({
+const props = defineProps({
   title: { type: String, default: '' },
   back: { type: Boolean, default: true },
-  fixed: { type: Boolean, default: true }
+  fixed: { type: Boolean, default: true },
+  /** 非空时：历史栈无上一页 → replace 到该路径；否则仍走 router.back() */
+  backFallback: { type: String, default: '' }
 })
 
 const router = useRouter()
 function onBack() {
+  // vue-router 4 在首条历史项写 back: null；用它判断比 history.length 更准（后者把前进项也算作有上一页）
+  if (props.backFallback && !(window.history.state && window.history.state.back)) {
+    router.replace(props.backFallback)
+    return
+  }
   router.back()
 }
 </script>

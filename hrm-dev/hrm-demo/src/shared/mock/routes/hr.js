@@ -30,7 +30,7 @@ import { createSettlementPayroll } from '../financeStore.js'
 /**
  * 人事接口（需求8 人事档案与定薪 + 需求10 入职/离职流程）
  *
- * 全部为老板（ADMIN）视角，唯一例外是「本人可查自己的人事档案与定薪」——
+ * 全部为管理员（ADMIN）视角，唯一例外是「本人可查自己的人事档案与定薪」——
  * 站长不开放：薪资与银行卡属于敏感信息，按最小权限收在 ADMIN 与本人两端。
  *
  * 离职流程的「薪资结算」步骤需要生成工资单，而工资单属于财务域；
@@ -43,7 +43,7 @@ const CONTRACT_TYPE_KEYS = Object.keys(CONTRACT_TYPE_LABEL)
 const OFFBOARDING_TYPE_KEYS = Object.keys(OFFBOARDING_TYPE_LABEL)
 const FLOW_STATUS_KEYS = Object.keys(FLOW_STATUS_LABEL)
 
-/** 人事档案详情/编辑的可见范围：老板全量，员工只能看自己 */
+/** 人事档案详情/编辑的可见范围：管理员全量，员工只能看自己 */
 const canAccessEmployee = (user, employeeId) => user.role === 'ADMIN' || user.id === Number(employeeId)
 
 /* ==================== 人事档案 ==================== */

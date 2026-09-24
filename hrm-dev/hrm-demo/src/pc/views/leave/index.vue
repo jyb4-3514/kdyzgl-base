@@ -12,7 +12,7 @@
         <span class="deduct-card__title">请假扣款设置</span>
         <span class="deduct-card__state">当前：{{ deductEnabled ? '按缺勤计（扣款）' : '不计缺勤（不扣款）' }}</span>
       </div>
-      <!-- 这条语义必须写给用户看：开关名字面很含蓄，老板猜错一次就是一次工资争议 -->
+      <!-- 这条语义必须写给用户看：开关名字面很含蓄，管理员猜错一次就是一次工资争议 -->
       <p class="deduct-card__rule">
         <strong>开启（扣款）</strong>：请假当天按缺勤计，缺勤天数 = 排班天数 − 出勤天数，请假天数照常计入缺勤。
         <br />
@@ -228,7 +228,7 @@ const { stations } = storeToRefs(orgStore)
 const isAdmin = computed(() => !!authStore.user && authStore.user.role === 'ADMIN')
 const isStationAdmin = computed(() => !!authStore.user && authStore.user.role === 'STATION_ADMIN')
 
-/** 待办口径：老板看待终审、站长看待初审。固定取当前在手的那一级，与用户筛选无关 */
+/** 待办口径：管理员看待终审、站长看待初审。固定取当前在手的那一级，与用户筛选无关 */
 const pendingStatus = computed(() => (isAdmin.value ? 'PENDING_BOSS' : 'PENDING_STATION'))
 
 /** 错误码人话化：9601/9602/9603/9606/9607 都要「就地说明 + 给下一步」，通用 toast 给不了处置动作 */

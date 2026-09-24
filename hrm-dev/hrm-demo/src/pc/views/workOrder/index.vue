@@ -3,7 +3,7 @@
     <PageHeader title="工单管理" :sub="page.headerSub" :loading="page.loading">
       <template #actions>
         <el-button type="primary" :icon="Plus" @click="page.createVisible = true">新建工单</el-button>
-        <!-- 自动派单只对老板渲染：规则维护接口仅 ADMIN，且契约 GET 未加 roles 属权限不一致（U6） -->
+        <!-- 自动派单只对管理员渲染：规则维护接口仅 ADMIN，且契约 GET 未加 roles 属权限不一致（U6） -->
         <el-button v-if="page.isAdmin" :icon="Promotion" @click="page.dispatchVisible = true">自动派单</el-button>
         <el-button :icon="Refresh" @click="page.refreshPage">刷新</el-button>
       </template>

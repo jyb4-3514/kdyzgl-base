@@ -161,12 +161,12 @@ body {
   margin-top: var(--sp-3);
 }
 
-/* 老板端区块间距 16（3.2 差异表），员工端保持 12 */
+/* 管理端区块间距 16（3.2 差异表），员工端保持 12 */
 .stat-grid--roomy {
   margin-top: var(--sp-4);
 }
 
-/* Hero：老板端与员工端共用结构，仅底色与内容不同（3.2） */
+/* Hero：管理端与员工端共用结构，仅底色与内容不同（3.2） */
 .hero {
   position: relative;
   min-height: 88px;

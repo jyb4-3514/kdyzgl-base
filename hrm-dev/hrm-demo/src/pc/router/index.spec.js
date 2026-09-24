@@ -44,7 +44,7 @@ const pages = vi.hoisted(() => ({ stub: { template: '<div />' } }))
 vi.mock('../layout/index.vue', () => ({ default: pages.stub }))
 vi.mock('../views/dashboard/index.vue', () => ({ default: pages.stub }))
 vi.mock('../views/error/NotFound.vue', () => ({ default: pages.stub }))
-vi.mock('@admin/views/login/index.vue', () => ({ default: pages.stub }))
+vi.mock('../views/login/index.vue', () => ({ default: pages.stub }))
 vi.mock('@admin/views/profile/index.vue', () => ({ default: pages.stub }))
 
 const { default: router } = await import('./index.js')

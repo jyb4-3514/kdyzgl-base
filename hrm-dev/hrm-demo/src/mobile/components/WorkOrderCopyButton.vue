@@ -5,7 +5,7 @@ import { copyText } from '@/shared/domain/text.js'
 import { buildWorkOrderText } from '@/shared/domain/workOrderText.js'
 
 /**
- * 工单复制按钮（移动端：员工端列表 / 老板端列表 / 共用详情页三处复用）
+ * 工单复制按钮（移动端：员工端列表 / 管理端列表 / 共用详情页三处复用）
  *
  * 为什么抽组件：三处同一套「拼文本 → 复制 → 成功/失败反馈」，各写一份必然分叉失败文案与热区尺寸。
  *

@@ -49,14 +49,16 @@ function canRetry(error) {
 }
 
 /**
- * 401 幂等：首屏同一批并发请求会同时过期，只广播一次即可。
- * 复位放在下一宏任务，既覆盖同一批次的并发 401，又保证下次会话过期仍能触发。
+ * 401 / 1108 幂等：首屏同一批并发请求会同时过期，只广播一次即可。
+ * 1108（会话 3 天到期）与 401（被顶下线/禁用）都必须清态并回登录页，但前者要带「到期」告知与 redirect，
+ * 故把业务码放进事件 detail，由 App.vue 分流（http.js 不 import router，避免循环引用）。
+ * 复位放在下一宏任务，既覆盖同一批次的并发，又保证下次会话过期仍能触发。
  */
 let unauthorizedNotified = false
-function notifyUnauthorized() {
+function notifyUnauthorized(code) {
   if (unauthorizedNotified) return
   unauthorizedNotified = true
-  window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+  window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT, { detail: { code } }))
   setTimeout(() => {
     unauthorizedNotified = false
   }, 0)
@@ -88,10 +90,10 @@ http.interceptors.response.use(
     const message = body.message || (code ? codeMessage(code) : '') || error.message || '网络异常，请稍后重试'
     const wrapped = new Error(message)
     wrapped.code = code
-    if (wrapped.code === 401) {
+    // 1108（会话 3 天到期）与 401 同走「清态 + 广播回登录页」；两者不弹 Toast（并发请求会刷屏）
+    if (wrapped.code === 401 || wrapped.code === 1108) {
       clearAuth()
-      // 401 不弹 Toast：首屏可能并发多个请求，逐个弹窗会刷屏
-      notifyUnauthorized()
+      notifyUnauthorized(wrapped.code)
       return Promise.reject(wrapped)
     }
     return rejectWith(wrapped, error.config)

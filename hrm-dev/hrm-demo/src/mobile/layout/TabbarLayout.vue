@@ -29,7 +29,7 @@ const todo = useTodoStore()
 const tabs = computed(() => (auth.isAdmin ? BOSS_TABS : STAFF_TABS))
 const title = computed(() => route.meta.title || '')
 const messageBadge = computed(() => badgeText(notify.unread + todo.total))
-/** 发布通知是消息页的页内动作（A2 B12），仅老板端可见；入口在 NavBar 右侧而非页面内，保持列表整屏 */
+/** 发布通知是消息页的页内动作（A2 B12），仅管理端可见；入口在 NavBar 右侧而非页面内，保持列表整屏 */
 const showPublish = computed(() => auth.isAdmin && route.path === '/boss/message')
 
 const isActive = (item) => route.path === item.path

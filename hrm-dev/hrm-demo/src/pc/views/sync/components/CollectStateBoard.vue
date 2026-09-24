@@ -17,7 +17,7 @@ const props = defineProps({
 
 const emit = defineEmits(['retry'])
 
-/** 顺序把「异常」放最前：老板第一眼要看到的是待处理项，而不是正常项 */
+/** 顺序把「异常」放最前：管理员第一眼要看到的是待处理项，而不是正常项 */
 const CARDS = [
   { key: 'abnormal', label: '采集异常', tone: 'red' },
   { key: 'unconfigured', label: '未配置采集', tone: 'orange' },

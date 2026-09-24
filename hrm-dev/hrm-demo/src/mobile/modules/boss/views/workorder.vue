@@ -17,11 +17,11 @@ import { numberText, relativeTime } from '@/mobile/utils/format.js'
  * B11 工单管理（ADMIN · 跨驿站全局视角）
  *
  * 与员工端 S5 工单列表的分工：员工端看「本站派给我的活儿」，本页看「全局谁没处理好」。
- * 故维度不同：本页有驿站筛选与关键字搜索，没有新建工单入口（老板只做督办与调度，上报由一线发起）。
+ * 故维度不同：本页有驿站筛选与关键字搜索，没有新建工单入口（管理员只做督办与调度，上报由一线发起）。
  * 超时未处理不是一种状态，而是独立筛选维度（Mock 已把「已过 SLA 且仍为待处理/处理中」的判定做在服务端），
  * 所以它作为第 5 个 Tab 与其余四个状态 Tab 互斥，避免出现「状态=已关闭 且 超时未处理」的空结果。
  *
- * TODO(扩展): 老板端「模拟派单」（企微群消息→自动派单）本轮不做，理由见 demo-ux-improvement.md B3.5：
+ * TODO(扩展): 管理端「模拟派单」（企微群消息→自动派单）本轮不做，理由见 demo-ux-improvement.md B3.5：
  *   移动端规则表必然退化成卡片堆叠，且契约没有 dry-run 接口，无法在不落单的前提下给出「命中哪条规则」的预览；
  *   完整形态只做 PC。若后续要补，须整片使用 --state-simulate-* 区分演示区，并保留工单契约里的
  *   「接入企微回调时替换为真实签名校验与消息解密」TODO
@@ -191,7 +191,7 @@ onMounted(async () => {
               <StatusTag :dict="WORK_ORDER_STATUS" :value="item.status" />
             </div>
             <div class="wo-title">{{ item.title }}</div>
-            <!-- 一行承载优先级 + SLA 倒计时：老板扫列表只关心「哪些快炸了」 -->
+            <!-- 一行承载优先级 + SLA 倒计时：管理员扫列表只关心「哪些快炸了」 -->
             <div class="list-item__tags">
               <StatusTag :dict="WORK_ORDER_TYPE" :value="item.type" />
               <StatusTag :dict="WORK_ORDER_PRIORITY" :value="item.priority" />

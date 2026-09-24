@@ -10,7 +10,7 @@ import { useReselect } from '../../composables/useReselect.js'
 import { badgeText } from '../../utils/format.js'
 
 /**
- * 消息 Tab（D2-8）· 老板端与员工端共用，按角色渲染
+ * 消息 Tab（D2-8）· 管理端与员工端共用，按角色渲染
  *
  * 两类内容的关系（A4-2）：通知是「事件流」（有已读概念），待办是「状态快照」（只有已处理，没有已读）。
  * 二者不合并、不去重 —— 同一次工单指派既产生一条通知，也产生一条待办，但它们是两个事实。
@@ -28,7 +28,7 @@ const activeTab = ref(route.query.tab === 'todo' ? 'todo' : 'notice')
 
 const noticeBadge = computed(() => badgeText(notify.unread))
 const todoBadge = computed(() => badgeText(todo.total))
-/** 空态文案两端不同：员工端给一句人话的「今天只剩你自己了」，老板端保持中性 */
+/** 空态文案两端不同：员工端给一句人话的「今天只剩你自己了」，管理端保持中性 */
 const emptyText = computed(() => (auth.isAdmin ? '暂无待办事项' : '暂无待办，今天只剩你自己了'))
 
 /** 待办是快照、角标是聚合值，进入消息页一律刷新一次，避免用户对着过期条数做判断（C5-6） */

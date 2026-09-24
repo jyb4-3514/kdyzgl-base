@@ -10,3 +10,10 @@
  */
 export const MOBILE_TOKEN_KEY = 'hrm_demo_mobile_token'
 export const MOBILE_USER_KEY = 'hrm_demo_mobile_user'
+
+/**
+ * 设备标识（登录体系改造）：三端登录页共用。
+ * 为什么放 shared：PC 与移动端登录页都要上报同一设备的稳定标识（弱信号，服务端信任状态才是权威），
+ * 键名是三端共同的存储契约，收敛到此处供两端同时引用，避免出现第二份键名字符串。
+ */
+export const DEVICE_ID_KEY = 'hrm_demo_device_id'

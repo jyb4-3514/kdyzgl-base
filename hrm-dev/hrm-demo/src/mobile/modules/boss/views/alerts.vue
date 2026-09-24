@@ -262,7 +262,7 @@ onMounted(() => {
         </div>
       </section>
 
-      <!-- 分组四：采集状态（需求1，只读）——老板只关心「哪站没在采、哪站采挂了」，
+      <!-- 分组四：采集状态（需求1，只读）——管理员只关心「哪站没在采、哪站采挂了」，
            开关与频次的配置场景在 PC，移动端不提供编辑入口 -->
       <section class="group">
         <button type="button" class="group__head" @click="collect.open = !collect.open">

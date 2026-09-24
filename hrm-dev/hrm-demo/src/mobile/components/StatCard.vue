@@ -2,9 +2,9 @@
 import { computed, useAttrs } from 'vue'
 
 /**
- * 看板指标卡（C-M1，老板端总览 / 员工端工作台共用）
+ * 看板指标卡（C-M1，管理端总览 / 员工端工作台共用）
  * 为什么 tone 取 600/700 档：主色 500 档对白底只有 3.24:1，不足以承载数值文字（2.3 硬规则）。
- * 员工端数值 22px / 老板端 24px 由 valueSize 区分（3.2 差异表），结构完全一致。
+ * 员工端数值 22px / 管理端 24px 由 valueSize 区分（3.2 差异表），结构完全一致。
  */
 const props = defineProps({
   label: { type: String, required: true },
@@ -15,11 +15,16 @@ const props = defineProps({
   tone: { type: String, default: 'neutral' },
   /** 工作台用 dense：不要环比行，压缩高度 */
   dense: { type: Boolean, default: false },
-  /** lg=老板端 24 / staff=员工端 22 / md=18（次级） */
+  /** lg=管理端 24 / staff=员工端 22 / md=18（次级） */
   valueSize: { type: String, default: 'lg' },
   loading: { type: Boolean, default: false },
   /** 加载失败：数值位显示「—」并在下方给出可读原因 */
-  error: { type: String, default: '' }
+  error: { type: String, default: '' },
+  /**
+   * 可点卡片的补充语义（如「→ 可查看名单」），只拼进 aria-label 供读屏播报，不渲染视觉文本。
+   * 为什么走 prop 而不是透传同名属性：模板已有显式 :aria-label 绑定，Vue 3 中显式绑定优先于 fallthrough attrs。
+   */
+  hint: { type: String, default: '' }
 })
 
 const attrs = useAttrs()
@@ -45,7 +50,10 @@ const trendClass = computed(() => {
   return num > 0 ? 'stat-card__trend--up' : 'stat-card__trend--down'
 })
 
-const ariaLabel = computed(() => `${props.label} ${hasValue.value ? props.value : '暂无数据'}${props.unit}`)
+const ariaLabel = computed(() => {
+  const base = `${props.label} ${hasValue.value ? props.value : '暂无数据'}${props.unit}`
+  return props.hint ? `${base} ${props.hint}` : base
+})
 </script>
 
 <template>
@@ -92,6 +100,12 @@ const ariaLabel = computed(() => `${props.label} ${hasValue.value ? props.value 
 
 .stat-card--clickable:active {
   transform: scale(0.985);
+}
+
+/* 键盘焦点环：卡片 border:none 且无默认可见焦点，补 2px 主色描边（白卡 3.245:1，满足 SC 1.4.11） */
+.stat-card--clickable:focus-visible {
+  outline: 2px solid var(--color-primary-icon);
+  outline-offset: 2px;
 }
 
 .stat-card__label {

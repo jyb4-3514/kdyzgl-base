@@ -77,9 +77,29 @@ initClientLog({
  * 一期 utils/request.js 在 401 时会动态 import 它自己的 router（指向 hrm-admin 单页路由），
  * Demo 无法复用那一跳且不能改一期源码，因此这里订阅登录态——token 被清空即视为登录失效，
  * 由 Demo 自己的路由回登录页（不带 redirect，避免手动退出后污染下次登录的落地页）。
+ *
+ * 会话 3 天到期（1108）补充：一期 request.js 只对 401 跳转，1108 会走业务错误分支（只弹提示不跳转），
+ * 故在 Demo 侧补一个响应拦截器：清登录态并回登录页，同时带 redirect 与 expired 告知（设计 §4.5）。
+ * `sessionExpired` 标志让订阅回调区分「到期」与「手动退出/被顶下线」两种回跳形态。
  */
+let sessionExpired = false
+request.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error && error.code === 1108) {
+      sessionExpired = true
+      useAuthStore().clearAuth()
+    }
+    return Promise.reject(error)
+  }
+)
+
 useAuthStore().$subscribe((_mutation, state) => {
-  if (!state.token && router.currentRoute.value.path !== '/login') {
+  if (state.token || router.currentRoute.value.path === '/login') return
+  const current = router.currentRoute.value
+  if (sessionExpired) {
+    router.replace({ path: '/login', query: { expired: '1', redirect: current.fullPath } })
+  } else {
     router.replace('/login')
   }
 })

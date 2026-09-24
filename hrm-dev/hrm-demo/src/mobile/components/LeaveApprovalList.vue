@@ -13,7 +13,7 @@ import { useAuthStore } from '../stores/auth.js'
 import { leaveDaysText, leaveErrorHint, leaveRangeText, leaveStatusText, leaveTypeText } from '../utils/leave.js'
 
 /**
- * P3/P4 请假审批列表（站长初审 / 老板终审共用）
+ * P3/P4 请假审批列表（站长初审 / 管理员终审共用）
  *
  * 为什么做成一个组件：两页除了默认筛选、端点与标题，其余（状态 chip、无限滚动、计数条、
  * 参数化审批弹层、9602 就地对齐、已审批只读回显）逐行相同。两处各写一份，改一处必漏一处。
@@ -26,7 +26,7 @@ const props = defineProps({
   title: { type: String, required: true },
   /** 本页默认处理的状态：同时决定「哪一行渲染通过/驳回」（只能处理本页职责内的状态） */
   defaultStatus: { type: String, required: true },
-  /** STATION = 站长初审；FINAL = 老板终审（并负责对已通过单的撤回） */
+  /** STATION = 站长初审；FINAL = 管理员终审（并负责对已通过单的撤回） */
   actor: { type: String, required: true }
 })
 

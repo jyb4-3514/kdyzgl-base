@@ -11,7 +11,7 @@ import { numberText } from '../utils/format.js'
 const props = defineProps({
   /** [{ date, inbound, pickup }] */
   points: { type: Array, default: () => [] },
-  /** 老板端首屏迷你图：96px、无网格无图例、必显末值 */
+  /** 管理端首屏迷你图：96px、无网格无图例、必显末值 */
   compact: { type: Boolean, default: false },
   unit: { type: String, default: '件' },
   loading: { type: Boolean, default: false },

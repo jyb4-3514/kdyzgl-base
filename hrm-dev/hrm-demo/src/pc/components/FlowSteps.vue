@@ -25,14 +25,14 @@ const STEP_OWNER = {
   HR_REVIEW: '人事',
   CREATE_ACCOUNT: '人事',
   ASSIGN_STATION: '人事',
-  SET_SALARY: '老板',
+  SET_SALARY: '管理员',
   DONE: '站长',
   // 离职
   MANAGER_APPROVE: '站长',
   HR_APPROVE: '人事',
   HANDOVER: '站长',
   ASSET_RETURN: '站长',
-  SETTLEMENT: '老板',
+  SETTLEMENT: '管理员',
   LEAVE: '人事'
 }
 

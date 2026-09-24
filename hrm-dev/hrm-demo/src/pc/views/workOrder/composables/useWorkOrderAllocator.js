@@ -21,7 +21,7 @@ export function useWorkOrderAllocator({ isAdmin, currentUser, refreshPage, loadD
   const transferOptionsLoading = ref(false)
 
   /** 候选范围提示：把「为什么搜不到某个同事」讲在前面，减少无效尝试 */
-  const transferScopeHint = computed(() => (isAdmin.value ? '请选择员工（老板可跨驿站）' : '请选择本站员工'))
+  const transferScopeHint = computed(() => (isAdmin.value ? '请选择员工（管理员可跨驿站）' : '请选择本站员工'))
   const transferCandidates = computed(() => transferOptions.value)
 
   /** 指派弹窗：处理人下拉取本站启用员工 */
@@ -126,7 +126,7 @@ export function useWorkOrderAllocator({ isAdmin, currentUser, refreshPage, loadD
       if (code === DEMO_CODE.WORK_ORDER_TRANSFER_TARGET_INVALID) {
         ElMessage.error('转单对象不合法：只能转给在职同事，不能转给自己；站长与处理人只能转本站同事')
       } else if (code === DEMO_CODE.WORK_ORDER_TRANSFER_NO_PERMISSION) {
-        ElMessage.error('无权转单该工单：仅老板、本站站长或当前处理人可转单')
+        ElMessage.error('无权转单该工单：仅管理员、本站站长或当前处理人可转单')
       } else {
         ElMessage.error((e && e.message) || '转单失败，请稍后重试')
       }

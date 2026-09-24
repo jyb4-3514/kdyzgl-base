@@ -100,7 +100,7 @@ async function handleSubmit() {
   if (!valid) return
 
   const assignee = assignees.value.find((item) => item.id === form.assigneeId)
-  // 跨站指派只有老板可以，先确认再提交（B3.2 二次确认点）
+  // 跨站指派只有管理员可以，先确认再提交（B3.2 二次确认点）
   if (assignee && Number(assignee.stationId) !== Number(form.stationId)) {
     try {
       await ElMessageBox.confirm(`将工单指派给其他驿站的「${assignee.label}」，确认？`, '跨驿站指派', {

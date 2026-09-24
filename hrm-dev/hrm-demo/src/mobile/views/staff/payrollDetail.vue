@@ -16,7 +16,7 @@ import { FINANCE_CODE } from '@/shared/constants/errorCode.js'
  *
  * 两个动作都按 B0.3 二次确认，但成本不同：
  * - 确认无误：确认后不可撤销，故正文写清「确认后不可撤销，如有疑问请先提异议」
- * - 提异议：必填原因，提交后单据退回老板重新核定，本人在重新发布前看不到该单 → 成功后回列表
+ * - 提异议：必填原因，提交后单据退回管理员重新核定，本人在重新发布前看不到该单 → 成功后回列表
  *
  * 9403（工资单尚未发布）不是系统故障：给「尚未发布」的说明而不是错误态 + 重试。
  */
@@ -39,7 +39,7 @@ const steps = computed(() => {
   if (!data) return []
   return [
     { key: 'DRAFT', label: '工资单生成', state: 'done', time: data.createTime },
-    { key: 'REVIEW', label: '老板审核', state: 'done', time: data.approveTime },
+    { key: 'REVIEW', label: '管理员审核', state: 'done', time: data.approveTime },
     { key: 'PUBLISH', label: '发布给我', state: 'done', time: data.publishTime },
     {
       key: 'CONFIRM',
@@ -113,7 +113,7 @@ async function onAction(key) {
 async function submitObject() {
   const reason = objectReason.value.trim()
   if (reason.length < 2 || reason.length > 200) {
-    objectError.value = '异议原因须为 2–200 字，会同步给老板'
+    objectError.value = '异议原因须为 2–200 字，会同步给管理员'
     return
   }
   submitting.value = true
@@ -121,7 +121,7 @@ async function submitObject() {
   try {
     await objectPayroll(payroll.value.id, { reason })
     showObject.value = false
-    showSuccessToast('已提交异议，等待老板重新核定')
+    showSuccessToast('已提交异议，等待管理员重新核定')
     // 异议后单据状态回到待审核，员工端不可见 → 直接回列表，避免停在无法访问的详情页
     router.replace('/staff/payroll')
   } catch (e) {
@@ -146,7 +146,7 @@ onMounted(load)
         @retry="load"
       >
         <template #empty-action>
-          <p class="tip">工资单由老板发布后才可见；重新核定期间会暂时不可查看</p>
+          <p class="tip">工资单由管理员发布后才可见；重新核定期间会暂时不可查看</p>
         </template>
 
         <section class="hero hero--brand pay-hero">
@@ -186,7 +186,7 @@ onMounted(load)
     <van-popup v-model:show="showObject" round position="bottom" safe-area-inset-bottom>
       <div class="object-pop">
         <div class="object-pop__title">提交异议</div>
-        <p class="object-pop__sub">提交后单据会退回老板重新核定，重新发布前你将暂时看不到该单</p>
+        <p class="object-pop__sub">提交后单据会退回管理员重新核定，重新发布前你将暂时看不到该单</p>
         <van-field
           v-model="objectReason"
           type="textarea"

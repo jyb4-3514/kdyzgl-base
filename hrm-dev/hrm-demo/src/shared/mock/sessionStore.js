@@ -45,3 +45,44 @@ export class PersistedSessionMap extends Map {
     bucket.write(Object.fromEntries(this))
   }
 }
+
+/**
+ * 会话元数据（employeeId → { deviceId, expireAt }）的持久化实现
+ *
+ * 为什么与 sessions 分开成两张表：sessions 的语义是「employeeId → jti」并被 interceptor 与 business 分支
+ * 逐处比对（互踢判定），往值里塞对象会打破既有比对口径（`db.sessions.get(id) !== jti`）。
+ * 元数据只服务登录体系改造新增的「3 天到期」判定，独立成表可让既有逻辑零改动。
+ * 持久化理由同 sessions：会话落盘而元数据不落盘，刷新后「到期时间」丢失会让 3 天策略形同虚设。
+ */
+const metaBucket = createPersistBucket('sessionMeta')
+
+export class PersistedSessionMetaMap extends Map {
+  constructor() {
+    super()
+    const snapshot = metaBucket.read()
+    if (snapshot && typeof snapshot === 'object') {
+      Object.entries(snapshot).forEach(([id, meta]) => super.set(Number(id), meta))
+    }
+  }
+
+  set(employeeId, meta) {
+    super.set(employeeId, meta)
+    this.#persist()
+    return this
+  }
+
+  delete(employeeId) {
+    const removed = super.delete(employeeId)
+    if (removed) this.#persist()
+    return removed
+  }
+
+  clear() {
+    super.clear()
+    metaBucket.clear()
+  }
+
+  #persist() {
+    metaBucket.write(Object.fromEntries(this))
+  }
+}

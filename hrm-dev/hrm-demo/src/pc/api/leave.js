@@ -56,7 +56,7 @@ export function stationApproveLeave(id, data) {
   return request.post(`/leave/${id}/station-approve`, data, { silent: true })
 }
 
-// POST /leave/{id}/final-approve 老板终审（仅 ADMIN；通过时服务端落计薪天数快照）
+// POST /leave/{id}/final-approve 管理员终审（仅 ADMIN；通过时服务端落计薪天数快照）
 export function finalApproveLeave(id, data) {
   return request.post(`/leave/${id}/final-approve`, data, { silent: true })
 }

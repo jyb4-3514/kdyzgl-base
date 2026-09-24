@@ -20,7 +20,7 @@ import {
 
 /**
  * KPI 考核接口（需求7）
- * 指标配置与算分只有老板（ADMIN）可操作；得分与排名站长可见（按驿站收敛），员工只能看本人明细。
+ * 指标配置与算分只有管理员（ADMIN）可操作；得分与排名站长可见（按驿站收敛），员工只能看本人明细。
  * 数据范围：非 ADMIN 的 stationId 由 engine 统一收敛为本人归属驿站（见 domain/applyDataScope.js），传别的驿站不报错也不生效。
  */
 
@@ -142,7 +142,7 @@ function ranking({ params }) {
   )
 }
 
-/** 得分明细：员工只能查本人（越权返回 403），站长限本驿站，老板全量 */
+/** 得分明细：员工只能查本人（越权返回 403），站长限本驿站，管理员全量 */
 function detail({ params, pathParams, user }) {
   // 路由为 /kpi/scores/:employeeId，员工号是路径参数；兼容查询串写法，避免旧调用方拿到 400
   const rawId = pathParams.employeeId !== undefined ? pathParams.employeeId : params.employeeId

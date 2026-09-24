@@ -5,7 +5,7 @@ import { ROLE_LABEL } from '@/shared/constants/role.js'
  * 演示账号清单与密码已上移到 src/demo/accounts.js（仅 Mock 态加载，生产构建剔除），此处只留业务常量。
  */
 
-/** 角色 → 登录后首页（老板端 / 员工端分流） */
+/** 角色 → 登录后首页（管理端 / 员工端分流） */
 export const HOME_BY_ROLE = {
   ADMIN: '/boss/home',
   STATION_ADMIN: '/staff/home',

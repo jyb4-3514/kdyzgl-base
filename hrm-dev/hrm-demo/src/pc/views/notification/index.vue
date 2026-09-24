@@ -265,7 +265,7 @@ async function loadStations() {
   }
 }
 
-/** 发布成功后刷新列表与未读数：发布范围含老板本人时，自己也会收到这条公告 */
+/** 发布成功后刷新列表与未读数：发布范围含管理员本人时，自己也会收到这条公告 */
 function handlePublished() {
   refreshPage()
 }

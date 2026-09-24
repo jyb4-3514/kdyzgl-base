@@ -1,12 +1,13 @@
 import { ROLE } from '@/shared/constants/role.js'
 
 /**
- * 老板端路由子表（由 ../router/index.js 单点聚合展开）
+ * 管理端路由子表（由 ../router/index.js 单点聚合展开）
  *
  * 为什么导出数组而非自己 createRouter：整端只有一个 router 实例，子表只提供路由定义；
  * 实例创建与守卫（登录态、角色白名单）必须留在聚合点，否则会出现多实例、守卫漏挂。
  *
- * 共 23 条 = /boss 重定向 + 21 个老板端页面 + 1 个中立共享页（/boss/message 与 /staff/message 复用同页，
+ * 共 25 条 = /boss 重定向 + 22 个管理端页面 + 2 个中立共享页（/boss/message 与 /staff/message、
+ * /boss/message/notice 与 /staff/message/notice 各复用同页，
  * 页面刻意放在内核 views/message/ 而不进任何一端域目录）。
  * /boss/* 的 URL 与 meta（tabbar / roles / title）已冻结：共享内核 TabbarLayout 依赖
  * /boss/message 与 /boss/notification/publish 两个字面值，e2e 有 3 处 URL 断言，
@@ -28,6 +29,13 @@ export const bossRoutes = [
     name: 'bossMessage',
     component: () => import('@/mobile/views/message/MessagePage.vue'),
     meta: { tabbar: 'boss', roles: [ROLE.ADMIN], title: '消息' }
+  },
+  // 通知阅读页：员工端 /staff/message/notice 指向同一组件；无 tabbar（二级页自带返回，D2.1）
+  {
+    path: '/boss/message/notice',
+    name: 'bossNoticeReader',
+    component: () => import('@/mobile/views/message/NoticeReader.vue'),
+    meta: { roles: [ROLE.ADMIN], title: '通知详情' }
   },
   {
     path: '/boss/me',
@@ -80,7 +88,7 @@ export const bossRoutes = [
     meta: { roles: [ROLE.ADMIN], title: '发布通知' }
   },
 
-  /* 需求 7–10 老板端：不进 Tabbar，入口在首页宫格与「我的 · 管理与配置」 */
+  /* 需求 7–10 管理端：不进 Tabbar，入口在首页宫格与「我的 · 管理与配置」 */
   {
     path: '/boss/kpi',
     name: 'bossKpi',
@@ -153,5 +161,12 @@ export const bossRoutes = [
     name: 'bossAttendanceRecords',
     component: () => import('./views/attendanceRecords.vue'),
     meta: { roles: [ROLE.ADMIN], title: '打卡记录' }
+  },
+  // 考勤明细（§14.2）：概览六卡的下钻目标，?dim= 决定维度；不进 tabbar，二级页自带返回
+  {
+    path: '/boss/attendance/detail',
+    name: 'bossAttendanceDetail',
+    component: () => import('./views/attendanceDetail.vue'),
+    meta: { roles: [ROLE.ADMIN], title: '考勤明细' }
   }
 ]

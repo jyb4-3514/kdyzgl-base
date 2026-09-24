@@ -127,7 +127,7 @@ const menus = computed(() => buildMenus((authStore.user && authStore.user.role) 
 
 /**
  * 分组默认全展开：Element 的 initMenu 只会展开「当前页面所在分组」，
- * 老板看首页时找不到「财务管理」在哪个分组下，得逐个点开。默认全展后 4 个分组的项一次可见，
+ * 管理员看首页时找不到「财务管理」在哪个分组下，得逐个点开。默认全展后 4 个分组的项一次可见，
  * 分组标题仍承担扫读锚点的作用；用户手动折叠某一组属于显式操作，不被覆盖。
  */
 const menuGroupKeys = computed(() => menus.value.filter((menu) => menu.children).map((menu) => menu.key))

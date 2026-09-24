@@ -14,7 +14,7 @@ export const updateKpiMetric = (id, data) => http.put(`/kpi/metrics/${id}`, data
 export const calculateKpiScores = (data) => http.post('/kpi/scores/calculate', data)
 export const getKpiRanking = (params) => http.get('/kpi/scores/ranking', { params })
 export const getKpiScores = (params) => http.get('/kpi/scores', { params })
-/** 得分明细：员工只能查本人（越权 403），老板端用作「点排名进明细」 */
+/** 得分明细：员工只能查本人（越权 403），管理端用作「点排名进明细」 */
 export const getKpiScoreDetail = (employeeId, params) => http.get(`/kpi/scores/${employeeId}`, { params })
 /**
  * 得分明细（静默版）：首页宫格只需判断「本月有没有考核结果」，

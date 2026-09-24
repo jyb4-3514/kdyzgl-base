@@ -1,7 +1,7 @@
 /**
  * T13–T16 移动端页面数据链路实测（`npm run verify:mobile`）
  * 为什么单独一个脚本而不并进 verify:mock：verify:mock 校验的是 Mock 契约本身，
- * 本脚本按「各页面实际发出的请求参数」逐个调用 Mock 层，验证老板端 / 员工端的数据口径与交互结果，
+ * 本脚本按「各页面实际发出的请求参数」逐个调用 Mock 层，验证管理端 / 员工端的数据口径与交互结果，
  * 两者失败时的定位方向不同（契约错 vs 页面传参错），故分开放。
  */
 import axios from 'axios'
@@ -82,13 +82,13 @@ check(
   demoPick.list[0] && demoPick.list[0].waybillNo
 )
 
-/* ==================== 老板端（ADMIN） ==================== */
+/* ==================== 管理端（ADMIN） ==================== */
 const adminToken = await login('admin')
-check('老板端·登录', !!adminToken)
+check('管理端·登录', !!adminToken)
 
 const globalSummary = await call('get', '/parcels/summary', { token: adminToken })
 check(
-  '老板端·全局包裹指标',
+  '管理端·全局包裹指标',
   globalSummary.ok && globalSummary.data.parcelTotal > 100000,
   globalSummary.ok ? JSON.stringify(globalSummary.data) : globalSummary.message
 )

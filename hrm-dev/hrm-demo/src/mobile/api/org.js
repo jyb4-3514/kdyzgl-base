@@ -7,5 +7,5 @@ import http from '../utils/http.js'
 
 /** 仅 ADMIN 可调；站长与员工身份的候选来源见 utils/workorder.js 的 fetchTransferTargets */
 export const getEmployees = (params) => http.get('/employees', { params })
-/** 老板端考勤模块的驿站选择（规则 / 排班 / 记录按驿站维度查看） */
+/** 管理端考勤模块的驿站选择（规则 / 排班 / 记录按驿站维度查看） */
 export const getStationList = (params) => http.get('/stations', { params })

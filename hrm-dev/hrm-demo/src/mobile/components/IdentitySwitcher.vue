@@ -7,8 +7,8 @@ import { useNotifyStore } from '../stores/notify.js'
 import { useTodoStore } from '../stores/todo.js'
 
 /**
- * 演示身份切换（C-M7，老板 / 站长 / 员工）
- * 老板端与员工端「我的」页都要用，逻辑（重新登录 → 清角标 → 跳对应首页）只实现一份。
+ * 演示身份切换（C-M7，管理员 / 站长 / 员工）
+ * 管理端与员工端「我的」页都要用，逻辑（重新登录 → 清角标 → 跳对应首页）只实现一份。
  * 选中态用「浅蓝底 + 主色描边 + 勾选图标」三重通道，不只靠颜色（修 P27/P33）。
  */
 const auth = useAuthStore()

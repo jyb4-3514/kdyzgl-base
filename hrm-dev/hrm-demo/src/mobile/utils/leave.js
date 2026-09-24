@@ -6,16 +6,16 @@ import { formatDate, parseDate } from '@/shared/domain/time.js'
  * 请假页面层共用逻辑（M11）
  *
  * 为什么单独一层：区间文案、双天数摘要、状态副信息、字段校验、错误话术在
- * 「我的请假 / 申请表单 / 站长初审 / 老板终审 / 扣款设置」五个页面里反复出现，
+ * 「我的请假 / 申请表单 / 站长初审 / 管理员终审 / 扣款设置」五个页面里反复出现，
  * 散在页面里必然出现两种说法（补卡字典两端各写一份的教训）。
  *
  * 本文件不做任何时长推算：自然天数与计薪天数一律取服务端（/leave/preview 与列表 VO），
  * 排班逐日计薪的口径只允许有服务端一份实现（设计规范 §4.3.3、Q5）。
  */
 
-/** 驳回阶段副信息：设计规范 §1.2 规定列表副信息用「站长未通过 / 老板未通过」，
+/** 驳回阶段副信息：设计规范 §1.2 规定列表副信息用「站长未通过 / 管理员未通过」，
  *  与字典 LEAVE_REJECT_STAGE 的「初审驳回 / 终审驳回」（筛选与统计口径）刻意区分 */
-const REJECT_STAGE_TEXT = { STATION: '站长未通过', BOSS: '老板未通过' }
+const REJECT_STAGE_TEXT = { STATION: '站长未通过', BOSS: '管理员未通过' }
 
 /** 今日日期：日期控件 min-date 与过去日期护栏共用一份，避免两处各算一次「今天」 */
 export const todayText = () => formatDate(new Date())
@@ -63,7 +63,7 @@ export function leaveNextText(item) {
     case 'PENDING_STATION':
       return '等待站长初审'
     case 'PENDING_BOSS':
-      return '已通过站长初审，等待老板终审'
+      return '已通过站长初审，等待管理员终审'
     case 'APPROVED':
       return '已生效，考勤与算薪按审批时的快照计入'
     case 'CANCELLED':

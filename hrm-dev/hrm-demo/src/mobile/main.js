@@ -12,7 +12,7 @@ import './styles/tokens.scss'
 import './styles/mobile.scss'
 
 /**
- * 移动端入口（老板端 + 员工端）
+ * 移动端入口（管理端 + 员工端）
  *
  * MPA 独立入口的意义：Vant 不进入 PC 包、Element Plus 不进入移动包，两套全局样式物理隔离。
  * 真实形态：安卓 WebView 加载同一 mobile.html，通过 HrmBridge/HrmShell 交换设备与返回键信息

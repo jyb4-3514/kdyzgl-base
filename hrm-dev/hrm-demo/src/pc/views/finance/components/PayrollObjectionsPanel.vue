@@ -21,7 +21,7 @@ const emit = defineEmits(['refresh', 'handle'])
 <template>
   <el-card shadow="never" class="content-card">
     <p class="finance-page__note">
-      员工提异议后单据会退回「待审核」，由老板重新核定后再发布。契约没有独立的异议列表接口， 本表取「待审核」状态的单据后筛选有异议原因的行。
+      员工提异议后单据会退回「待审核」，由管理员重新核定后再发布。契约没有独立的异议列表接口， 本表取「待审核」状态的单据后筛选有异议原因的行。
     </p>
     <StateBlock v-if="error" variant="error" title="异议列表加载失败" @action="emit('refresh')" />
     <StateBlock

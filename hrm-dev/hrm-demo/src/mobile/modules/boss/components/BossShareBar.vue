@@ -4,7 +4,7 @@ import { numberText } from '@/mobile/utils/format.js'
 import BossInlineEmpty from './BossInlineEmpty.vue'
 
 /**
- * N-02 占比摘要（100% 堆叠条，老板端专属）
+ * N-02 占比摘要（100% 堆叠条，管理端专属）
  * 为什么不用环图：窄屏（≤480px）图例易折行；且构成下钻已由调用页既有入口承担（UI 规范 §8.2）。
  * 为什么本体不当下钻入口：它是视觉摘要，下钻入口必须留在调用页；
  * 故只有调用方真的绑定了 select 监听时图例才升级为可点按钮，否则渲染为纯文本，不制造假入口。

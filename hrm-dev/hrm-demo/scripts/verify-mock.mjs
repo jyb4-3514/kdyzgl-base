@@ -15,7 +15,7 @@ import { resetFinanceStore } from '../src/shared/mock/financeStore.js'
 import { resetLeaveStore } from '../src/shared/mock/leaveStore.js'
 import { resetClientLogStore } from '../src/shared/mock/clientLogStore.js'
 import { ATTENDANCE_METRIC, LEAVE_STATUS, LEAVE_TYPE, NOTIFICATION_TYPE } from '../src/shared/constants/dict.js'
-import { LEAVE_CODE, codeMessage } from '../src/shared/constants/errorCode.js'
+import { AUTH_BOOST_CODE, LEAVE_CODE, codeMessage } from '../src/shared/constants/errorCode.js'
 import {
   addDays,
   currentMonth,
@@ -868,6 +868,36 @@ async function main() {
     ? staffNotif.result.list.find((n) => n.bizType === 'work_order' && n.bizId === pendingWo.id)
     : null
   check('被指派人可见指派通知且可跳转', !!targetNotif && targetNotif.type === 1 && !targetNotif.isRead)
+
+  /* 通知详情 GET /notifications/:id（通知阅读页读口）：与列表项同形、失败统一 9001、纯读无副作用 */
+  const notifDetail = targetNotif
+    ? await call('get', `/notifications/${targetNotif.id}`, { token: t5StaffToken })
+    : { ok: false, result: null }
+  check(
+    '通知详情可取回且字段形状与列表项同形',
+    !!targetNotif &&
+      notifDetail.ok &&
+      Object.keys(notifDetail.result).sort().join(',') === Object.keys(targetNotif).sort().join(',')
+  )
+  check(
+    '通知详情正文与列表项全等（VO 的 content 是全量正文）',
+    !!targetNotif && notifDetail.ok && notifDetail.result.content === targetNotif.content
+  )
+  const notifRowBefore = targetNotif ? db.notifications.find((n) => n.id === targetNotif.id) : null
+  const notifRowAfter = targetNotif ? db.notifications.find((n) => n.id === targetNotif.id) : null
+  check(
+    '通知详情读接口无副作用（is_read 不变）',
+    !!notifRowBefore && !!notifRowAfter && notifRowBefore.is_read === 0 && notifRowAfter.is_read === 0
+  )
+  await expectCode(
+    '取他人通知详情 → 9001',
+    'get',
+    `/notifications/${targetNotif ? targetNotif.id : 1}`,
+    { token: t5AdminToken },
+    9001
+  )
+  await expectCode('取不存在的通知详情 → 9001', 'get', '/notifications/999999', { token: t5StaffToken }, 9001)
+
   if (targetNotif)
     await expectCode('标记通知已读', 'put', `/notifications/${targetNotif.id}/read`, { token: t5StaffToken }, 200)
   await expectCode(
@@ -1197,6 +1227,76 @@ async function main() {
   check(
     '历史排班日概况有正常/迟到数据（演示可看）',
     sumHist.ok && sumHist.result.shouldCount > 0 && sumHist.result.actualCount > 0 && sumHist.result.normalCount > 0
+  )
+
+  /* ---- 打卡明细（Q1）：与概况同源，六个维度人数必须对得上 ---- */
+  const DIM_KEYS = ['shouldCount', 'actualCount', 'normalCount', 'lateCount', 'earlyLeaveCount', 'absentCount']
+  const detailDims = ['SHOULD', 'ACTUAL', 'NORMAL', 'LATE', 'EARLY_LEAVE', 'ABSENT']
+  const details = []
+  for (const dim of detailDims) {
+    details.push(
+      await call('get', '/attendance/detail', { params: { dim, stationId: 1, date: today }, token: attAdminToken })
+    )
+  }
+  check(
+    '明细六维度人数与概况六计数一一相等（同源口径）',
+    sum1.ok &&
+      details.every((d, i) => d.ok && d.result.total === sum1.result[DIM_KEYS[i]] && d.result.list.length === d.result.total)
+  )
+  const DAY_STATES = ['NORMAL', 'LATE', 'EARLY_LEAVE', 'MISS']
+  const lateDetail = details[3]
+  check(
+    '明细行契约字段齐全且 dayState 取 DAY_ATTENDANCE_STATE',
+    lateDetail.ok &&
+      lateDetail.result.list.every(
+        (r) =>
+          typeof r.employeeId === 'number' &&
+          !!r.employeeName &&
+          'stationId' in r &&
+          'stationName' in r &&
+          'shiftName' in r &&
+          'periodName' in r &&
+          (r.onCheck === null || (typeof r.onCheck.time === 'string' && typeof r.onCheck.status === 'string')) &&
+          (r.offCheck === null || (typeof r.offCheck.time === 'string' && typeof r.offCheck.status === 'string')) &&
+          DAY_STATES.includes(r.dayState)
+      )
+  )
+  check(
+    '迟到明细每行都有上班卡且 dayState 为迟到',
+    lateDetail.ok && lateDetail.result.list.every((r) => r.onCheck && r.onCheck.time && r.dayState === 'LATE')
+  )
+  check(
+    '缺卡明细每行无任何打卡时间（差集而非打卡事实）',
+    details[5].ok && details[5].result.list.every((r) => !r.onCheck && !r.offCheck)
+  )
+  const staDetail = await call('get', '/attendance/detail', {
+    params: { dim: 'SHOULD', stationId: 2 },
+    token: attStaToken
+  })
+  check(
+    '越权覆盖：站长明细收敛本站(1)',
+    staDetail.ok && staDetail.result.list.every((r) => r.stationId === 1)
+  )
+  await expectCode(
+    '明细 dim 取值非法 → 400',
+    'get',
+    '/attendance/detail',
+    { params: { dim: 'XXX' }, token: attAdminToken },
+    400
+  )
+  await expectCode(
+    '明细 dim 缺省 → 400',
+    'get',
+    '/attendance/detail',
+    { params: {}, token: attAdminToken },
+    400
+  )
+  await expectCode(
+    '明细 date 格式非法 → 400',
+    'get',
+    '/attendance/detail',
+    { params: { dim: 'SHOULD', date: '2026/09/17' }, token: attAdminToken },
+    400
   )
 
   /* ---- 我的打卡 ---- */
@@ -2086,7 +2186,7 @@ async function main() {
     histT18.ok && histT18.result.list.every((r) => r.periodName === ruleSeed1.result.checkPeriods[0].name)
   )
 
-  /* ---- 旧客户端兼容：老板端规则页当前只发上下班时间 ---- */
+  /* ---- 旧客户端兼容：管理端规则页当前只发上下班时间 ---- */
   const legacySave = await expectCode(
     '旧客户端只发上下班时间可正常保存',
     'put',
@@ -2268,7 +2368,7 @@ async function main() {
 
   /* ---- 越权：仅 ADMIN 可看全量与审批 ---- */
   await expectCode(
-    'STAFF 访问补卡列表 → 403（仅老板可审批）',
+    'STAFF 访问补卡列表 → 403（仅管理员可审批）',
     'get',
     '/attendance/makeup/list',
     { token: t19StaffToken },
@@ -3878,7 +3978,7 @@ async function main() {
     9106
   )
   await expectCode(
-    '站长一键铺排 → 403（仅老板可批量排班）',
+    '站长一键铺排 → 403（仅管理员可批量排班）',
     'post',
     '/schedules/batch-by-station',
     { data: batchBody({}), token: cfgStaToken },
@@ -5981,7 +6081,7 @@ async function main() {
   )
   const lvStaOwnId = lvStaOwn.ok ? lvStaOwn.result.id : 0
   check(
-    'C. 站长提交后状态为待老板终审且无初审痕迹',
+    'C. 站长提交后状态为待管理员终审且无初审痕迹',
     lvStaOwn.ok &&
       lvStaOwn.result.status === 'PENDING_BOSS' &&
       lvStaOwn.result.stationApproverId == null &&
@@ -6002,7 +6102,7 @@ async function main() {
     400
   )
   const lvStaApprove = await expectCode(
-    'C. T2 站长初审通过 → 待老板终审',
+    'C. T2 站长初审通过 → 待管理员终审',
     'post',
     `/leave/${lvL1Id}/station-approve`,
     { data: { approved: true, remark: '情况属实，准假' }, token: lvStaToken },
@@ -6016,7 +6116,7 @@ async function main() {
       lvStaApprove.result.approverId == null
   )
   const lvFinal = await expectCode(
-    'C. T4 老板终审通过 → 已通过',
+    'C. T4 管理员终审通过 → 已通过',
     'post',
     `/leave/${lvL1Id}/final-approve`,
     { data: { approved: true, remark: '同意' }, token: lvAdminToken },
@@ -6558,10 +6658,10 @@ async function main() {
     lvNoticeApply.length === 1 && lvNoticeApply[0].type === 5 && lvNoticeApply[0].isRead === false
   )
   const lvNoticeStaOwn = await lvNoticesOf(lvAdminToken, lvStaOwnId)
-  check('H. 场景2 站长提交 → 老板收到 1 条待终审通知', lvNoticeStaOwn.length === 1 && lvNoticeStaOwn[0].type === 5)
+  check('H. 场景2 站长提交 → 管理员收到 1 条待终审通知', lvNoticeStaOwn.length === 1 && lvNoticeStaOwn[0].type === 5)
   const lvNoticeStationPass = await lvNoticesOf(lvAdminToken, lvL1Id)
   check(
-    'H. 场景3 初审通过 → 老板收到 1 条待终审通知',
+    'H. 场景3 初审通过 → 管理员收到 1 条待终审通知',
     lvNoticeStationPass.length === 1 && lvNoticeStationPass[0].type === 5
   )
   const lvNoticeStationReject = await lvNoticesOf(lvStaffToken, lvL2Id)
@@ -6797,6 +6897,103 @@ async function main() {
       `半天单 ${lvAll.filter((l) => l.naturalDays === 0.5).length} 条 / 跨天单 ${lvAll.filter((l) => l.endDate > l.startDate).length} 条 / ` +
       `开关联动：ON 缺勤 ${lvStatOn.absentCount} > OFF 缺勤 ${lvStatOff.absentCount}（已批请假 ${lvStatOff.leaveCount} 天）/ ` +
       `运行日志环形缓冲 ${lvRingRes.ok ? lvRingRes.result.total : '-'} 条（上限 200）/ 撤回阻断用例 ${lvLockedSeed ? '驿站 ' + lvLockedSeed.stationId : '未取到'}`
+  )
+
+  /* ==================== 登录体系改造（11xx / 双通道 / 设备信任 / 3 天到期） ==================== */
+  // 独立起一段干净状态：本段会改写 clientType / device / 会话元数据，先重置避免与上文相互影响
+  resetDb()
+  const devAdminId = db.employees.find((e) => e.username === 'admin').id
+  const devStaffId = db.employees.find((e) => e.username === 'st001_staff').id
+  const staffPhone = db.employees.find((e) => e.id === devStaffId).phone
+  const deviceA = { deviceId: 'demo-device-A', platform: 'WEB', model: 'DemoPC', osVersion: 'Win', screen: '1920x1080', timezone: 'Asia/Shanghai' }
+
+  // 1) 既有出参零变更（不传 clientType/device）：原有 3 字段仍在，且追加字段为向后兼容
+  const backward = await login('admin', 'demo1234')
+  check(
+    'B1. 既有出参保留 token/expiresIn/employee（未传 clientType/device 时行为不变）',
+    backward.ok &&
+      typeof backward.result.token === 'string' &&
+      backward.result.expiresIn === 259200 &&
+      !!backward.result.employee &&
+      backward.result.employee.role === 'ADMIN'
+  )
+  check('B1. 会话有效期改为 3 天并追加 sessionExpireAt（向后兼容扩展）', backward.ok && typeof backward.result.sessionExpireAt === 'string')
+  check('B1. 老设备（无 device）默认受信，不触发二次验证', backward.ok && backward.result.deviceTrusted === true && backward.result.needDeviceVerify === false)
+
+  // 2) 新设备二次验证：返回分流字段且**不签发** token
+  const newDevice = await call('post', '/auth/login', { data: { username: 'admin', password: 'demo1234', clientType: 'WEB', device: deviceA } })
+  check(
+    'B1. 新设备返回 needDeviceVerify + twoFactorTicket 且不签发会话',
+    newDevice.ok && newDevice.result.needDeviceVerify === true && !!newDevice.result.twoFactorTicket && !newDevice.result.token
+  )
+  check('B1. 二次验证分支的手机号已脱敏', newDevice.ok && /^\d{3}\*{4}\d{4}$/.test(newDevice.result.employee.phone))
+
+  // 3) 设备步发码（按 twoFactorTicket 定位账号，页面无需明文手机号）
+  const devSend = await call('post', '/auth/sms/send', { data: { scene: 'DEVICE_VERIFY', twoFactorTicket: newDevice.result.twoFactorTicket, deviceId: deviceA.deviceId } })
+  check('A1. 设备步发码成功且返回 60s 重发间隔/300s 有效期', devSend.ok && devSend.result.sent === true && devSend.result.nextAllowedIn === 60 && devSend.result.expireIn === 300)
+  check('A1. 演示态不开启图形验证码', devSend.ok && devSend.result.requireCaptcha === false)
+
+  // 4) 验证码错误 → 1102；正确（演示固定码）→ 签发会话并写入受信设备
+  await expectCode(
+    'B2. 设备验证码错误 → 1102',
+    'post',
+    '/auth/device/verify',
+    { data: { twoFactorTicket: newDevice.result.twoFactorTicket, code: '111111' } },
+    AUTH_BOOST_CODE.CODE_INVALID
+  )
+  const devOk = await call('post', '/auth/device/verify', { data: { twoFactorTicket: newDevice.result.twoFactorTicket, code: '000000' } })
+  check('B2. 设备验证通过 → 签发会话且 deviceTrusted=true', devOk.ok && typeof devOk.result.token === 'string' && devOk.result.deviceTrusted === true)
+  check('B2. 受信设备写入 trustedDevices（服务端持有信任态）', db.trustedDevices.some((d) => d.employee_id === devAdminId && d.device_id === deviceA.deviceId && d.revoked === 0))
+
+  // 5) 已受信设备再次登录不再二次验证
+  const trustedLogin = await call('post', '/auth/login', { data: { username: 'admin', password: 'demo1234', clientType: 'WEB', device: deviceA } })
+  check('B1. 已受信设备登录直接签发会话（不再触发二次验证）', trustedLogin.ok && typeof trustedLogin.result.token === 'string' && trustedLogin.result.needDeviceVerify === false)
+  const devAdminToken = trustedLogin.ok ? trustedLogin.result.token : ''
+
+  // 6) 端准入 1110：网页端仅 ADMIN；移动端管理端视角 ADMIN/STATION_ADMIN
+  await expectCode('端准入. 网页端非 ADMIN → 1110', 'post', '/auth/login', { data: { username: 'st001_admin', password: 'demo1234', clientType: 'WEB' } }, AUTH_BOOST_CODE.END_NOT_ALLOWED)
+  await expectCode('端准入. 移动端管理端视角 STAFF → 1110', 'post', '/auth/login', { data: { username: 'st001_staff', password: 'demo1234', clientType: 'H5', as: 'boss' } }, AUTH_BOOST_CODE.END_NOT_ALLOWED)
+  const h5Station = await call('post', '/auth/login', { data: { username: 'st001_admin', password: 'demo1234', clientType: 'H5', as: 'boss' } })
+  check('端准入. 移动端管理端视角 STATION_ADMIN 放行', h5Station.ok && typeof h5Station.result.token === 'string')
+  const h5Staff = await call('post', '/auth/login', { data: { username: 'st001_staff', password: 'demo1234', clientType: 'H5', as: 'station' } })
+  check('端准入. 员工端不限角色（STAFF 放行）', h5Staff.ok && typeof h5Staff.result.token === 'string')
+
+  // 7) 短信验证码通道（A2）+ 频控（1101）+ 未绑手机号（1109）
+  const smsSendOk = await call('post', '/auth/sms/send', { data: { phone: staffPhone, scene: 'LOGIN', clientType: 'H5' } })
+  check('A1. 登录场景发码成功', smsSendOk.ok && smsSendOk.result.sent === true)
+  await expectCode('A2. 短信登录验证码错误 → 1102', 'post', '/auth/sms/login', { data: { phone: staffPhone, code: '222222', clientType: 'H5' } }, AUTH_BOOST_CODE.CODE_INVALID)
+  const smsLoginOk = await call('post', '/auth/sms/login', { data: { phone: staffPhone, code: '000000', clientType: 'H5', device: { deviceId: 'demo-device-H5', platform: 'H5' } } })
+  check('A2. 短信登录成功签发会话且 deviceTrusted=true（短信即二次因子）', smsLoginOk.ok && typeof smsLoginOk.result.token === 'string' && smsLoginOk.result.deviceTrusted === true)
+  await expectCode('A1. 同手机号 60s 内重复发码 → 1101', 'post', '/auth/sms/send', { data: { phone: staffPhone, scene: 'LOGIN' } }, AUTH_BOOST_CODE.SMS_RATE_LIMITED)
+  await expectCode('A1. 未绑定手机号发码 → 1109', 'post', '/auth/sms/send', { data: { phone: '13900000000', scene: 'LOGIN' } }, AUTH_BOOST_CODE.PHONE_NOT_BOUND)
+
+  // 8) 设备管理（C1/C2）：仅本人、IP 脱敏、撤销当前设备等价登出
+  const devList = await call('get', '/auth/devices', { token: devAdminToken })
+  check(
+    'C1. 设备列表仅返回本人设备且当前设备标记 current',
+    devList.ok &&
+      devList.result.length > 0 &&
+      devList.result.every((d) => typeof d.deviceId === 'string') &&
+      devList.result.some((d) => d.deviceId === deviceA.deviceId && d.current === true)
+  )
+  check('C1. 设备列表 IP 已脱敏（不含完整 IPv4）', devList.ok && devList.result.every((d) => !/\d+\.\d+\.\d+\.\d+/.test(String(d.lastIp))))
+  await expectCode('C2. 撤销本人当前设备成功', 'delete', `/auth/devices/${deviceA.deviceId}`, { token: devAdminToken }, 200)
+  await expectCode('C2. 撤销当前设备会话即刻失效 → 401', 'get', '/auth/me', { token: devAdminToken }, 401, 401)
+
+  // 9) 会话 3 天到期（1108）：服务端权威判定，超期一律 1108 而非普通 401
+  const expireLogin = await login('admin', 'demo1234')
+  const expireToken = expireLogin.ok ? expireLogin.result.token : ''
+  if (expireLogin.ok) db.sessionMeta.set(devAdminId, { deviceId: null, expireAt: 1 })
+  await expectCode('S9. 会话到期访问 → 1108（登录已到期，须重新登录）', 'get', '/auth/me', { token: expireToken }, AUTH_BOOST_CODE.SESSION_EXPIRED)
+
+  // 10) 图形验证码（D1，可选端点，演示态默认不启用）
+  const captcha = await call('get', '/auth/captcha', {})
+  check('D1. 图形验证码端点可用且返回 ticket', captcha.ok && typeof captcha.result.ticket === 'string')
+  check('11xx 全段均有中文文案（无「有码无文案」）', [1101, 1102, 1103, 1104, 1105, 1106, 1107, 1108, 1109, 1110].every((c) => codeMessage(c) !== '操作失败'))
+
+  console.log(
+    `\n[登录体系改造] 受信设备 ${db.trustedDevices.length} 条 / 短信审计 ${db.smsLogs.length} 条 / ` +
+      `1110 端准入（WEB 非 ADMIN、H5 管理端 STAFF）与 1108 到期均已覆盖`
   )
 
   console.log('\n================ Mock 契约校验结果 ================')

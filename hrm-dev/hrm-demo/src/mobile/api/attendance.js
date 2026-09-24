@@ -22,6 +22,8 @@ export const getAttendanceStatus = () => http.get('/attendance/status')
 export const checkIn = (data) => http.post('/attendance/check-in', data, { silent: true })
 export const getAttendanceRecords = (params) => http.get('/attendance/records', { params })
 export const getAttendanceSummary = (params) => http.get('/attendance/summary', { params })
+/** 考勤明细（管理端）：入参 { dim, stationId?, date? }，dim 为六维度白名单，含时应到/缺卡这类「无打卡记录」的人 */
+export const getAttendanceDetail = (params) => http.get('/attendance/detail', { params })
 export const getMyAttendance = (params) => http.get('/attendance/my', { params })
 
 /* ==================== 排班与班次 ==================== */

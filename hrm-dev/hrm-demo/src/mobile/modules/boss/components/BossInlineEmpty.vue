@@ -1,6 +1,6 @@
 <script setup>
 /**
- * N-05 组内空态（老板端专属）
+ * N-05 组内空态（管理端专属）
  * 为什么单独立：alerts.vue 原先手写 4 处 `<p class="empty muted">`，文案样式各行其是。
  * 与 PageState 的分工：PageState 管整页三态，本组件只做「卡片内某一区块」的轻量空态，
  * 所以尺寸比 PageState 小一档（图标 28 / 文案 caption），不抢整页空态的位置。

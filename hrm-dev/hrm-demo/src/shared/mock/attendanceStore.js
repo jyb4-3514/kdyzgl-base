@@ -28,7 +28,7 @@ import { ATTENDANCE_CODE, CODE } from '../constants/errorCode.js'
  * 跨天时数据相对新的一天重排（与 parcelStore 的「近 N 天」口径一致）。
  *
  * 时段模型（T18）：规则新增 checkFrequency（每日 2 次 / 4 次）+ checkPeriods（时段明细），
- * 老板端可自定义上下班时间与打卡频次；workStartTime / workEndTime 退化为派生值（首时段开始 / 末时段结束），
+ * 管理端可自定义上下班时间与打卡频次；workStartTime / workEndTime 退化为派生值（首时段开始 / 末时段结束），
  * 时段是唯一真源，保证「改了时段，展示与统计口径同步变化」。打卡记录按 periodIndex + periodName 归属时段。
  *
  * TODO(扩展): 打卡/排班/规则的写操作目前只存活于当前会话，刷新即回到种子态。
@@ -358,7 +358,7 @@ function periodsOf(rule) {
  *
  * 时段切分为什么按「排班班次」均分而不是直接照搬规则时段：记录必须与员工当天的排班自洽，
  * 否则会出现「排的是晚班、卡却打在上下午」这类矛盾数据；频次只决定切几段，段名取规则声明的名称，
- * 这样老板端自定义的时段名能直接出现在记录列表里。
+ * 这样管理端自定义的时段名能直接出现在记录列表里。
  */
 function buildRecords(random) {
   const todayText = formatDate(new Date())
@@ -742,6 +742,20 @@ export function exportRecords(filters) {
 }
 
 /**
+ * 出勤口径的公共取数：概况与明细共用，杜绝「明细人数与概况对不上」。
+ * 口径（唯一真源）：应到 = 当日有排班者；有效卡 = 非 ABNORMAL（校验未通过的异常卡不算已完成打卡）。
+ * 判定表达式只此一处，改口径必同时影响 attendanceSummary 与 attendanceDetail。
+ */
+function attendanceScope(workDate, sid) {
+  const inScope = (row) => row.workDate === workDate && (sid == null || row.stationId === sid)
+  return {
+    shouldRows: schedules.filter(inScope),
+    onCards: records.filter((r) => inScope(r) && r.status !== 'ABNORMAL' && r.checkType === 'ON'),
+    offCards: records.filter((r) => inScope(r) && r.status !== 'ABNORMAL' && r.checkType === 'OFF')
+  }
+}
+
+/**
  * 打卡概况：应到 = 当天排班人数，实到 = 当天有有效上班卡的人数，
  * 异常卡（校验未通过）不计入实到与正常/迟到/早退，避免「校验没通过也算出勤」。
  */
@@ -749,21 +763,104 @@ export function attendanceSummary(stationId, date) {
   ensureBuilt()
   const workDate = date || formatDate(new Date())
   const sid = stationId == null || stationId === '' ? null : Number(stationId)
-  const inScope = (row) => row.workDate === workDate && (sid == null || row.stationId === sid)
-  const shouldCount = schedules.filter(inScope).length
-  const valid = records.filter((r) => inScope(r) && r.status !== 'ABNORMAL')
-  const onCards = valid.filter((r) => r.checkType === 'ON')
-  const offCards = valid.filter((r) => r.checkType === 'OFF')
+  const { shouldRows, onCards, offCards } = attendanceScope(workDate, sid)
   const actualCount = new Set(onCards.map((r) => r.employeeId)).size
   return {
     date: workDate,
-    shouldCount,
+    shouldCount: shouldRows.length,
     actualCount,
     normalCount: onCards.filter((r) => r.status === 'NORMAL').length,
     lateCount: onCards.filter((r) => r.status === 'LATE').length,
     earlyLeaveCount: offCards.filter((r) => r.status === 'EARLY_LEAVE').length,
-    absentCount: Math.max(0, shouldCount - actualCount)
+    absentCount: Math.max(0, shouldRows.length - actualCount)
   }
+}
+
+/** 明细维度白名单：六个码与 attendanceSummary 的六个计数字段一一对应 */
+export const ATTENDANCE_DETAIL_DIMS = ['SHOULD', 'ACTUAL', 'NORMAL', 'LATE', 'EARLY_LEAVE', 'ABSENT']
+
+/** 该人当天某类型有效卡：多时段时取最早一张作代表（列表只展示一组上下班时间） */
+const cardOf = (cards, employeeId) =>
+  cards
+    .filter((r) => r.employeeId === employeeId)
+    .reduce((early, cur) => (!early || cur.checkTime < early.checkTime ? cur : early), null)
+
+/** 到达态优先级：无有效上班卡=缺卡 > 迟到 > 早退（到达后签退）> 正常，与员工端 dayStatusOf 同序（除异常） */
+const dayStateOf = (on, off) => {
+  if (!on) return 'MISS'
+  if (on.status === 'LATE') return 'LATE'
+  if (off && off.status === 'EARLY_LEAVE') return 'EARLY_LEAVE'
+  return 'NORMAL'
+}
+
+const shiftNameOf = (shiftId) => {
+  const shift = shiftById(shiftId)
+  return shift ? shift.shiftName : null
+}
+
+/** 每维度的名单来源（人）：只决定「谁在名单里」，行内容统一由 buildDetailRow 补齐 */
+function detailMembers(dim, { shouldRows, onCards, offCards }) {
+  const idsWithStatus = (cards, status) => [...new Set(cards.filter((r) => r.status === status).map((r) => r.employeeId))]
+  if (dim === 'SHOULD') return shouldRows.map((s) => ({ employeeId: s.employeeId, shiftName: shiftNameOf(s.shiftId) }))
+  if (dim === 'ABSENT') {
+    const actualIds = new Set(onCards.map((r) => r.employeeId))
+    return shouldRows
+      .filter((s) => !actualIds.has(s.employeeId))
+      .map((s) => ({ employeeId: s.employeeId, shiftName: shiftNameOf(s.shiftId) }))
+  }
+  if (dim === 'ACTUAL') return [...new Set(onCards.map((r) => r.employeeId))].map((employeeId) => ({ employeeId }))
+  if (dim === 'NORMAL' || dim === 'LATE') {
+    return idsWithStatus(onCards, dim).map((employeeId) => ({ employeeId }))
+  }
+  if (dim === 'EARLY_LEAVE') return idsWithStatus(offCards, 'EARLY_LEAVE').map((employeeId) => ({ employeeId }))
+  return []
+}
+
+/** 组装明细行（§14.4 契约）：一个人 + 当天在该维度的事实，六个维度结构一致 */
+function buildDetailRow({ employeeId, shiftName }, { onCards, offCards }) {
+  const employee = db.employees.find((e) => e.id === employeeId)
+  const on = cardOf(onCards, employeeId)
+  const off = cardOf(offCards, employeeId)
+  const representative = on || off
+  return {
+    employeeId,
+    employeeName: (employee && employee.real_name) || `员工 #${employeeId}`,
+    stationId: employee ? employee.station_id : null,
+    stationName: employee ? stationName(employee.station_id) || '' : '',
+    shiftName: shiftName || null,
+    periodName: representative ? representative.periodName : null,
+    onCheck: on ? { time: on.checkTime, status: on.status } : null,
+    offCheck: off ? { time: off.checkTime, status: off.status } : null,
+    dayState: dayStateOf(on, off),
+    remark: representative ? representative.remark || null : null
+  }
+}
+
+/** 排序（§14.6.2）：迟到/早退按命中卡时间倒序，缺卡按姓名，应到按风险优先，实到/正常按上班卡时间倒序 */
+function sortDetailRows(dim, rows) {
+  const byName = (a, b) => a.employeeName.localeCompare(b.employeeName, 'zh')
+  const hitTime = (row) => (row.onCheck ? row.onCheck.time : row.offCheck ? row.offCheck.time : '')
+  const byTimeDesc = (a, b) => (hitTime(a) < hitTime(b) ? 1 : -1)
+  if (dim === 'ABSENT') rows.sort(byName)
+  else if (dim === 'SHOULD') {
+    const risk = (row) => (row.dayState === 'MISS' ? 0 : row.dayState === 'LATE' ? 1 : 2)
+    rows.sort((a, b) => risk(a) - risk(b) || byName(a, b))
+  } else rows.sort(byTimeDesc)
+}
+
+/**
+ * 考勤明细：按维度返回「人 + 当天在该维度的事实」名单。
+ * 口径与 attendanceSummary 完全同源（共用 attendanceScope），不在展示层组合排班与记录；
+ * 缺卡 = 应到差集实到（不是异常卡），异常卡六个维度都不承载。
+ */
+export function attendanceDetail({ dim, stationId, date }) {
+  ensureBuilt()
+  const workDate = date || formatDate(new Date())
+  const sid = stationId == null || stationId === '' ? null : Number(stationId)
+  const scope = attendanceScope(workDate, sid)
+  const list = detailMembers(dim, scope).map((member) => buildDetailRow(member, scope))
+  sortDetailRows(dim, list)
+  return { dim, date: workDate, total: list.length, list }
 }
 
 /**
@@ -1060,7 +1157,7 @@ export function checkIn({ employee, stationId, checkType, wifiSsid, longitude, l
 
 /**
  * 补卡样本方案：PENDING 8 条（多驿站 / 上下班卡 / 不同时段）+ APPROVED 5 条 + REJECTED 3 条。
- * 审批权在老板（ADMIN）：样本里的审批人统一取首个 ADMIN，与接口的只有 ADMIN 能审批保持一致。
+ * 审批权在管理员（ADMIN）：样本里的审批人统一取首个 ADMIN，与接口的只有 ADMIN 能审批保持一致。
  */
 const MAKEUP_PLAN = [
   { stationId: 1, status: 'PENDING' },

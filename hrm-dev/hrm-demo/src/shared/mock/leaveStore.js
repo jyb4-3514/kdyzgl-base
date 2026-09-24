@@ -189,7 +189,7 @@ function dateError(form) {
   if (naturalDaysOf(form) > MAX_LEAVE_DAYS)
     return {
       code: LEAVE_CODE.DATE_INVALID,
-      message: `单次请假最长 ${MAX_LEAVE_DAYS} 天，如需更长请分次申请或联系老板`
+      message: `单次请假最长 ${MAX_LEAVE_DAYS} 天，如需更长请分次申请或联系管理员`
     }
   return null
 }
@@ -396,7 +396,7 @@ function notifyApply(leave, employee, stationApprover, status) {
       target: employee,
       type: NOTIFY_RESULT,
       title: '请假申请已直接提交终审',
-      content: '本站暂无在职站长，您的申请已直接提交老板终审'
+      content: '本站暂无在职站长，您的申请已直接提交管理员终审'
     })
   }
 }
@@ -527,7 +527,7 @@ export function stationApprove({ id, approved, remark, operator }) {
   return { code: 200, data: toLeaveVO(leave, operator) }
 }
 
-/** T4 / T5 老板终审：通过时落计薪天数快照（排班事后变更不影响已出账口径） */
+/** T4 / T5 管理员终审：通过时落计薪天数快照（排班事后变更不影响已出账口径） */
 export function finalApprove({ id, approved, remark, operator }) {
   ensure()
   const leave = state.leaves.find((l) => l.id === Number(id))

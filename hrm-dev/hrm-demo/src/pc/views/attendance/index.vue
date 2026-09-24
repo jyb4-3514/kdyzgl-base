@@ -188,7 +188,7 @@
       @confirm="handleExport"
     />
 
-    <!-- 补卡审批仅老板（ADMIN）可见：站长无审批权，接口也会回 403，前端不渲染入口避免误导 -->
+    <!-- 补卡审批仅管理员（ADMIN）可见：站长无审批权，接口也会回 403，前端不渲染入口避免误导 -->
     <!-- TODO(扩展): ①「缺卡」卡加下钻（筛选 status=ABNORMAL）；② 补卡审批改为页内 Tab 视图，
          避免高频动作被压在页面末尾（A9-5） -->
     <MakeupApproval v-if="isAdmin" :stations="stations" />

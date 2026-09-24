@@ -10,7 +10,7 @@ import { getAttendanceSummary } from '@/mobile/api/attendance.js'
 import { clockText, numberText, shortDateText } from '@/mobile/utils/format.js'
 
 /**
- * B7 考勤概览（ADMIN · 老板端）
+ * B7 考勤概览（ADMIN · 管理端）
  * 口径：一屏看清「今天该来多少、来了多少、多少不正常」，异常明细给一键下钻。
  * 为什么不用日期切换：summary 支持 date 参数，但移动端首屏只服务「今天」这一个高频问题，
  * 历史数据统一走「打卡记录」页的日期筛选。
@@ -43,6 +43,14 @@ const abnormalText = computed(() => {
   if (!data) return ''
   return `今日 ${abnormalTotal.value} 项考勤异常：迟到 ${data.lateCount} · 早退 ${data.earlyLeaveCount} · 缺卡 ${data.absentCount}`
 })
+
+/** 可点卡的读屏补充语义（§14.9）：明示点开能看名单，避免只播报一个数字 */
+const DETAIL_HINT = '可查看名单'
+
+/** 六卡统一下钻到明细页（§14.8）：维度码与 summary 的六个计数字段一一对应 */
+function openDetail(dim) {
+  router.push({ path: '/boss/attendance/detail', query: { dim } })
+}
 
 /**
  * 出勤构成占比摘要：正常 + 迟到 + 缺卡 恰为应到（异常卡不计入实到与迟到/早退）。
@@ -102,24 +110,54 @@ onMounted(load)
       </section>
 
       <div class="stat-grid stat-grid--roomy">
-        <StatCard label="应到" :value="numberText(summary.shouldCount)" unit="人" tone="neutral" />
-        <StatCard label="实到" :value="numberText(summary.actualCount)" unit="人" tone="primary" />
-        <StatCard label="正常" :value="numberText(summary.normalCount)" unit="人" tone="success" />
+        <StatCard
+          label="应到"
+          :value="numberText(summary.shouldCount)"
+          unit="人"
+          tone="neutral"
+          :hint="DETAIL_HINT"
+          @click="openDetail('SHOULD')"
+        />
+        <StatCard
+          label="实到"
+          :value="numberText(summary.actualCount)"
+          unit="人"
+          tone="primary"
+          :hint="DETAIL_HINT"
+          @click="openDetail('ACTUAL')"
+        />
+        <StatCard
+          label="正常"
+          :value="numberText(summary.normalCount)"
+          unit="人"
+          tone="success"
+          :hint="DETAIL_HINT"
+          @click="openDetail('NORMAL')"
+        />
         <StatCard
           label="迟到"
           :value="numberText(summary.lateCount)"
           unit="人"
           tone="warning"
-          @click="router.push('/boss/attendance/records?status=LATE')"
+          :hint="DETAIL_HINT"
+          @click="openDetail('LATE')"
         />
         <StatCard
           label="早退"
           :value="numberText(summary.earlyLeaveCount)"
           unit="人"
           tone="warning"
-          @click="router.push('/boss/attendance/records?status=EARLY_LEAVE')"
+          :hint="DETAIL_HINT"
+          @click="openDetail('EARLY_LEAVE')"
         />
-        <StatCard label="缺卡" :value="numberText(summary.absentCount)" unit="人" tone="danger" />
+        <StatCard
+          label="缺卡"
+          :value="numberText(summary.absentCount)"
+          unit="人"
+          tone="danger"
+          :hint="DETAIL_HINT"
+          @click="openDetail('ABSENT')"
+        />
       </div>
 
       <!-- 出勤构成占比（N-02）：与上方 6 张指标卡同一份 summary，不新增接口请求 -->

@@ -13,7 +13,7 @@ import { useAuthStore } from '@/mobile/stores/auth.js'
 /**
  * S10 我的（员工端）
  * 壳只做编排：Hero 取数三态 → 数据群导航 → 演示身份 → 账号安全 → 关于 → 退出。
- * 跨端件（Hero / 账号安全 / 演示身份 / 退出）与老板端共用；「账号信息」5 行与「运行环境」员工端不展示。
+ * 跨端件（Hero / 账号安全 / 演示身份 / 退出）与管理端共用；「账号信息」5 行与「运行环境」员工端不展示。
  */
 const auth = useAuthStore()
 const { state, retry } = useMyProfile()

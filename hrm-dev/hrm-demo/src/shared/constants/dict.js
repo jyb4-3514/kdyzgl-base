@@ -90,6 +90,14 @@ export const NOTIFICATION_TYPE = {
   6: { label: '请假结果' }
 }
 
+/**
+ * 公告标记：手工发布的通知带「公告」标签，与系统联动通知（工单/同步/请假）区分「谁发的」。
+ * 通知列表与通知阅读页共用同一份，避免两端各写一份同名不同文案。
+ */
+export const NOTICE_ANNOUNCEMENT = {
+  PUBLISHED: { label: '公告' }
+}
+
 /** 打卡类型：ON=上班卡，OFF=下班卡 */
 export const CHECK_TYPE = {
   ON: { label: '上班卡' },
@@ -224,7 +232,7 @@ export const WORK_ORDER_SOURCE = {
 
 /** 指标适用角色：空 = 全员适用（契约口径），与 kpi.js 的 ROLE_SCOPES 一致 */
 export const KPI_ROLE_SCOPE = {
-  ADMIN: { label: '老板' },
+  ADMIN: { label: '管理员' },
   STATION_ADMIN: { label: '站长' },
   STAFF: { label: '员工' }
 }
@@ -290,7 +298,7 @@ export const FLOW_TYPE = {
 /** 明细展示顺序：要处理的排最前（异常 → 未配置），已停用沉底 */
 export const COLLECT_STATE_ORDER = ['ABNORMAL', 'UNCONFIGURED', 'NORMAL', 'DISABLED']
 
-/** 工资单筛选（顺序即老板端的处理动线：待审核 → 已通过 → 已发布 → 已确认 → 驳回/草稿） */
+/** 工资单筛选（顺序即管理端的处理动线：待审核 → 已通过 → 已发布 → 已确认 → 驳回/草稿） */
 export const PAYROLL_FILTERS = [
   { value: 'PENDING_APPROVAL', label: '待审核' },
   { value: 'APPROVED', label: '已通过' },
@@ -327,7 +335,7 @@ export const CONTRACT_TYPE = {
  */
 export const LEAVE_STATUS = {
   PENDING_STATION: { label: '待站长初审', type: 'warning', variant: 'soft' },
-  PENDING_BOSS: { label: '待老板终审', type: 'primary', variant: 'soft' },
+  PENDING_BOSS: { label: '待管理员终审', type: 'primary', variant: 'soft' },
   APPROVED: { label: '已通过', type: 'success', variant: 'soft' },
   REJECTED: { label: '已驳回', type: 'danger', variant: 'soft' },
   CANCELLED: { label: '已撤销', type: 'info', variant: 'outline' },
@@ -383,8 +391,8 @@ export const LEAVE_LOG_ACTION = {
   CANCEL: { label: '申请人撤销' },
   STATION_APPROVE: { label: '站长初审通过' },
   STATION_REJECT: { label: '站长初审驳回' },
-  FINAL_APPROVE: { label: '老板终审通过' },
-  FINAL_REJECT: { label: '老板终审驳回' },
+  FINAL_APPROVE: { label: '管理员终审通过' },
+  FINAL_REJECT: { label: '管理员终审驳回' },
   REVOKE: { label: '审批人撤回' },
   NOTIFY_SKIP: { label: '通知未送达' }
 }

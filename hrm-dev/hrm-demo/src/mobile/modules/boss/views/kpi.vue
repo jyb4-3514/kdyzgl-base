@@ -21,10 +21,10 @@ import { recentMonths } from '@/mobile/utils/format.js'
 import { KPI_CODE } from '@/shared/constants/errorCode.js'
 
 /**
- * B7 老板端 · KPI 考核（ADMIN）
+ * B7 管理端 · KPI 考核（ADMIN）
  *
  * 两个 Tab 对应两种动作：**看结果**（谁该谈绩效）与**配指标**（考核口径）。
- * 契约口径：/kpi/metrics 与 /kpi/scores/calculate 都只对 ADMIN 开放，故本页即「老板端可写」的唯一入口。
+ * 契约口径：/kpi/metrics 与 /kpi/scores/calculate 都只对 ADMIN 开放，故本页即「管理端可写」的唯一入口。
  *
  * 权重校验是本页最不能做砸的地方，规则见 B7.4：合计 ≠ 100% 时**保存按钮禁用并给出差额**，
  * 而不是等提交后拿 9202 报错 —— 权重错了会导致一整月工资算错，必须在改的时候就看得见。
@@ -255,7 +255,7 @@ async function saveMetric() {
   }
 }
 
-/** 指标配置按需加载：老板多数只看结果，避免每次进页多打一次配置请求 */
+/** 指标配置按需加载：管理员多数只看结果，避免每次进页多打一次配置请求 */
 function onTabChange(name) {
   if (name === 'metric' && !metrics.value.length) loadMetrics()
 }
@@ -305,7 +305,7 @@ onMounted(() => {
           @retry="loadResult"
         >
           <template #empty-action>
-            <!-- 空态给动作而不是干等：老板进这页就是想看结果，没有结果就该能生成 -->
+            <!-- 空态给动作而不是干等：管理员进这页就是想看结果，没有结果就该能生成 -->
             <van-button class="empty-btn" type="primary" :loading="generating" @click="onGenerate"
               >生成本期考核</van-button
             >

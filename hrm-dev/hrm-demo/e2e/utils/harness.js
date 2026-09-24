@@ -5,7 +5,7 @@ import { expect } from '@playwright/test'
 
 /** 演示账号（仅存在于 Mock 数据，非任何环境真实凭据） */
 export const DEMO_PWD = 'demo1234'
-/** 演示身份用户名：老板 / 城东驿站站长 / 城东驿站员工 */
+/** 演示身份用户名：管理员 / 城东驿站站长 / 城东驿站员工 */
 export const ACCOUNT = { boss: 'admin', station: 'st001_admin', staff: 'st001_staff' }
 
 export const EVIDENCE_DIR = fileURLToPath(new URL('../evidence/', import.meta.url))

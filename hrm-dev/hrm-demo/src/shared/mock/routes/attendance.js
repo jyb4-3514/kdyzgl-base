@@ -4,8 +4,10 @@ import { ALL_ROLES } from '../../constants/role.js'
 import { CSV_TYPE, csvDisposition, fail, formatDate, ok, toCsvBlob } from '../util.js'
 import { isBlank, isDate, pageSizeInvalid, textLen } from '../validate.js'
 import {
+  ATTENDANCE_DETAIL_DIMS,
   applyMakeup,
   approveMakeup,
+  attendanceDetail,
   attendanceSummary,
   checkIn,
   createShift,
@@ -177,9 +179,9 @@ function normalizeRule(body, current) {
       : current && Array.isArray(current.checkPeriods)
         ? current.checkPeriods.map((p) => ({ ...p }))
         : null
-  // 兼容旧客户端：老板端规则页当前只发上下班时间（不支持多时段），把它映射到首/末时段，
+  // 兼容旧客户端：管理端规则页当前只发上下班时间（不支持多时段），把它映射到首/末时段，
   // 否则页面上的时间改了却不生效（保存后被派生值覆盖回原样）
-  // TODO(扩展): 老板端规则页支持多时段编辑后，删除这条兼容映射
+  // TODO(扩展): 管理端规则页支持多时段编辑后，删除这条兼容映射
   if (body.checkPeriods === undefined && Array.isArray(basePeriods) && basePeriods.length) {
     if (body.workStartTime !== undefined) basePeriods[0].startTime = body.workStartTime
     if (body.workEndTime !== undefined) basePeriods[basePeriods.length - 1].endTime = body.workEndTime
@@ -427,6 +429,16 @@ function summary({ params }) {
   return ok(attendanceSummary(toIdOrNull(params.stationId), params.date))
 }
 
+/**
+ * 考勤明细（Q1）：按维度给出「人 + 当天在该维度的事实」名单，口径与 summary 完全同源（共用同一个 attendanceScope）。
+ * dim 必填且白名单严校验：非法/缺省一律 400，页面侧的「回落 SHOULD」只是体验兜底，不放松服务端约束。
+ */
+function detail({ params }) {
+  if (!ATTENDANCE_DETAIL_DIMS.includes(params.dim)) return fail(CODE.BAD_REQUEST, 'dim 取值非法')
+  if (!isBlank(params.date) && !isDate(params.date)) return fail(CODE.BAD_REQUEST, 'date 格式须为 YYYY-MM-DD')
+  return ok(attendanceDetail({ dim: params.dim, stationId: toIdOrNull(params.stationId), date: params.date }))
+}
+
 function my({ params, user }) {
   if (!isBlank(params.month) && !/^\d{4}-\d{2}$/.test(String(params.month)))
     return fail(CODE.BAD_REQUEST, 'month 格式须为 YYYY-MM')
@@ -559,8 +571,9 @@ export const attendanceRoutes = [
   { method: 'get', path: '/attendance/records', roles: ['ADMIN', 'STATION_ADMIN'], handler: records },
   { method: 'get', path: '/attendance/export', roles: ['ADMIN', 'STATION_ADMIN'], handler: exportCsv },
   { method: 'get', path: '/attendance/summary', roles: ['ADMIN', 'STATION_ADMIN'], handler: summary },
+  { method: 'get', path: '/attendance/detail', roles: ['ADMIN', 'STATION_ADMIN'], handler: detail },
   { method: 'get', path: '/attendance/my', roles: ALL_ROLES, handler: my },
-  // 补卡：提交与「我的」不限角色（员工本人），列表与审批只有老板（ADMIN）可用，角色不符由 engine 统一回 403
+  // 补卡：提交与「我的」不限角色（员工本人），列表与审批只有管理员（ADMIN）可用，角色不符由 engine 统一回 403
   { method: 'get', path: '/attendance/makeup/my', roles: ALL_ROLES, handler: makeupMine },
   { method: 'get', path: '/attendance/makeup/list', roles: ['ADMIN'], handler: makeupList },
   { method: 'post', path: '/attendance/makeup', roles: ALL_ROLES, handler: makeupApplyHandler },

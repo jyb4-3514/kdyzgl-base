@@ -29,7 +29,7 @@ async function stationRoster(stationId) {
  */
 export async function fetchTransferTargets({ role, stationId, selfId }) {
   if (role === 'ADMIN') {
-    // 老板可跨站调人：不按驿站过滤，列出全部在职员工，由候选行上的驿站名区分
+    // 管理员可跨站调人：不按驿站过滤，列出全部在职员工，由候选行上的驿站名区分
     const page = await getEmployees({ status: ON_DUTY, pageNum: 1, pageSize: PAGE_LIMIT })
     return page.list
       .map((item) => ({ id: item.id, name: item.realName, stationName: item.stationName }))

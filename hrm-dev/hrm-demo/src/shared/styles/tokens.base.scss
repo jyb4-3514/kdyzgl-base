@@ -177,6 +177,12 @@
   --border-line: var(--c-neutral-200);
   --border-control: var(--c-neutral-450);
 
+  /* ==================== L2 Semantic · 品牌渐变 ==================== */
+  /* 三端登录页共用（此前仅存于移动层，PC 端登录页需同一深档承白字 ≥6:1）：
+   * 上移真源，避免 PC 与移动各写一份渐变公式后随迭代漂移；取值与移动层原定义逐字一致 */
+  --grad-hero: linear-gradient(135deg, var(--c-blue-700) 0%, var(--c-blue-800) 100%);
+  --grad-hero-deep: linear-gradient(135deg, var(--c-neutral-800) 0%, var(--c-neutral-900) 100%);
+
   /* ==================== L2 Semantic · 图表 ==================== */
 
   /* 系列色：两端共用一套，修 P39 的「同一系列两端四色」 */

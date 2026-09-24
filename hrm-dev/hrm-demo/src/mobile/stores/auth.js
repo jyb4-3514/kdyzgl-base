@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { getMe, login as loginApi, logout as logoutApi, updatePassword as updatePasswordApi } from '../api/auth.js'
+import { getMe, login as loginApi, logout as logoutApi, smsLogin as smsLoginApi, updatePassword as updatePasswordApi, verifyDevice as verifyDeviceApi } from '../api/auth.js'
 import { clearAuth, readToken, readUser, writeAuth } from '../utils/authStorage.js'
 import { HOME_BY_ROLE } from '../constants/accounts.js'
 
@@ -55,6 +55,31 @@ export const useAuthStore = defineStore('mobileAuth', () => {
     const data = await loginApi(payload)
     setSession(data.token, data.employee)
     return data.employee
+  }
+
+  /**
+   * 密码通道登录（登录页双通道用）：返回原始出参供页面分流。
+   * 新设备时服务端返回 needDeviceVerify（无 token），此时**不写登录态**，由页面进入卡片第 2 步；
+   * 既有 login() 保持不变，供演示身份切换等「必成功」场景继续使用。
+   */
+  async function loginByPassword(payload) {
+    const data = await loginApi(payload)
+    if (data && data.token) setSession(data.token, data.employee)
+    return data || {}
+  }
+
+  /** 短信验证码登录（A2）：短信本身即二次因子，服务端直接签发会话 */
+  async function loginBySms(payload) {
+    const data = await smsLoginApi(payload)
+    setSession(data.token, data.employee)
+    return data
+  }
+
+  /** 设备二次验证（B2）：验证通过后服务端签发会话并写入受信设备（信任态由服务端持有） */
+  async function verifyLoginDevice(payload) {
+    const data = await verifyDeviceApi(payload)
+    setSession(data.token, data.employee)
+    return data
   }
 
   /** 演示身份切换：用固定演示账号重新登录（登录会覆盖同账号会话，旧 token 立即失效） */
@@ -117,6 +142,9 @@ export const useAuthStore = defineStore('mobileAuth', () => {
     setSession,
     clearSession,
     login,
+    loginByPassword,
+    loginBySms,
+    verifyLoginDevice,
     switchTo,
     refreshMe,
     changePassword,

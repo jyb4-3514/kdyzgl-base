@@ -37,7 +37,7 @@ export const periodDoneCount = (period) => (period && period.onChecked ? 1 : 0) 
 /** 6 态文案：含数据插值的做成函数，避免一句话被拆成模板拼接而漏改一处 */
 export const slotText = {
   done: (time) => `${clockOf(time)} 已打卡`,
-  pending: () => '已提交补卡申请，待老板审批',
+  pending: () => '已提交补卡申请，待管理员审批',
   wait: (openAt) => `未到打卡时间（${openAt} 开放）`,
   todo: () => '未打卡',
   overdue: (due, windowEnd) => `已过 ${due} 未打卡（${windowEnd} 前可补打）`,

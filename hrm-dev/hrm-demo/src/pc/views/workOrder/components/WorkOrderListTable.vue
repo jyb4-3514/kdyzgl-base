@@ -62,7 +62,7 @@ const rowClassName = ({ row }) => rowClassNameOf(row, props.highlightId)
         <el-table-column label="类型" width="100" align="center">
           <template #default="{ row }">{{ dictLabel(WORK_ORDER_TYPE, row.type) }}</template>
         </el-table-column>
-        <!-- 来源列（A7-6）：企微自动派发的工单与手工工单混在一起，老板需要一眼区分 -->
+        <!-- 来源列（A7-6）：企微自动派发的工单与手工工单混在一起，管理员需要一眼区分 -->
         <el-table-column label="来源" width="100" align="center">
           <template #default="{ row }">
             <StatusTag :dict="WORK_ORDER_SOURCE" :value="row.source || 'MANUAL'" :variant="sourceVariantOf(row.source)" />

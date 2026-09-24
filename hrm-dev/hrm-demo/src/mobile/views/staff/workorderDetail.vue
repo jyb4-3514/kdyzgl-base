@@ -14,11 +14,11 @@ import { useAuthStore } from '../../stores/auth.js'
 import { fetchTransferTargets, transferErrorHint } from '../../utils/workorder.js'
 
 /**
- * 工单详情（老板端与员工端共用：S7）
+ * 工单详情（管理端与员工端共用：S7）
  *
- * 为什么不另写老板端详情页：ADMIN 与员工看的是同一份工单、同一套流转规则，差异只有「可指派」与
+ * 为什么不另写管理端详情页：ADMIN 与员工看的是同一份工单、同一套流转规则，差异只有「可指派」与
  * 「可跨站转单」两条权限；另起一页会让时间线、流转按钮、转单弹层各维护两份（router 里已有同类决策）。
- * 老板端入口：/boss/workorder 列表与「异常预警」，两处都跳这里。
+ * 管理端入口：/boss/workorder 列表与「异常预警」，两处都跳这里。
  *
  * 本轮最高优先级交互修复（沿用）：操作按钮在固定底部 ActionBar，而不是排在内容流末尾 ——
  * 原先「接单/核销」排在信息 + 描述 + 时间线之后，一线员工必须滑到底才能操作。
@@ -28,7 +28,7 @@ import { fetchTransferTargets, transferErrorHint } from '../../utils/workorder.j
  *
  * 转单与指派（T19）：
  * - 转单只改处理人、不改状态，详情页的「转单留痕」与「当前处理人」始终自洽；
- * - 候选口径与 Mock 的 8004 一致：老板可跨站调人，站长与处理人只能在本站内消化（见 utils/workorder.js）。
+ * - 候选口径与 Mock 的 8004 一致：管理员可跨站调人，站长与处理人只能在本站内消化（见 utils/workorder.js）。
  */
 const route = useRoute()
 const auth = useAuthStore()
@@ -318,7 +318,7 @@ onMounted(load)
     <!-- 固定底部操作栏：一线员工不必滑到底（修 P31） -->
     <ActionBar :actions="barActions" :submitting="submitting" @select="onAction" />
 
-    <!-- 指派 / 转单共用的人员弹层：候选按角色收敛（老板跨站、站长与处理人限本站），与 8004 同口径 -->
+    <!-- 指派 / 转单共用的人员弹层：候选按角色收敛（管理员跨站、站长与处理人限本站），与 8004 同口径 -->
     <van-popup v-model:show="showPeople" round position="bottom" safe-area-inset-bottom>
       <div class="people-pop">
         <div class="people-pop__title">{{ peopleMode === 'assign' ? '指派处理人' : '转单' }}</div>
@@ -327,7 +327,7 @@ onMounted(load)
             peopleMode === 'assign'
               ? `工单归属：${detail.stationName}`
               : auth.isAdmin
-                ? '老板可跨驿站转单'
+                ? '管理员可跨驿站转单'
                 : `仅可转给本站（${detail.stationName}）在职员工`
           }}
         </p>

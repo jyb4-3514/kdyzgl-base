@@ -22,7 +22,7 @@ const props = defineProps({
   /** key → 实时值（计数型传数值，状态型传文案，纯入口型不传），null 表示取数失败 */
   data: { type: Object, default: () => ({}) },
   title: { type: String, default: '快捷功能' },
-  /** 标题右侧说明，如老板端的「按待办优先排序」 */
+  /** 标题右侧说明，如管理端的「按待办优先排序」 */
   hint: { type: String, default: '' },
   loading: { type: Boolean, default: false }
 })

@@ -64,7 +64,7 @@ describe('attendanceUi · 状态文案', () => {
   })
 
   it('审批中与过期两种文案不含插值，直接给出确定结论', () => {
-    expect(slotText.pending()).toContain('待老板审批')
+    expect(slotText.pending()).toContain('待管理员审批')
     expect(slotText.missed()).toContain('待补卡')
   })
 })

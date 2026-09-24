@@ -23,7 +23,7 @@ export const resubmitLeave = (id, data) => http.post(`/leave/${id}/resubmit`, da
 export const getLeaveList = (params) => http.get('/leave/list', { params })
 /** 站长初审（仅 STATION_ADMIN；驳回时 remark 必填） */
 export const stationApproveLeave = (id, data) => http.post(`/leave/${id}/station-approve`, data, { silent: true })
-/** 老板终审（仅 ADMIN） */
+/** 管理员终审（仅 ADMIN） */
 export const finalApproveLeave = (id, data) => http.post(`/leave/${id}/final-approve`, data, { silent: true })
 /** 撤回已通过单（仅 ADMIN；原因必填；账期工资单非草稿时 9606） */
 export const revokeLeave = (id, data) => http.post(`/leave/${id}/revoke`, data, { silent: true })

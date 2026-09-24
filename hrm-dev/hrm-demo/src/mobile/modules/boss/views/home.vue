@@ -38,7 +38,7 @@ const attendanceAbnormal = ref(null)
 /** 超 48h 未取件数（宫格「异常预警」的一项）：null 表示取数失败 */
 const overdueParcels = ref(null)
 const topStations = ref([])
-/** 一期指标对老板是次要信息，默认折叠，避免占据首屏视线 */
+/** 一期指标对管理员是次要信息，默认折叠，避免占据首屏视线 */
 const showOrg = ref(false)
 
 const dateText = shortDateText()
@@ -168,6 +168,8 @@ const rankItems = computed(() =>
     <PageState v-else :error="error" @retry="load">
       <!-- Hero：深蓝灰底色建立「经营报告」心智，与员工端的品牌蓝 Hero 明确区分（3.2） -->
       <section class="hero hero--deep">
+        <!-- 品牌行落在页面主张之上（品牌 → 页面两级）；深底用 --text-inverse，白对深底 14.679:1 -->
+        <p class="hero__brand">驿站精灵</p>
         <div class="flex-between">
           <span class="hero__title">今日经营</span>
           <!-- 口径不可切换：不做成像按钮的 chip，避免用户反复点击（A12-6）；真的开放切换时再改回控件 -->
@@ -270,7 +272,7 @@ const rankItems = computed(() =>
       </div>
       <div class="card">
         <van-cell title="失败批次" :value="`${sync.failed} 个`" :value-class="sync.failed ? 'cell-danger' : ''" />
-        <!-- 未配置采集单独一行：老板看不到「有驿站压根没配采集」才是需求1要解决的核心盲区 -->
+        <!-- 未配置采集单独一行：管理员看不到「有驿站压根没配采集」才是需求1要解决的核心盲区 -->
         <van-cell
           title="未配置采集"
           :value="overview ? `${overview.counts.unconfigured} 站` : '暂无数据'"
@@ -320,6 +322,15 @@ const rankItems = computed(() =>
 
 .sk-card {
   height: 88px;
+}
+
+/* 品牌行：与 .hero__title 同一左边缘，间距 --sp-1（§13.7） */
+.hero__brand {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-caption);
+  color: var(--text-inverse);
 }
 
 .sk-chart {

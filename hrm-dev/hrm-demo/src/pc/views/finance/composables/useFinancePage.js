@@ -13,7 +13,7 @@ import { usePayrollActions } from './usePayrollActions.js'
  * 壳就失去了「只看装配」的意义（reactive 会自动脱 ref，模板里直接 page.xxx，v-model 也能写入）。
  * 四个子 composable 仍保持 plain object 返回，便于单测单独调用。
  *
- * 老板端的完整闭环：配计算规则 → 生成草稿 → 批量调整人工项 → 提交审核 → 审核通过并发布 → 处理员工异议。
+ * 管理端的完整闭环：配计算规则 → 生成草稿 → 批量调整人工项 → 提交审核 → 审核通过并发布 → 处理员工异议。
  */
 export function useFinancePage() {
   // 驿站与部门都是跨页基础数据，取数收口到 org store；部门下拉由 store 统一拍平

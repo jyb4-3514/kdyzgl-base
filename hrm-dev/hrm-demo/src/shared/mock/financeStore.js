@@ -73,7 +73,7 @@ const ATTENDANCE_LABEL = { LATE: '迟到', EARLY_LEAVE: '早退', ABSENT: '缺�
 
 /**
  * 默认计薪规则：8 个规则项覆盖四类来源。
- * 权重/金额只是「配置的初始值」，老板端可随时改；算薪代码里没有任何一项的专属公式。
+ * 权重/金额只是「配置的初始值」，管理端可随时改；算薪代码里没有任何一项的专属公式。
  */
 const RULE_ITEM_SEED = [
   { key: 'BASIC', name: '基本工资', type: 'ADDITION', source: 'FIXED', params: { field: 'basicSalary' } },
@@ -241,7 +241,7 @@ function buildPayroll({
 
 /* ==================== 种子 ==================== */
 
-/** 上期账期的状态分布：覆盖已确认 / 已发布 / 已驳回 / 草稿四种，供老板端与员工端同时演示 */
+/** 上期账期的状态分布：覆盖已确认 / 已发布 / 已驳回 / 草稿四种，供管理端与员工端同时演示 */
 const PREV_MONTH_PUBLISHED = [8, 9, 10]
 const PREV_MONTH_REJECTED = [11]
 const PREV_MONTH_DRAFT = [12]
@@ -298,7 +298,7 @@ function buildSeed() {
     {
       id: 1,
       ruleName: '标准计薪规则',
-      remark: '覆盖基本工资、岗位工资、津贴、绩效、考勤奖惩与人工调整，老板端可自行增删改',
+      remark: '覆盖基本工资、岗位工资、津贴、绩效、考勤奖惩与人工调整，管理端可自行增删改',
       status: 1,
       items: RULE_ITEM_SEED.map((item, index) => ({
         id: index + 1,
@@ -493,7 +493,7 @@ export const activeRule = (ruleId) => (ruleId ? findRule(ruleId) : listRules().f
 /**
  * 按月批量生成草稿。
  * 幂等口径：同月同员工同类型已存在草稿/驳回单 → 覆盖重建；已提交审核或已发布 → 整批拒绝（9405），
- * 避免把老板已经审过、员工已经看过的工资单悄悄改掉。
+ * 避免把管理员已经审过、员工已经看过的工资单悄悄改掉。
  */
 export function generatePayrolls({ month, stationId, deptId, employeeIds, ruleId }) {
   ensure()
@@ -575,7 +575,7 @@ function filterPayrolls({ month, stationId, employeeId, status, keyword, billTyp
   return rows
 }
 
-/** 工资单列表（仅老板）：附各状态计数，页面标签页可直接用，不必再拉全量自己数 */
+/** 工资单列表（仅管理员）：附各状态计数，页面标签页可直接用，不必再拉全量自己数 */
 export function listPayrolls(filters) {
   ensure()
   const rows = filterPayrolls(filters)
@@ -760,7 +760,7 @@ export function confirmPayroll(id, user) {
 }
 
 /**
- * 员工提异议：记录异议原因并把单据退回「待审核」，由老板重新核定后再次发布。
+ * 员工提异议：记录异议原因并把单据退回「待审核」，由管理员重新核定后再次发布。
  * 为什么复用 PENDING_APPROVAL 而不是新增第七态：异议的处理路径与审核完全一致（重新核定 → 发布），
  * 多一个状态只会让前端状态机与后端口径双双膨胀。
  */

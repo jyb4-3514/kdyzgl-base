@@ -9,7 +9,7 @@ import LeaveApprovalList from '../../components/LeaveApprovalList.vue'
  * （HOME_BY_ROLE 与员工共用宫格/待办/Tabbar）；改造 `/boss/*` 的代价远大于收益，
  * 且项目对「站长 vs 员工」刻意只保留极少差异（/staff/sync 与 canSeeSync 两处）。
  *
- * 页面本体与老板终审共用一个组件（只有默认筛选与端点不同），此处只做路由挂载点。
+ * 页面本体与管理员终审共用一个组件（只有默认筛选与端点不同），此处只做路由挂载点。
  */
 </script>
 

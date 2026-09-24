@@ -54,7 +54,7 @@ export function useMakeupForm({ onSettled } = {}) {
         reason: text
       })
       show.value = false
-      showSuccessToast('补卡申请已提交，等待老板审批')
+      showSuccessToast('补卡申请已提交，等待管理员审批')
     } catch (e) {
       // 9108 最常见（本人刚申请过，或期间又正常打了卡），提示要落到「去哪儿看进度 / 无需补卡」
       error.value = makeupErrorHint(e.code, { message: e.message })

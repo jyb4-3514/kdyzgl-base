@@ -26,10 +26,10 @@ const cards = [
   },
   {
     tag: 'Mobile / WebView',
-    name: '老板端（经营视角）',
+    name: '驿站精灵（经营视角）',
     role: 'ADMIN 身份的移动视图：经营总览、趋势、驿站排行、异常预警',
     link: 'mobile.html#/login?as=boss',
-    note: '→ 进入移动端（已预填「老板」账号）'
+    note: '→ 进入移动端（已预填「管理员」账号）'
   },
   {
     tag: 'Mobile / WebView',

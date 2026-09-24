@@ -15,7 +15,7 @@ import { KPI_CODE } from '@/shared/constants/errorCode.js'
 
 /**
  * B7 得分明细（A12-7 的复用约定：同一业务对象两端共用一个页面，只按角色改标题与入口）
- * - 老板端：/boss/kpi/:employeeId（从排名点人进来，看「这分怎么来的」）
+ * - 管理端：/boss/kpi/:employeeId（从排名点人进来，看「这分怎么来的」）
  * - 员工端：/staff/kpi（员工号取登录身份，契约侧强制只返回本人）
  *
  * 无考核记录（9204）走空态而不是错误态：那是业务上「这月还没算分」，不是系统故障。
@@ -38,7 +38,7 @@ async function load() {
   try {
     detail.value = await getKpiScoreDetail(employeeId.value, { month: month.value })
   } catch (e) {
-    // 9204：该员工该月尚未算分，落空态并由「去生成本期考核」引导（老板端）或等待人事（员工端）
+    // 9204：该员工该月尚未算分，落空态并由「去生成本期考核」引导（管理端）或等待人事（员工端）
     if (e.code !== KPI_CODE.SCORE_NOT_EXISTS) error.value = e.message || '加载失败'
   } finally {
     loading.value = false

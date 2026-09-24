@@ -11,7 +11,7 @@ import { getMyPayrolls } from '../../api/finance.js'
  *
  * 只列本人已发布 / 已确认的单据（未发布前不给本人看，口径在契约层强制）。
  * 列表只给摘要（showItems=false）：员工进列表是「哪个月发了多少钱」，逐项构成点进去看。
- * 待确认的单据在行内高亮，避免员工漏点确认导致老板那边一直挂在「等待确认」。
+ * 待确认的单据在行内高亮，避免员工漏点确认导致管理员那边一直挂在「等待确认」。
  */
 const PAGE_SIZE = 20
 
@@ -76,7 +76,7 @@ onMounted(loadFirst)
 
       <PageState v-else :error="error" :empty="!list.length" empty-text="本月工资单尚未发布" @retry="loadFirst">
         <template #empty-action>
-          <p class="tip">工资单由老板审核并发布后可见，如已过期未收到请联系人事</p>
+          <p class="tip">工资单由管理员审核并发布后可见，如已过期未收到请联系人事</p>
         </template>
 
         <van-list v-model:loading="loadingMore" :finished="finished" finished-text="没有更多了" @load="onLoadMore">

@@ -264,7 +264,7 @@ function transfer({ body, pathParams, user }) {
   const target = findEmployeeById(body.toEmployeeId)
   // 「不能转给自己」按操作人判定：转给自己等于原地打转，留痕失去意义
   if (!target || target.status !== 1 || target.id === user.id) return fail(DEMO_CODE.WORK_ORDER_TRANSFER_TARGET_INVALID) // 8004
-  // 只有老板可跨站调人；站长与处理人转单只能在本站内消化
+  // 只有管理员可跨站调人；站长与处理人转单只能在本站内消化
   if (user.role !== 'ADMIN' && target.station_id !== order.station_id)
     return fail(DEMO_CODE.WORK_ORDER_TRANSFER_TARGET_INVALID)
 

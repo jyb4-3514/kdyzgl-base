@@ -1,7 +1,7 @@
 import { dictLabel, WORK_ORDER_PRIORITY, WORK_ORDER_STATUS, WORK_ORDER_TYPE } from '../constants/dict.js'
 
 /**
- * 工单详情 → 多行纯文本（PC / 员工端 / 老板端共用这一份拼装逻辑）
+ * 工单详情 → 多行纯文本（PC / 员工端 / 管理端共用这一份拼装逻辑）
  *
  * 为什么必须收口到 shared：三端四处入口（PC 列表与详情、移动端列表与详情）都要复制同一条工单，
  * 各写一份必然在字段顺序、标签文案上分叉（一期字典两份维护的教训），复制出来的内容对不上就没法用。

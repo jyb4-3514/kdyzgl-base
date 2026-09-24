@@ -7,7 +7,7 @@ import StatusTag from '@/mobile/components/StatusTag.vue'
 import { getHrProfiles } from '@/mobile/api/hr.js'
 
 /**
- * B8 老板端 · 人事管理（员工档案查询 + 调薪入口）
+ * B8 管理端 · 人事管理（员工档案查询 + 调薪入口）
  *
  * 为什么列表只做「查」、调薪放详情页：调薪要同时看到当前薪资、历史留痕与降薪差额，
  * 列表行里塞不下（塞进去就是一行四个数字，反而看不清）。

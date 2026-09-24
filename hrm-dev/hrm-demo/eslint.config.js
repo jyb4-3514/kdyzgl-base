@@ -40,13 +40,13 @@ const noUnusedVars = (severity) => [
 ]
 
 // 展示组件边界（L1 + L2）：不得直连接口、不得直接 useStore；
-// 必须复述 mock 禁令与「老板端模块是叶子域」两条既有红线 —— flat config 中同一 rule 后者整体覆盖前者。
+// 必须复述 mock 禁令与「管理端模块是叶子域」两条既有红线 —— flat config 中同一 rule 后者整体覆盖前者。
 const COMPONENT_BOUNDARY_PATTERNS = [
   {
     group: ['**/shared/mock/**', '@/shared/mock/**'],
     message: '展示层禁止直连假后端；装配点仅限 pc/main.js 与 mobile/main.js'
   },
-  { group: ['**/modules/boss/**'], message: '老板端模块是叶子域，禁止被员工端反向依赖' },
+  { group: ['**/modules/boss/**'], message: '管理端模块是叶子域，禁止被员工端反向依赖' },
   { group: ['**/api/**', '@/mobile/api/**'], message: '展示组件不得直连接口，数据由容器/composable 注入' },
   {
     group: ['**/stores/**', '@/mobile/stores/**', '@/pc/stores/**'],
@@ -200,7 +200,7 @@ export default [
   // 依据：ESLint《Configuration Files · Cascading Configuration Objects》。
   // ==========================================================================
 
-  // 规则 4：老板端模块内部 —— 禁止跨域 / 禁止触达 PC 端与一期只读资产 / 复述 mock 禁令
+  // 规则 4：管理端模块内部 —— 禁止跨域 / 禁止触达 PC 端与一期只读资产 / 复述 mock 禁令
   {
     files: ['src/mobile/modules/boss/**'],
     rules: {
@@ -215,18 +215,18 @@ export default [
             {
               group: ['**/views/staff/**', '**/modules/staff/**'],
               message:
-                '老板端模块禁止直引其他业务域；跨端复用请走内核或中立共享页（路由层例外只写在聚合点 router/index.js）'
+                '管理端模块禁止直引其他业务域；跨端复用请走内核或中立共享页（路由层例外只写在聚合点 router/index.js）'
             },
             {
               group: ['@admin/**', '@/pc/**', '**/src/pc/**'],
-              message: '老板端模块禁止依赖 PC 端与一期只读资产 @admin'
+              message: '管理端模块禁止依赖 PC 端与一期只读资产 @admin'
             }
           ]
         }
       ]
     }
   },
-  // 规则 5：员工端域 —— 禁止反向依赖老板端模块（复述 mock 禁令）
+  // 规则 5：员工端域 —— 禁止反向依赖管理端模块（复述 mock 禁令）
   {
     files: ['src/mobile/views/staff/**', 'src/mobile/modules/staff/**'],
     rules: {
@@ -240,14 +240,14 @@ export default [
             },
             {
               group: ['**/modules/boss/**'],
-              message: '老板端模块是叶子域，禁止被员工端反向依赖'
+              message: '管理端模块是叶子域，禁止被员工端反向依赖'
             }
           ]
         }
       ]
     }
   },
-  // 规则 6：PC 端 —— 禁止反向依赖移动端老板模块（复述 mock 禁令）
+  // 规则 6：PC 端 —— 禁止反向依赖移动端管理员模块（复述 mock 禁令）
   {
     files: ['src/pc/**'],
     ignores: ['src/pc/main.js'],
@@ -262,7 +262,7 @@ export default [
             },
             {
               group: ['**/modules/boss/**'],
-              message: '老板端模块属移动端叶子域，PC 端禁止反向依赖'
+              message: '管理端模块属移动端叶子域，PC 端禁止反向依赖'
             }
           ]
         }

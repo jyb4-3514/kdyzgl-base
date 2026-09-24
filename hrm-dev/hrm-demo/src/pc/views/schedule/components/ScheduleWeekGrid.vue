@@ -35,7 +35,7 @@ const emit = defineEmits(['refresh', 'prevWeek', 'currentWeek', 'nextWeek', 'bat
         </div>
         <div class="week-bar__meta">
           <span class="week-bar__range">{{ weekLabel }}</span>
-          <!-- 本周排班进度（A10-4）：老板一眼看出这周排完没有，不用逐列数 -->
+          <!-- 本周排班进度（A10-4）：管理员一眼看出这周排完没有，不用逐列数 -->
           <span v-if="totalCells" class="week-bar__progress" :class="{ 'is-incomplete': filledCells < totalCells }">
             已排 {{ filledCells }} / {{ totalCells }} 格
           </span>

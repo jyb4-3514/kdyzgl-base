@@ -11,7 +11,7 @@ import { approvePayroll, getPayroll, publishPayrolls } from '@/mobile/api/financ
 import { FINANCE_CODE } from '@/shared/constants/errorCode.js'
 
 /**
- * B9 工资单详情（老板端：审核 / 驳回 / 发布）
+ * B9 工资单详情（管理端：审核 / 驳回 / 发布）
  *
  * 步骤条按契约可解释的四个节点呈现（生成草稿 → 审核 → 发布 → 员工确认）：
  * 契约没有单独的「提交审核时间」字段，硬凑第五步会出现空时间节点。
@@ -115,7 +115,7 @@ async function onAction(key) {
   if (key === 'approve') {
     submitting.value = true
     try {
-      // 与 mock 的「审核通过 → 已通过」一致：审核与发布是两步，避免一次点击越过老板的复核动作
+      // 与 mock 的「审核通过 → 已通过」一致：审核与发布是两步，避免一次点击越过管理员的复核动作
       payroll.value = await approvePayroll(data.id, { approved: true })
       showSuccessToast('已通过，可在详情页或列表发布给员工')
     } catch (e) {

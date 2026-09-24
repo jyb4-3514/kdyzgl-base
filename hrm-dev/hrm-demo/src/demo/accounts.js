@@ -6,7 +6,7 @@ import { DEMO_PASSWORD } from '@/shared/mock/db.js'
  * 避免仓库里出现第二份「演示密码」字符串），生产构建据此整块剔除。
  */
 export const DEMO_ACCOUNT_LIST = [
-  { key: 'boss', label: '老板', username: 'admin', desc: '全局经营视角 · 8 个驿站汇总数据' },
+  { key: 'boss', label: '管理员', username: 'admin', desc: '全局经营视角 · 8 个驿站汇总数据' },
   { key: 'station', label: '站长', username: 'st001_admin', desc: '城东驿站 · 本站数据与作业操作' },
   { key: 'staff', label: '员工', username: 'st001_staff', desc: '城东驿站 · 作业视角（无同步状态页）' }
 ]

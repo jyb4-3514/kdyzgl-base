@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { getNotifications, getUnreadCount, markAllNotificationsRead, markNotificationRead } from '../api/notification.js'
+import { getNotification, getNotifications, getUnreadCount, markAllNotificationsRead, markNotificationRead } from '../api/notification.js'
 import { readToken } from '../utils/authStorage.js'
 
 /**
@@ -34,6 +34,11 @@ export const useNotifyStore = defineStore('mobileNotify', () => {
     return getNotifications(params)
   }
 
+  /** 单条通知详情（阅读页）：沿用 fetchList 的转发写法，失败文案由阅读页自行渲染 */
+  async function fetchDetail(id) {
+    return getNotification(id)
+  }
+
   /** 标记单条已读并同步角标；返回更新后的整条通知，供列表就地替换而不是整页重拉 */
   async function markRead(id) {
     const updated = await markNotificationRead(id)
@@ -51,5 +56,5 @@ export const useNotifyStore = defineStore('mobileNotify', () => {
     unread.value = 0
   }
 
-  return { unread, refresh, set, clear, fetchList, markRead, markAllRead }
+  return { unread, refresh, set, clear, fetchList, fetchDetail, markRead, markAllRead }
 })

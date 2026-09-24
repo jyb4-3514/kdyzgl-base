@@ -32,8 +32,11 @@ const routes = [
   {
     path: '/login',
     name: 'Login',
-    // 一期登录页原样复用（含 1001/1002 文案分支、首登改密跳转），Demo 不复制实现
-    component: () => import('@admin/views/login/index.vue'),
+    /**
+     * 登录体系改造（demo-login-redesign §9-A1 已裁定）：Demo 侧登录页承载双通道 + 设备信任 + 3 天到期，
+     * 一期 @admin/views/login 保持**零改动**（仅只读引用，不复制其源码）。
+     */
+    component: () => import('../views/login/index.vue'),
     meta: { title: '登录' }
   },
   {

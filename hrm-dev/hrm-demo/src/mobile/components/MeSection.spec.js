@@ -6,14 +6,14 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import MeSection from './MeSection.vue'
 
 /**
- * 老板端「我的」页零变化护栏
- * 拆分共享组件后，MeSection 仍须只渲染老板端的「账号信息」5 行 + 「运行环境」；
+ * 管理端「我的」页零变化护栏
+ * 拆分共享组件后，MeSection 仍须只渲染管理端的「账号信息」5 行 + 「运行环境」；
  * 员工端的「我的数据」两群不得出现 —— 防止拆分把两端 IA 混回同一组件。
  */
 vi.mock('@/mobile/utils/authStorage.js', () => ({
   readToken: () => 'demo-token',
   readUser: () => ({
-    realName: '演示老板',
+    realName: '演示管理员',
     role: 'ADMIN',
     username: 'admin',
     phone: '13800000000',
@@ -47,7 +47,7 @@ function mountMe() {
   })
 }
 
-describe('MeSection · 老板端内容护栏', () => {
+describe('MeSection · 管理端内容护栏', () => {
   it('仍渲染「账号信息」5 行', () => {
     const text = mountMe().text()
     for (const label of ['登录账号', '手机号', '所属驿站', '所属部门', '最后登录']) {
@@ -55,7 +55,7 @@ describe('MeSection · 老板端内容护栏', () => {
     }
   })
 
-  it('仍渲染老板端「管理与配置」与「运行环境」', () => {
+  it('仍渲染管理端「管理与配置」与「运行环境」', () => {
     const text = mountMe().text()
     expect(text).toContain('管理与配置')
     expect(text).toContain('运行环境')

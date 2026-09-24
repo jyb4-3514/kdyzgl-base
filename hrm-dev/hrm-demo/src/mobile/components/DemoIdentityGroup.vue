@@ -6,7 +6,7 @@ const demoEnabled = import.meta.env.VITE_MOCK_ENABLED === 'true'
 </script>
 
 <template>
-  <!-- 根级 v-if 走片段，不额外包一层容器：老板端 DOM 与拆分前逐节点一致 -->
+  <!-- 根级 v-if 走片段，不额外包一层容器：管理端 DOM 与拆分前逐节点一致 -->
   <template v-if="demoEnabled">
     <div class="section-title">切换演示身份<span class="section-title__extra">Demo 专用</span></div>
     <IdentitySwitcher />

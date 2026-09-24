@@ -44,6 +44,17 @@ function unreadCount({ user }) {
   return ok({ count })
 }
 
+/**
+ * 单条通知详情（通知阅读页）：过滤条件与 markRead 逐字相同（口径单点），
+ * 非本人 / 不存在 / id 非法一律回 9001，不区分「不存在」与「非本人」（不泄露他人通知的存在性）。
+ * 纯读，绝不在此改写 is_read —— 已读由 PUT /notifications/:id/read 单独承担。
+ */
+function detail({ pathParams, user }) {
+  const n = db.notifications.find((x) => x.id === Number(pathParams.id) && x.employee_id === user.id)
+  if (!n) return fail(DEMO_CODE.NOTIFICATION_NOT_EXISTS) // 9001
+  return ok(toNotificationVO(n))
+}
+
 function markRead({ pathParams, user }) {
   const n = db.notifications.find((x) => x.id === Number(pathParams.id) && x.employee_id === user.id)
   if (!n) return fail(DEMO_CODE.NOTIFICATION_NOT_EXISTS) // 9001
@@ -122,6 +133,8 @@ function publish({ body, user }) {
 export const notificationRoutes = [
   { method: 'get', path: '/notifications', roles: ALL_ROLES, handler: list },
   { method: 'get', path: '/notifications/unread-count', roles: ALL_ROLES, handler: unreadCount },
+  // 必须排在 unread-count 之后：Mock 引擎按数组顺序取首个命中，:id 排前面会把 unread-count 当成 id
+  { method: 'get', path: '/notifications/:id', roles: ALL_ROLES, handler: detail },
   { method: 'put', path: '/notifications/read-all', roles: ALL_ROLES, handler: readAll },
   { method: 'post', path: '/notifications/publish', roles: ['ADMIN'], handler: publish },
   { method: 'put', path: '/notifications/:id/read', roles: ALL_ROLES, handler: markRead }

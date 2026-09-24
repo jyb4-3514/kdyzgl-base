@@ -13,7 +13,7 @@ import { periodLabel } from '../../utils/attendance.js'
 /**
  * 我的补卡申请（员工端）
  * 与打卡页的分工：打卡页负责「发起申请」，本页负责「查进度」——审批意见与审批时间只有这里看得到，
- * 审批中给出「等老板审批」的明确预期，避免员工因为看不到进度而反复提交（服务端 9108 会拦住重复申请）。
+ * 审批中给出「等管理员审批」的明确预期，避免员工因为看不到进度而反复提交（服务端 9108 会拦住重复申请）。
  * 默认不过滤状态：员工进这一页最常看的是「我上次申请过了吗、结果怎样」，全量倒序比先点一次筛选更快。
  */
 const PAGE_SIZE = 20
@@ -112,7 +112,7 @@ onMounted(loadFirst)
               </div>
               <div class="list-item__meta">审批意见：{{ item.approveRemark || '未填写' }}</div>
             </div>
-            <p v-else class="list-item__meta">等待老板审批，通过后系统会自动补录该时段打卡记录</p>
+            <p v-else class="list-item__meta">等待管理员审批，通过后系统会自动补录该时段打卡记录</p>
           </div>
         </van-list>
       </PageState>

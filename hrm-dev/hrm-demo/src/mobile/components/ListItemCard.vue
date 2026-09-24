@@ -73,6 +73,7 @@ function handleClick() {
   background: var(--surface-card);
   border-radius: var(--r-lg);
   box-shadow: var(--e1);
+
   /* 高频点击：去掉 300ms 延迟与点击高亮 */
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;

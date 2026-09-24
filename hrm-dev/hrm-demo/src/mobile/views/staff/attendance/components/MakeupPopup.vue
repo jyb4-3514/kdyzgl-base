@@ -47,7 +47,7 @@ const typeLabel = computed(() => dictLabel(CHECK_TYPE, props.target.checkType))
         />
         <!-- 提交失败就在弹层内说清原因，员工不必关掉弹层再猜（9108 会带上查看进度的指引） -->
         <p v-if="error" class="makeup-pop__error" role="alert">{{ error }}</p>
-        <p class="tip">提交后需老板审批，通过后系统自动补录该时段打卡记录</p>
+        <p class="tip">提交后需管理员审批，通过后系统自动补录该时段打卡记录</p>
       </div>
       <div class="makeup-pop__foot">
         <van-button block type="primary" :loading="submitting" :disabled="!canSubmit" @click="emit('submit')">

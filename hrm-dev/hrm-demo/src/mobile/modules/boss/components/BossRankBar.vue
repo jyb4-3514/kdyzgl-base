@@ -4,7 +4,7 @@ import { numberText, percent } from '@/mobile/utils/format.js'
 import BossInlineEmpty from './BossInlineEmpty.vue'
 
 /**
- * N-01 排行榜条形（老板端专属）
+ * N-01 排行榜条形（管理端专属）
  * 为什么单独立：排行行原先在 rank.vue 与 home.vue 各手写一份，
  * 名次配色还分叉过（旧铜牌色与真源名次色两套，AP-06 / D-1）。
  * 名次徽标一律取 `--rank-*` 族，条形色只允许走既有图表/语义 Token，不新增色板。

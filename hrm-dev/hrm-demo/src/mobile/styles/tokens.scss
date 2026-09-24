@@ -38,7 +38,7 @@
   --fs-body-strong: 15px; /* 列表项标题 */
   --fs-caption: 12px; /* 正文下限，辅助文字统一用 12px（修 P24 的 11px 正文） */
   --fs-micro: 11px; /* 仅限图表轴标签（徽标计数改走 --fs-badge，一名两用会造成改一处错一处） */
-  --fs-num-lg-boss: 24px; /* 老板端主指标（3.2 差异表） */
+  --fs-num-lg-boss: 24px; /* 管理端主指标（3.2 差异表） */
   --fs-num-lg-staff: 22px; /* 员工端主指标 */
   --fs-num-md: 18px;
   --fs-num-sm: 15px;
@@ -72,7 +72,7 @@
 
   /* 模拟演示区（C3-1）：与 warning 语义分离 —— warning 说「业务有风险」，
      simulate 说「这块是演示数据，不是真实功能」；共用一组变量会让两者互相牵连 */
-  /* TODO(扩展): 消费方为老板端「模拟派单」弹层（B3.5 本轮判定移动端不做），先按 C3 预置取值 */
+  /* TODO(扩展): 消费方为管理端「模拟派单」弹层（B3.5 本轮判定移动端不做），先按 C3 预置取值 */
   --state-simulate-bg: var(--c-amber-50);
   --state-simulate-fg: var(--c-amber-700);
   --state-simulate-border: var(--c-amber-200);
@@ -205,7 +205,6 @@
   --step-line: 2px;
   --step-gap: var(--sp-3);
 
-  /* Hero 渐变：两端都取承白字 ≥6:1 的深档，全段任意位置放白字都合规（决策 D-3，修 P3） */
-  --grad-hero: linear-gradient(135deg, var(--c-blue-700) 0%, var(--c-blue-800) 100%);
-  --grad-hero-deep: linear-gradient(135deg, var(--c-neutral-800) 0%, var(--c-neutral-900) 100%);
+  /* Hero 渐变：已上移真源到 shared/styles/tokens.base.scss（三端登录页共用），此处不再重复定义。
+   * 取值仍为「承白字 ≥6:1 的深档」，全段任意位置放白字都合规（决策 D-3，修 P3） */
 }

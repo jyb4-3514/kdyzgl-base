@@ -1,34 +1,103 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showSuccessToast } from 'vant'
-import { APP_NAME_STAFF, resolveAppName } from '../../constants/appName.js'
+import { resolveAppName } from '../../constants/appName.js'
 import { roleLabel } from '../../constants/accounts.js'
 import { useAuthStore } from '../../stores/auth.js'
+import { sendSms } from '../../api/auth.js'
+import { collectDevicePayload, readDeviceId } from '@/shared/device.js'
+import { maskPhone } from '@/shared/domain/mask.js'
 
 /**
- * B1 登录页
- * 三个「一键体验」按钮是演示主线入口：老板 / 站长 / 员工 一键填表并登录，
- * 也支持手输账号密码（覆盖 1001 / 1002 错误文案分支）。
+ * 三端登录页 · 移动端（员工端 / 管理端共用同一实现）
+ * 依据：demo-login-redesign.md（§2 状态机 / §4 交互 / §5 视觉 / §7 契约）+ multi-client-architecture.md §4.1.2。
+ *
+ * 五项能力：① 双通道登录（密码 / 短信）② 60s 发码倒计时 ③ 新设备二次验证（卡片内第 2 步，非弹窗）
+ *          ④ 内联可恢复错误（不用 Toast 挡表单）⑤ 3 天到期强制重登（?expired=1 顶部提示条 + redirect）。
+ *
+ * 安全红线（security-auth-review §4.2/§4.4）：
+ * - 验证码绝不回显在页面（页面只显示「已发送至 138****0000」）；固定码只存在于 Mock 实现内部
+ * - 前端不持久化任何「设备受信」标志：deviceId 仅作弱信号上报，是否放行由服务端裁定
  */
+
+/** 端类型：移动端恒为 H5（服务端据此做端准入；员工端不限角色，管理端视角见 as） */
+const CLIENT_TYPE = 'H5'
+/** 手机号格式（与 Mock validate.isPhone 同口径；页面不 import Mock 层，避免页面依赖假后端） */
+const PHONE_RE = /^1[3-9]\d{9}$/
+const isPhone = (value) => PHONE_RE.test(String(value || '').trim())
+
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
-const form = reactive({ username: '', password: '' })
-const loading = ref(false)
-const errorMsg = ref('')
-/** 密码明文/密文切换：只切 input type，不清空已输入内容，也不影响「一键体验」填充 */
-const showPassword = ref(false)
-
-/** 标题按登录态优先级命名（登录后 role > 入口参数 as）；只读 route.query.as，零新增数据源 */
+/**
+ * 视角：?as=boss 直达管理端品牌与端准入声明；其余（staff / station / 无参）一律员工端口径。
+ * 未认证态不泄漏另一端品牌 —— 副标题只在 as=boss 时渲染「管理员经营视角」，否则固定「员工端」。
+ */
+const isBossView = computed(() => route.query.as === 'boss')
 const appName = computed(() => resolveAppName({ as: route.query.as, role: auth.role }))
-/** 副标题在员工端点明「员工端」，老板端与无参数保持原文案 */
-const subtitle = computed(() =>
-  appName.value === APP_NAME_STAFF ? '员工端 · 移动端演示 · 纯 Mock 数据，无需后端' : '移动端演示 · 纯 Mock 数据，无需后端'
+
+/** S9 到期强制重登提示（1108）：守卫/接口带 ?expired=1 进入登录页时给出 warning 提示条 */
+const expiredTip = ref(route.query.expired === '1' ? '登录已到期，请重新登录' : '')
+
+/** 通道：默认「密码登录」；两份独立状态保证切换不清空已输入内容（§4.1） */
+const activeChannel = ref('password')
+/** 步骤：credentials 双通道表单 / device 设备二次验证（卡片内第 2 步，不是新页面也不是弹窗） */
+const step = ref('credentials')
+
+const form = reactive({ username: '', password: '' })
+const smsForm = reactive({ phone: '', code: '' })
+const deviceForm = reactive({ code: '' })
+
+/** 提交级错误（表单顶部内联，role=alert）：切换通道时清除（§4.1） */
+const errorMsg = ref('')
+/** 字段级错误：验证码通道 / 设备步各自持有，切换通道时保留（§4.1） */
+const smsError = ref('')
+const deviceError = ref('')
+/** 发码成功提示（脱敏手机号，§4.2） */
+const smsSentTip = ref('')
+
+const loading = ref(false)
+const smsSending = ref(false)
+const deviceSending = ref(false)
+const showPassword = ref(false)
+/** 二次验证上下文：票据 + 服务端返回的员工（手机号已脱敏） */
+const deviceInfo = ref(null)
+const devicePhone = ref('')
+const deviceCodeRef = ref(null)
+
+/** 60s 发码倒计时（§4.2）：两个场景各自独立计时，不复用同一枚 */
+function createCountdown(seconds = 60) {
+  const left = ref(0)
+  let timer = null
+  const stop = () => {
+    if (timer) clearInterval(timer)
+    timer = null
+    left.value = 0
+  }
+  const start = (from = seconds) => {
+    stop()
+    left.value = from
+    timer = setInterval(() => {
+      left.value -= 1
+      if (left.value <= 0) stop()
+    }, 1000)
+  }
+  onUnmounted(stop)
+  return { left, start, stop }
+}
+const smsCountdown = createCountdown(60)
+const deviceCountdown = createCountdown(60)
+
+const smsCodeText = computed(() =>
+  smsCountdown.left.value > 0 ? `重新获取（${smsCountdown.left.value}s）` : '获取验证码'
+)
+const deviceCodeText = computed(() =>
+  deviceCountdown.left.value > 0 ? `重新获取（${deviceCountdown.left.value}s）` : '获取验证码'
 )
 
-/** 演示账号与密码只在 Mock 态动态加载；关闭后「一键体验」整块不渲染（生产构建剔除 demo 资产） */
+/* ==================== 演示资产（仅 Mock 态动态加载，生产构建剔除） ==================== */
 const demoEnabled = import.meta.env.VITE_MOCK_ENABLED === 'true'
 const demoAccounts = ref([])
 const demoPassword = ref('')
@@ -44,25 +113,187 @@ if (import.meta.env.VITE_MOCK_ENABLED === 'true') {
 }
 
 function fill(account) {
+  activeChannel.value = 'password'
   form.username = account.username
   form.password = demoPassword.value
   errorMsg.value = ''
 }
 
-async function onSubmit() {
+/* ==================== 通道切换 ==================== */
+watch(activeChannel, () => {
+  // 已提交级错误在切换时清除；字段级错误保留在各自通道（§4.1）
+  errorMsg.value = ''
+})
+// 输入即清除该错误，错误可恢复（§4.7）
+watch([() => form.username, () => form.password], () => {
+  if (errorMsg.value) errorMsg.value = ''
+})
+watch([() => smsForm.phone, () => smsForm.code], () => {
+  if (smsError.value) smsError.value = ''
+})
+watch(
+  () => deviceForm.code,
+  () => {
+    if (deviceError.value) deviceError.value = ''
+  }
+)
+
+/** 登录错误 → 文案（§2.5 逐条定稿；1001 沿用既有文案以保持既有回归断言口径） */
+function loginErrorMessage(error) {
+  if (!error) return '网络异常，请检查网络后重试'
+  if (error.code === 1001) return '用户名或密码错误，请重新输入'
+  return error.message || '网络异常，请检查网络后重试'
+}
+
+function succeed(employee) {
+  showSuccessToast(`欢迎，${employee.realName}（${roleLabel(employee.role)}）`)
+  router.replace(typeof route.query.redirect === 'string' ? route.query.redirect : auth.homePath)
+}
+
+/* ==================== 密码通道（S1/S2/S3） ==================== */
+async function onPasswordSubmit() {
   if (loading.value) return
   loading.value = true
   errorMsg.value = ''
   try {
-    const employee = await auth.login({ ...form })
-    showSuccessToast(`欢迎，${employee.realName}（${roleLabel(employee.role)}）`)
-    router.replace(route.query.redirect || auth.homePath)
+    const data = await auth.loginByPassword({
+      username: form.username,
+      password: form.password,
+      clientType: CLIENT_TYPE,
+      as: route.query.as || undefined,
+      device: collectDevicePayload(CLIENT_TYPE)
+    })
+    // 新设备：服务端返回分流字段（无 token），进入卡片内第 2 步（1104 为分流码，不显示为红色错误）
+    if (data.needDeviceVerify) {
+      deviceInfo.value = { ticket: data.twoFactorTicket }
+      devicePhone.value = (data.employee && data.employee.phone) || ''
+      deviceForm.code = ''
+      deviceError.value = ''
+      deviceCountdown.stop()
+      step.value = 'device'
+      await nextTick()
+      deviceCodeRef.value && deviceCodeRef.value.focus && deviceCodeRef.value.focus()
+      return
+    }
+    succeed(data.employee)
   } catch (error) {
-    // 登录接口走 silent 模式，错误文案渲染在表单内（1001 / 1002 分支都必须可见）
-    errorMsg.value = error.code === 1002 ? error.message : '用户名或密码错误，请重新输入'
+    errorMsg.value = loginErrorMessage(error)
   } finally {
     loading.value = false
   }
+}
+
+/* ==================== 验证码通道（S10/S11/S12） ==================== */
+async function sendLoginCode() {
+  if (smsSending.value || smsCountdown.left.value > 0) return
+  errorMsg.value = ''
+  if (!isPhone(smsForm.phone)) {
+    smsError.value = smsForm.phone ? '请输入正确的 11 位手机号' : '请输入手机号'
+    return
+  }
+  smsSending.value = true
+  try {
+    const res = await sendSms({
+      phone: smsForm.phone.trim(),
+      scene: 'LOGIN',
+      clientType: CLIENT_TYPE,
+      deviceId: readDeviceId()
+    })
+    smsSentTip.value = `验证码已发送至 ${maskPhone(smsForm.phone.trim())}`
+    smsCountdown.start(res.nextAllowedIn || 60)
+  } catch (error) {
+    if (error.code === 1101) {
+      smsError.value = '验证码发送过于频繁，请稍后再试'
+      // 频控时按服务端建议间隔覆盖本地倒计时（§4.2）
+      smsCountdown.start(60)
+    } else {
+      smsError.value = error.message || '短信服务暂不可用，请稍后重试'
+    }
+  } finally {
+    smsSending.value = false
+  }
+}
+
+async function onSmsSubmit() {
+  if (loading.value) return
+  smsError.value = ''
+  if (!isPhone(smsForm.phone)) {
+    smsError.value = '请输入正确的 11 位手机号'
+    return
+  }
+  loading.value = true
+  try {
+    const data = await auth.loginBySms({
+      phone: smsForm.phone.trim(),
+      code: smsForm.code.trim(),
+      clientType: CLIENT_TYPE,
+      as: route.query.as || undefined,
+      device: collectDevicePayload(CLIENT_TYPE)
+    })
+    succeed(data.employee)
+  } catch (error) {
+    smsError.value = loginErrorMessage(error)
+  } finally {
+    loading.value = false
+  }
+}
+
+/* ==================== 设备二次验证（S3/S7） ==================== */
+async function sendDeviceCode() {
+  if (deviceSending.value || deviceCountdown.left.value > 0) return
+  deviceError.value = ''
+  deviceSending.value = true
+  try {
+    const res = await sendSms({
+      scene: 'DEVICE_VERIFY',
+      twoFactorTicket: deviceInfo.value ? deviceInfo.value.ticket : '',
+      deviceId: readDeviceId()
+    })
+    deviceCountdown.start(res.nextAllowedIn || 60)
+  } catch (error) {
+    if (error.code === 1101) {
+      deviceError.value = '验证码发送过于频繁，请稍后再试'
+      deviceCountdown.start(60)
+    } else {
+      deviceError.value = error.message || '短信服务暂不可用，请稍后重试'
+    }
+  } finally {
+    deviceSending.value = false
+  }
+}
+
+async function onDeviceSubmit() {
+  if (loading.value) return
+  loading.value = true
+  deviceError.value = ''
+  try {
+    const data = await auth.verifyLoginDevice({
+      twoFactorTicket: deviceInfo.value ? deviceInfo.value.ticket : '',
+      code: deviceForm.code.trim()
+    })
+    succeed(data.employee)
+  } catch (error) {
+    deviceError.value = loginErrorMessage(error)
+  } finally {
+    loading.value = false
+  }
+}
+
+/** 退路（§4.3）：返回 S0 并清空密码、保留账号 */
+function backToCredentials() {
+  step.value = 'credentials'
+  activeChannel.value = 'password'
+  form.password = ''
+  deviceForm.code = ''
+  deviceError.value = ''
+  deviceInfo.value = null
+  deviceCountdown.stop()
+}
+
+/* ==================== 辅助与合规 ==================== */
+const forgotTip = ref('')
+function onForgot() {
+  forgotTip.value = '请联系管理员重置密码'
 }
 </script>
 
@@ -70,11 +301,17 @@ async function onSubmit() {
   <div class="login">
     <header class="login__header">
       <h1 class="login__title">{{ appName }}</h1>
-      <p class="login__subtitle">{{ subtitle }}</p>
+      <!-- 未认证态不泄漏另一端品牌：管理端视角只出「管理员经营视角」，其余一律员工端口径 -->
+      <p v-if="isBossView" class="login__brand">管理员经营视角</p>
+      <p v-else class="login__subtitle">员工端</p>
     </header>
 
+    <!-- S9 到期强制重登（1108）：warning 提示条，表单仍可用 -->
+    <p v-if="expiredTip" class="login__expired" role="status">{{ expiredTip }}</p>
+
     <section class="login__card">
-      <div v-if="demoEnabled" class="login__quick">
+      <!-- 演示态一键体验：仅 Mock 构建加载演示账号，生产构建整块不渲染 -->
+      <div v-if="demoEnabled && step === 'credentials'" class="login__quick">
         <span class="login__quick-label">一键体验：</span>
         <button
           v-for="account in demoAccounts"
@@ -87,61 +324,160 @@ async function onSubmit() {
         </button>
       </div>
 
-      <van-form @submit="onSubmit">
-        <van-field
-          v-model="form.username"
-          name="username"
-          label="账号"
-          placeholder="请输入登录账号"
-          autocomplete="username"
-          :rules="[{ required: true, message: '请输入登录账号' }]"
-        />
-        <van-field
-          v-model="form.password"
-          :type="showPassword ? 'text' : 'password'"
-          name="password"
-          label="密码"
-          placeholder="请输入密码"
-          autocomplete="current-password"
-          :rules="[{ required: true, message: '请输入密码' }]"
-        >
-          <!-- 明文/密文切换：aria-label 随状态变化，语义不全压在图标上（图标名已核对 vant 4.10 图标清单） -->
-          <template #right-icon>
-            <button
-              type="button"
-              class="login__eye"
-              :aria-label="showPassword ? '隐藏密码' : '显示密码'"
-              :aria-pressed="showPassword"
-              @click="showPassword = !showPassword"
-            >
-              <van-icon :name="showPassword ? 'eye-o' : 'closed-eye'" aria-hidden="true" />
-            </button>
-          </template>
-        </van-field>
-        <p v-if="errorMsg" class="login__error" role="alert">{{ errorMsg }}</p>
-        <div class="login__submit">
-          <van-button block type="primary" native-type="submit" :loading="loading">登录</van-button>
-        </div>
-      </van-form>
+      <!-- 提交级错误（表单顶部内联，切换通道时清除） -->
+      <p v-if="errorMsg" class="login__error" role="alert">{{ errorMsg }}</p>
+
+      <!-- 第 1 步：双通道表单 -->
+      <template v-if="step === 'credentials'">
+        <van-tabs v-model:active="activeChannel" class="login__tabs" type="line" shrink>
+          <van-tab title="密码登录" name="password">
+            <van-form class="login__form" @submit="onPasswordSubmit">
+              <van-field
+                v-model="form.username"
+                name="username"
+                label="账号"
+                placeholder="请输入登录账号"
+                autocomplete="username"
+                :rules="[{ required: true, message: '请输入登录账号' }]"
+              />
+              <van-field
+                v-model="form.password"
+                :type="showPassword ? 'text' : 'password'"
+                name="password"
+                label="密码"
+                placeholder="请输入密码"
+                autocomplete="current-password"
+                :rules="[{ required: true, message: '请输入密码' }]"
+              >
+                <template #right-icon>
+                  <button
+                    type="button"
+                    class="login__eye"
+                    :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+                    :aria-pressed="showPassword"
+                    @click="showPassword = !showPassword"
+                  >
+                    <van-icon :name="showPassword ? 'eye-o' : 'closed-eye'" aria-hidden="true" />
+                  </button>
+                </template>
+              </van-field>
+              <div class="login__submit">
+                <van-button block type="primary" native-type="submit" :loading="loading">登录</van-button>
+              </div>
+            </van-form>
+          </van-tab>
+
+          <van-tab title="验证码登录" name="sms">
+            <van-form class="login__form" @submit="onSmsSubmit">
+              <van-field
+                v-model="smsForm.phone"
+                type="tel"
+                inputmode="numeric"
+                autocomplete="tel"
+                name="phone"
+                label="手机号"
+                placeholder="请输入手机号"
+                :rules="[{ required: true, message: '请输入手机号' }]"
+              />
+              <van-field
+                v-model="smsForm.code"
+                type="tel"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                name="code"
+                label="验证码"
+                placeholder="请输入 6 位验证码"
+                :rules="[{ required: true, message: '请输入验证码' }]"
+              >
+                <template #button>
+                  <button
+                    type="button"
+                    class="login__code-btn"
+                    :disabled="smsSending || smsCountdown.left.value > 0"
+                    :aria-disabled="smsSending || smsCountdown.left.value > 0"
+                    @click="sendLoginCode"
+                  >
+                    {{ smsCodeText }}
+                  </button>
+                </template>
+              </van-field>
+              <p v-if="smsSentTip" class="login__sent" role="status">{{ smsSentTip }}</p>
+              <p v-if="smsError" class="login__field-error" role="alert">{{ smsError }}</p>
+              <div class="login__submit">
+                <van-button block type="primary" native-type="submit" :loading="loading">登录</van-button>
+              </div>
+            </van-form>
+          </van-tab>
+        </van-tabs>
+      </template>
+
+      <!-- 第 2 步：新设备短信二次验证（卡片内切步，非弹窗） -->
+      <div v-else class="login__device">
+        <h2 class="login__device-title">设备验证</h2>
+        <p class="login__device-desc">检测到这是一台新设备。为保障账号安全，请完成短信验证。</p>
+        <p class="login__device-phone">验证手机号：{{ devicePhone }}</p>
+        <van-form class="login__form" @submit="onDeviceSubmit">
+          <van-field
+            ref="deviceCodeRef"
+            v-model="deviceForm.code"
+            type="tel"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            name="code"
+            label="验证码"
+            placeholder="请输入 6 位验证码"
+            :rules="[{ required: true, message: '请输入验证码' }]"
+          >
+            <template #button>
+              <button
+                type="button"
+                class="login__code-btn"
+                :disabled="deviceSending || deviceCountdown.left.value > 0"
+                :aria-disabled="deviceSending || deviceCountdown.left.value > 0"
+                @click="sendDeviceCode"
+              >
+                {{ deviceCodeText }}
+              </button>
+            </template>
+          </van-field>
+          <p v-if="deviceError" class="login__field-error" role="alert">{{ deviceError }}</p>
+          <div class="login__submit">
+            <van-button block type="primary" native-type="submit" :loading="loading">验证并登录</van-button>
+          </div>
+        </van-form>
+        <button type="button" class="login__back" @click="backToCredentials">这不是我的设备</button>
+        <p class="login__safe">如非本人操作，请立即联系管理员</p>
+      </div>
 
       <p v-if="demoEnabled" class="login__tip">
         演示密码统一为 {{ demoPassword }}，仅存在于 Mock 数据，非任何环境真实凭据
       </p>
     </section>
+
+    <div class="login__aux">
+      <button type="button" class="login__link" @click="onForgot">忘记密码？</button>
+    </div>
+    <p v-if="forgotTip" class="login__tip" role="status">{{ forgotTip }}</p>
+
+    <footer class="login__compliance">
+      <p v-if="demoEnabled" class="login__simulate">演示环境 · 短信不会真实发送</p>
+      <p class="login__agree">登录即表示同意《服务条款》与《隐私与安全说明》，本页仅为演示。</p>
+    </footer>
   </div>
 </template>
 
 <style scoped>
 .login {
   min-height: 100vh;
-  padding: 0 var(--sp-5) var(--sp-8);
+  /* 顶部与底部留出安全区，避免被状态栏 / Home 指示条遮挡（H5 壳 WebView） */
+  padding: calc(var(--safe-top) + var(--sp-10)) var(--sp-5) calc(var(--safe-bottom) + var(--sp-8));
 
-  /* 主色浅底渐入页面底：品牌感来自 Token，不再是手调 #e8f2ff */
+  /* 主色浅底渐入页面底：品牌感来自 Token，不再是手调色值 */
   background: linear-gradient(180deg, var(--color-primary-surface) 0%, var(--surface-page) 42%);
 }
 
 .login__header {
-  padding: var(--sp-10) 0 var(--sp-6);
+  padding-bottom: var(--sp-6);
 }
 
 .login__title {
@@ -151,11 +487,32 @@ async function onSubmit() {
   line-height: var(--lh-h1);
 }
 
+/* 品牌行落在渐变近顶区：--text-3 对合成底色约 4.33:1 不达 AA，故用 --text-2（设计 §5.3） */
+.login__brand {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-caption);
+  color: var(--text-2);
+}
+
 .login__subtitle {
   margin: var(--sp-2) 0 0;
   font-size: var(--fs-caption);
   line-height: var(--lh-caption);
-  color: var(--text-3);
+  color: var(--text-2);
+}
+
+/* 到期提示条（1108）：warning 语义，不复用 simulate（演示标识）那组变量 */
+.login__expired {
+  margin: 0 0 var(--sp-4);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--state-warning-fg);
+  background: var(--state-warning-bg);
+  border: 1px solid var(--state-warning-border);
+  border-radius: var(--r-sm);
 }
 
 .login__card {
@@ -173,6 +530,15 @@ async function onSubmit() {
   box-shadow: var(--e0);
 }
 
+.login__tabs {
+  /* Tab 下划线随主色 Token（--van-tabs-bottom-bar-color 已在 tokens 覆盖） */
+  --van-tabs-line-height: 44px;
+}
+
+.login__form {
+  padding-top: var(--sp-2);
+}
+
 .login__quick {
   display: flex;
   flex-wrap: wrap;
@@ -186,9 +552,9 @@ async function onSubmit() {
   color: var(--text-3);
 }
 
-/* 次要控件：高 32（≥24 的 AA 要求），主入口仍是下方「登录」按钮 */
+/* 次要控件：触控区压到项目硬下限 44×44（设计 P4 / §4.8），主入口仍是下方「登录」按钮 */
 .login__quick-btn {
-  min-height: 32px;
+  min-height: var(--touch-min);
   padding: 0 var(--sp-3);
   font-size: var(--fs-caption);
   color: var(--color-primary);
@@ -197,11 +563,19 @@ async function onSubmit() {
   border-radius: var(--r-full);
 }
 
-.login__error {
+.login__error,
+.login__field-error {
   margin: var(--sp-2) 0 0;
   font-size: var(--fs-caption);
   line-height: var(--lh-caption);
   color: var(--color-danger);
+}
+
+.login__sent {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--text-2);
 }
 
 /* 密码明文/密文切换：热区撑到 44×44，靠上下负外边距抵消，不把 44 高的字段撑高 */
@@ -223,12 +597,113 @@ async function onSubmit() {
   color: var(--color-primary);
 }
 
+/* 发码按钮：禁用态保持 44px 热区（不置 display:none，§4.2），靠负外边距回填字段行高 */
+.login__code-btn {
+  flex: none;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 var(--sp-3);
+  margin: calc(-1 * var(--sp-4)) 0;
+  font-size: var(--fs-caption);
+  color: var(--color-primary);
+  background: none;
+  border: 1px solid var(--color-primary-icon);
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+}
+
+.login__code-btn:disabled {
+  color: var(--text-disabled);
+  border-color: var(--border-line);
+}
+
+.login__device-title {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-h2);
+}
+
+.login__device-desc {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--text-2);
+}
+
+.login__device-phone {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--text-2);
+}
+
+/* 次要链接（不是我的设备）：次要动作，热区 ≥44px */
+.login__back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0;
+  font-size: var(--fs-caption);
+  color: var(--color-primary);
+  background: none;
+  border: none;
+}
+
+/* 纯白卡上 --text-3 实测 4.83:1，达 AA */
+.login__safe {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--text-3);
+}
+
 .login__submit {
   margin-top: var(--sp-5);
 }
 
 .login__tip {
   margin: var(--sp-3) 0 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--text-3);
+}
+
+.login__aux {
+  margin-top: var(--sp-4);
+  text-align: right;
+}
+
+.login__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0;
+  font-size: var(--fs-caption);
+  color: var(--color-primary);
+  background: none;
+  border: none;
+}
+
+.login__compliance {
+  margin-top: var(--sp-5);
+}
+
+/* 演示标识：复用既有 --state-simulate-*（与 warning 语义分离），不新增 Token */
+.login__simulate {
+  display: inline-block;
+  margin: 0 0 var(--sp-2);
+  padding: 2px var(--sp-2);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--state-simulate-fg);
+  background: var(--state-simulate-bg);
+  border: 1px solid var(--state-simulate-border);
+  border-radius: var(--r-sm);
+}
+
+.login__agree {
+  margin: 0;
   font-size: var(--fs-caption);
   line-height: var(--lh-caption);
   color: var(--text-3);

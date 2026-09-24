@@ -161,7 +161,7 @@ export const useTodoStore = defineStore('mobileTodo', () => {
   const groups = ref([])
   const loading = ref(false)
 
-  /** 按角色取分组：老板 6 类（A4-3 + 待终审请假），员工 4 类、站长 5 类（多「待初审请假」）。
+  /** 按角色取分组：管理员 6 类（A4-3 + 待终审请假），员工 4 类、站长 5 类（多「待初审请假」）。
    *  组级 roles 未声明 = 所有能看到本表的角色都可见（向后兼容既有 5 + 3 组）。 */
   const configs = computed(() =>
     (auth.isAdmin ? BOSS_TODO_GROUPS : STAFF_TODO_GROUPS).filter((item) => canAccess(item.roles, auth.user))

@@ -46,7 +46,7 @@ export function usePayrollActions({ query, pendingSubmitCount, approvedCount, fe
     if (!row) return
     if (action === 'submit') {
       ElMessageBox.confirm(
-        `将把 ${row.employeeName} ${row.month} 的工资单提交审核，提交后本人仍需老板审核通过才能发布。`,
+        `将把 ${row.employeeName} ${row.month} 的工资单提交审核，提交后本人仍需管理员审核通过才能发布。`,
         '提交审核',
         { confirmButtonText: '确认提交', cancelButtonText: '再想想', type: 'warning' }
       )

@@ -20,8 +20,8 @@ const todo = useTodoStore()
 
 /**
  * 浏览器标题：本文件只接管员工端
- * 为什么只写员工端：老板端标题已由 router/index.js 的 afterEach 单点维护（并发会话在维护），
- * 两处都写必然在员工端路径上互相覆盖，故这里仅当解析结果是员工端名时才落笔，老板端交还 afterEach。
+ * 为什么只写员工端：管理端标题已由 router/index.js 的 afterEach 单点维护（并发会话在维护），
+ * 两处都写必然在员工端路径上互相覆盖，故这里仅当解析结果是员工端名时才落笔，管理端交还 afterEach。
  * 为什么 flush: 'post'：post 保证本 effect 晚于 afterEach 执行，否则刚写好的员工端标题会被 afterEach 的默认标题盖掉。
  * 静态标题仍留在 mobile.html 作首屏 / 无 JS 兜底。
  */
@@ -34,14 +34,24 @@ watchEffect(
   { flush: 'post' }
 )
 
-/** 401 统一出口（http.js 广播）：清理本地登录态并回登录页，避免在拦截器里 import router 形成循环引用 */
-function handleUnauthorized() {
+/**
+ * 401 / 1108 统一出口（http.js 广播）：清理本地登录态并回登录页，避免在拦截器里 import router 形成循环引用。
+ * 分流：1108（会话 3 天到期）按设计带 redirect 回原路径并在登录页给「登录已到期」提示条；
+ * 401（被顶下线/禁用/手动退出）保持既有行为不带 redirect，避免污染下次登录的落地页。
+ */
+function handleUnauthorized(event) {
   // 幂等兜底：已在登录页说明清理与跳转都做过了，再 replace 一次只会重复触发导航
   if (route.path === '/login') return
+  const expired = !!(event && event.detail && event.detail.code === 1108)
+  const from = route.fullPath
   auth.clearSession()
   notify.clear()
   todo.clear()
-  router.replace('/login')
+  if (expired) {
+    router.replace({ path: '/login', query: { expired: '1', redirect: from } })
+  } else {
+    router.replace('/login')
+  }
 }
 
 /**
