@@ -615,7 +615,7 @@ export function useLatestRequest() {
 | 批次 | 范围 | 依赖 | 状态 |
 | --- | --- | --- | --- |
 | B0 | api 分域 + http 收敛 + 竞态 composable + store + ESLint + todoGroups 下沉 | — | **已完成**（commit `638fccb`；门禁 verify:mock 878/878、verify:mobile 48/0、test 209/0、lint 0 error、build+build:prod EXIT=0、e2e 37/0） |
-| B1 | 考勤域（含打卡页 972 行拆分） | B0 | 待办 |
+| B1 | 考勤域（含打卡页 972 行拆分） | B0 | **已完成**（B1a `9d36310` 共用组件与 Token 基座；B1b `d47cadc` 打卡页 972→148 壳 + 6 组件 + 2 composable + 1 model、`useCheckIn` 销项双实现、`stores/attendance` 收口、另 3 页复用收口；门禁 lint 0 error、verify:mock 887/0、verify:mobile 48/0、test 52 文件 427 用例、verify:tokens EXIT=0、build+build:prod EXIT=0、e2e 38 passed/0 failed） |
 | B2 | 工单域 | B0 | 待办 |
 | B3 | 包裹域 | B0 | 待办 |
 | B4 | 我的域（含 kpi 跨端 view prop） | B0 | 待办 |
