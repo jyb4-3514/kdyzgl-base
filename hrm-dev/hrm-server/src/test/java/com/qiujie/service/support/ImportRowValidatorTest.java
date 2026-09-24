@@ -1,7 +1,7 @@
 package com.qiujie.service.support;
 
-import com.qiujie.dto.EmployeeImportRow;
-import com.qiujie.vo.ImportErrorVO;
+import com.qiujie.dto.employee.EmployeeImportRow;
+import com.qiujie.vo.employee.ImportErrorVO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

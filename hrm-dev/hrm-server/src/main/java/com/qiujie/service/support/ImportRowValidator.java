@@ -1,8 +1,8 @@
 package com.qiujie.service.support;
 
-import com.qiujie.dto.EmployeeImportRow;
+import com.qiujie.dto.employee.EmployeeImportRow;
 import com.qiujie.util.FieldValidator;
-import com.qiujie.vo.ImportErrorVO;
+import com.qiujie.vo.employee.ImportErrorVO;
 
 import java.util.ArrayList;
 import java.util.HashMap;

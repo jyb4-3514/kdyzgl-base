@@ -35,6 +35,16 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!--
+          AOP：C-03 L3 路径资源越权切面（@DataScope 的 @Aspect 消费）所需。
+          为什么新增依赖：Spring Boot 未默认引入 aspectjweaver，@AspectJ 注解不会被织入；
+          这是本批次唯一新增依赖，仅用于横切能力，不引入完整 Spring Security 等重型组件（决策 D10）。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
         <!-- Redis（登录会话） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

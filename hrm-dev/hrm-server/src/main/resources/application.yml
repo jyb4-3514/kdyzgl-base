@@ -6,7 +6,8 @@
 #      - 服务器侧外置 application-prod.yml（被 .gitignore 忽略，不入仓库）；
 #      - 或通过环境变量 / 启动参数覆盖（Spring 标准优先级）；
 #   2. 完整参数项模板见仓库根目录 env.example；
-#   3. PostgreSQL 切换方式见下方数据源注释（Flyway 自动按 {vendor} 选脚本）。
+#   3. PostgreSQL 切换方式见下方数据源注释（Flyway 自动按 {vendor} 选脚本）；
+#   4. 带【数据盘】标注的路径必须落 /data（系统盘 30G 仅放 OS），由部署脚本创建（架构 1.4.8 / C-11）。
 # =====================================================================
 
 server:
@@ -49,6 +50,9 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 12MB
+      # 【数据盘】上传临时落盘目录，禁止落 /tmp 或工作目录（否则大文件写满系统盘，架构 R-4 / ADR-04）；
+      # 该目录须由部署脚本预创建；生产可经外置配置覆盖。
+      location: /data/hrm-tmp
 
 # ---------- MyBatis-Plus ----------
 mybatis-plus:
@@ -63,17 +67,184 @@ mybatis-plus:
       logic-not-delete-value: 0
 
 # ---------- JWT / 登录态（密钥务必替换为 ≥32 字节随机串） ----------
+# expire：Token 有效期（秒）。M4 按用户裁定统一为 259200（3 天），与 hrm.auth.session-ttl-seconds 双控取较短者。
+# 该值同时作为 /auth/login 出参 expiresIn 的取值（语义仍为「Token 有效期（秒）」，仅时长由 1 天改为 3 天）。
 jwt:
   secret: change_me_jwt_secret_please_generate_a_long_random_string
-  expire: 86400   # 秒，默认 24 小时（与 Redis 会话 TTL 一致）
+  expire: 259200  # 秒 = 3 天（原 86400；M4 登录契约改造统一会话时效）
 
 # ---------- 业务配置 ----------
 hrm:
   # Excel 导入账号统一初始密码（首登强制改密兜底）
   employee-init-password: change_me_init_password
 
+  # ---------- 会话与认证（M2 新增命名空间 hrm.auth.*；默认值与架构 multi-client-architecture §3.5 逐键一致） ----------
+  # 逐键（全 ASCII 键；中文只作注释与值，规避 YAML 非 ASCII 键被 Spring 静默归属的问题，见 hrm.algo.dispatch 注释）：
+  #   session-ttl-seconds          会话有效期(秒，默认 3 天；Redis 会话 TTL，与 jwt.expire 双控取较短者)
+  #   max-sessions-per-employee    单员工最大并发会话数(按端+设备维度，超限淘汰最旧)
+  #   device-trust-enabled         设备信任开关(关=每次密码登录都需短信二次验证)
+  #   device-trust-ttl-seconds     设备信任有效期(秒，30 天)
+  #   periodic-reauth-seconds      重认证窗口(秒，3 天；超窗一律 1108 强制重登，用户裁定不做短信续期)
+  #   expiry-grace-seconds         到期宽限(秒，5 分钟；仅为把超窗返回为 1108 而非裸 401，不延长可用期)
+  #   captcha-enabled              短信图形验证码开关(默认关；开启时 A1 须带有效图形码)
+  #   captcha-ttl-seconds          图形验证码有效期(秒，120)
+  #   device-ticket-ttl-seconds    新设备二次验证票据有效期(秒，300)
+  #   max-trusted-devices-per-employee 单员工可信任设备数上限(超限淘汰最久未活跃)
+  #   device-fingerprint-salt      设备指纹 HMAC 盐(服务端秘密；仓库只允许 change_me_* 占位，生产未配置即启动失败)
+  #   pc-allowed-roles             PC 管理端允许登录的角色集合(逗号分隔，默认 ADMIN)
+  auth:
+    session-ttl-seconds: 259200        # 3 天
+    max-sessions-per-employee: 5       # 超限淘汰最旧
+    device-trust-enabled: true
+    device-trust-ttl-seconds: 2592000  # 30 天
+    periodic-reauth-seconds: 259200    # 3 天
+    expiry-grace-seconds: 300          # 5 分钟（仅使超窗可返回 1108，不延长可用期）
+    captcha-enabled: false
+    captcha-ttl-seconds: 120
+    device-ticket-ttl-seconds: 300
+    max-trusted-devices-per-employee: 5
+    # 设备指纹 HMAC 盐：占位符；真实值由主智能体托管下发到服务器外置配置（600 权限、不入库）
+    device-fingerprint-salt: change_me_device_fingerprint_salt
+    # PC 管理端（X-Client-Type=ADMIN / 请求体 clientType=WEB）允许登录的角色集合（逗号分隔，全 ASCII；默认仅 ADMIN）。
+    # 为什么标量而非 YAML 列表：与 dispatch 同因——非 ASCII 的配置键会被 ConfigurationPropertyName.adapt()
+    #   静默归并（见 hrm.algo.dispatch 注释）；本键键名与值均全 ASCII，单标量、逗号分隔，不受该问题影响。
+    # 未配置/未上报端类型时：命中默认值 ADMIN，但端回落 WEB 且不做角色约束（行为与改造前一致）。
+    pc-allowed-roles: ADMIN
+
+  # ---------- 短信通道（M2 新增命名空间 hrm.sms.*；凭据只允许 change_me_* 占位符） ----------
+  # 逐键：provider 供应商(aliyun|none，默认 none 降级；生产必须 aliyun 否则启动失败)
+  #      / aliyun.* 签名与模板与 AccessKey(占位) / code-length 验证码长度[4-8]
+  #      / code-ttl-seconds 验证码有效期(秒) / send-interval-seconds 同号最小间隔(秒)
+  #      / daily-limit-per-phone 同号每日上限 / ip-hourly-limit 同 IP 每小时上限
+  #      / device-hourly-limit 同设备每小时上限 / account-daily-limit 同账号每日上限
+  #      / max-verify-attempts 单码最大尝试次数
+  sms:
+    provider: none                     # 生产外置配置须覆盖为 aliyun 并配置 Key，否则 fail-fast
+    aliyun:
+      access-key-id: change_me_sms_access_key_id
+      access-key-secret: change_me_sms_access_key_secret
+      sign-name: change_me_sms_sign_name
+      template-code-login: change_me_sms_tpl_login
+      template-code-device: change_me_sms_tpl_device
+      template-code-reauth: change_me_sms_tpl_reauth
+    code-length: 6
+    code-ttl-seconds: 300
+    send-interval-seconds: 60
+    daily-limit-per-phone: 10
+    ip-hourly-limit: 20
+    device-hourly-limit: 10
+    account-daily-limit: 10
+    max-verify-attempts: 5
+    # 降级通道（provider=none，仅非生产）使用的开发固定验证码；生产必须 aliyun（否则启动失败），本值不会生效。
+    # 与前端演示资产固定码一致，便于联调；绝不打印到日志/响应体。
+    dev-fixed-code: "000000"
+
+  # ---------- 地理定位（M2 新增命名空间 hrm.geo.*；Key 只允许 change_me_* 占位符） ----------
+  # 逐键：provider 供应商(amap|haversine，默认 haversine 降级) / amap.key 与 security-code(占位)
+  #      / fence-radius-meters 围栏兜底默认(米，本批未接线，实际以 attendance_rule.radius 为准)
+  #      / timeout-millis 高德调用超时(毫秒)
+  geo:
+    provider: haversine                # Key 未配置时 amap 实现不被装配（回落本地球面距离）
+    amap:
+      key: change_me_geo_amap_key
+      security-code: change_me_geo_amap_security_code
+    fence-radius-meters: 200
+    timeout-millis: 3000
+
+  # 人事业务默认值（P5，C-11 外置）：与计费口径无关的建档默认；口径类参数须用户裁定，不在此处
+  hr:
+    default-probation-months: 3     # 入职建档默认试用期（月），对齐 Mock 建档默认
+    default-contract-months: 3      # 入职建档默认合同期限（月），对齐 Mock 建档默认
+
+  # 存储路径（C-11）：业务上传与导出临时目录落数据盘（架构 1.4.8）
+  storage:
+    upload-dir: /data/hrm-upload      # 【数据盘】
+    export-dir: /data/hrm-export      # 【数据盘】
+
+  # 算法参数（C-11 占位骨架，键名与默认值逐键对齐 algo-hrm-server.md §11）
+  # 本批次仅建立配置承载，不实现任何算法逻辑（P1~P10 填充）；业务口径走数据库热改（ADR-05）。
+  algo:
+    kpi:
+      linearCapRatio: 1.0
+      tieredTiers:
+        - { minAchievement: 1.0, ratio: 1.0 }
+        - { minAchievement: 0.9, ratio: 0.9 }
+        - { minAchievement: 0.8, ratio: 0.8 }
+        - { minAchievement: 0.6, ratio: 0.6 }
+        - { minAchievement: 0.0, ratio: 0.0 }
+      levels:
+        - { min: 90, level: EXCELLENT }
+        - { min: 80, level: GOOD }
+        - { min: 70, level: PASS }
+        - { min: 0, level: IMPROVE }
+      quantile: { enabled: false, tiePolicy: MID_RANK, minSamples: 20 }
+      weightSumTarget: 100
+      weightSumTolerance: 0
+    payroll:
+      attendanceFieldMap: { LATE: lateCount, EARLY_LEAVE: earlyLeaveCount, ABSENT: absentCount, ABNORMAL: abnormalCount, LEAVE: leaveCount }
+      defaultCapRatio: 1.0
+      unknownSourcePolicy: ZERO
+      allowNegativeNet: true             # Q3 未裁定：保持与 Mock 一致（允许负净额）；裁定后改 false 即「净额下限置 0」
+      itemCapSemantics: ZERO_MEANS_NO_CAP
+    schedule:
+      minPerShift: 2
+      maxConsecutiveWork: 5
+      restCycleDays: 6
+      weights: { minStaff: 1000, consecutive: 1000, coverageDeficit: 10, shiftBalance: 1, restSpread: 0.1 }
+      sa: { iterations: 6000, initialTemp: 8, cooling: 0.9995 }
+    attendance:
+      anomaly: { useRobust: true, lateWarn: 3.5, lateCritical: 5.0, consecutiveAbsent: 3, minSamples: 5, windowDays: 30 }
+    leave:
+      maxLeaveDays: 30
+      occupiedStatus: [ PENDING_STATION, PENDING_BOSS, APPROVED ]
+      lockStatusPolicy: NON_DRAFT_REJECTED
+      # 假别计薪口径（默认值与 Mock dict.LEAVE_TYPE 逐位一致）；扣款开关默认 false（Q6 未裁定）；通知默认开启
+      countModeMap: { ANNUAL: SCHEDULED, PERSONAL: SCHEDULED, SICK: SCHEDULED, COMPENSATORY: SCHEDULED, MARRIAGE: NATURAL, MATERNITY: NATURAL, PATERNITY: NATURAL, BEREAVEMENT: NATURAL, OTHER: SCHEDULED }
+      deductEnabledDefault: false
+      notifyEnabled: true
+    dispatch:
+      # 注：关键词权重用「列表」承载（keywordWeightList），不用嵌套 Map —— Spring Boot 绑定前会经
+      #     ConfigurationPropertyName.adapt() 规范化属性名并静默丢弃非 ASCII 字符，中文键
+      #     （破损/丢失/…）会被归并成同一父名，导致整张 Map 被误绑为标量而启动失败
+      #     （与 flow/block 写法、文件编码无关）。字段名保持 ASCII，中文只作为值出现。
+      slaHours:
+        "0": 48
+        "1": 24
+        "2": 8   # 待 Q4 裁定，未裁定前为等价现状
+      weights:
+        urgency: 4.0
+        skill: 2.5
+        load: 1.5
+        speed: 2.0   # 待 Q5 裁定，未裁定前为算法默认组
+      keywordWeightList:
+        - { keyword: "破损", weight: 1.0 }
+        - { keyword: "丢失", weight: 3.0 }
+        - { keyword: "故障", weight: 1.0 }
+        - { keyword: "投诉", weight: 2.5 }
+      defaultType: 4
+      defaultPriority: 1
+      # P8 新增（S6 派单落地参数；默认值与算法方案/Mock 等价，上线即无行为变化）
+      defaultSlaHours: 24          # slaHours 缺某优先级键时的兜底（中优先级口径）
+      loadWindowDays: 7            # 负载均衡项：窗口内接单量
+      skillWindowDays: 90          # 技能画像：窗口内已了结工单类型占比
+      minSkillSamples: 1           # 技能画像最小样本量（不足按 0）
+      estimatedServiceHours: 1.0   # 就绪度等待代理：单件预估处理时长（小时）
+      keywordWeighted: false       # 关键词特异度加权（默认关，保持 Mock 顺序命中；Q5 裁定后置 true）
+    parcel:
+      forecast: { model: HOLT_WINTERS, alpha: 0.5, beta: 0.2, gamma: 0.4, seasonPeriod: 7, horizonDays: 7 }
+      capacity: { shelfCapacity: 900, utilWarn: 0.8, utilCritical: 0.95 }
+      outlier: { iqrK: 1.5 }
+      page: { pageSize: 20, mode: CURSOR }   # ADR-06 默认游标分页
+    ratelimit: { bucketCapacity: 10, refillPerSecond: 5, maxQueueWaitSeconds: 30, dimension: BOT_AND_EMPLOYEE }
+    log: { dedupeWindowSeconds: 10, textMax: 2000, sweepEvery: 2000, ringBufferCap: 200 }
+    # P9 新增（同步配置中心；默认值与 Mock syncConfigCsv.js 等价）
+    sync: { importRowLimit: 1000, csvColumnCount: 16 }
+
 # ---------- 日志 ----------
 logging:
   level:
     root: info
     com.qiujie: info
+  # 【数据盘】应用日志落 /data（C-11）。生产由外置 application-prod.yml 打开，避免开发机无 /data 目录时写日志失败：
+  # file:
+  #   path: /data/log/hrm
