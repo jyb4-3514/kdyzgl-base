@@ -1,6 +1,237 @@
+# 会话状态 · 当前状态摘要（每次会话先读这里，≤40 行）
+
+> 最后更新: 2026-09-24（新增「服务端 145 接口实现」工作流：算法/架构/数据库/P0 已交付）
+> **读法**：新会话**只读本块**即可恢复上下文；需要细节再按下方小节标题跳读，**不要通读全文**（历史分节累计近千行）。
+> **写法（追加纪律）**：新工作流在下方「历史分节」**追加**小节；**禁止重写全文件**。本摘要块允许重写，但必须保持 ≤40 行。
+
+| 项 | 值 |
+| --- | --- |
+| 当前阶段 | 一期（员工管理）**代码完成、未验收**；二期采集端、三期企微均为**设计完成、未开工** |
+| 工作区分支 | `feature/前端演示项目拆分与精细化` ⚠️ **多会话共用，提交前必须核对** |
+| 本机环境 | Node 可用；**无 JDK / MySQL / Redis / Android SDK** |
+| 主要阻塞 | 一期 D/E 阶段验收（需服务器）；二期 P0 前提未闭环；三期 Q7–Q12 待拍板；安卓壳未编译 |
+
+### 活跃工作流（均含未提交改动）
+
+1. **三端 Demo 拆分与精细化** — 员工端 B0/B1a/B1b 已提交，**B2 工单域待开工**；PC 端已提交；老板端模块已完成
+2. **服务器存储与登录收敛** — 宿主 MySQL(3307) 已切换；Demo 登录已收紧为站内单层
+3. **智能体团队规范层** — 项目规则 v2.2 + 调度规则常驻 + 9 角色已在本机 TRAE 界面建成
+4. **服务端 145 接口实现（方案 B·未提交）** — P0 地基 / P1 运行日志(3) / P2 通知(6) / **P3 考勤排班(22)+算法 S3/S4** 已交付
+
+### 权威指针（**不要在本文件重复这些内容**）
+
+- 协作规范与权限四档 → `.trae/rules/项目规则1.md`（自动注入）
+- 调度路由与链路 → `.trae/rules/智能体调度规则.md`（自动注入）
+- 新会话入口 → `AGENTS.md`（自动注入）
+- 需求 / 接口 / 库表 / 迭代规划 → `hrm-dev/docs/{requirement,api,db,plan}.md`
+
+---
+
+# 并行工作流 · 服务端 145 接口实现（2026-09-24 起）
+
+> 用户授权**方案 B**：为 `hrm-dev/hrm-demo`（三端 Demo，145 条 Mock 接口）写真实后端并**加算法**，部署到云服务器与前端联调，要求「容易更新迭代」。
+> **该授权构成对项目规则 §12.1「不得触碰 hrm-server」的定向豁免**（豁免范围仅限 hrm-server 内新增领域模块，不改 hrm-admin；登记见 `server-architecture.md` §7）。
+
+## 阶段产出
+
+| 阶段 | 产出 | 状态 |
+| ---- | ---- | ---- |
+| 立项调查 | 145 接口契约（17 模块 × 鉴权/角色/入参/出参）、11 类实体字段与枚举、10 个域业务规则、30 项算法基线 | 完成 |
+| 算法先行 | `hrm-dev/docs/algo-hrm-server.md`（8 场景四件套）+ 离线原型 `hrm-dev/docs/algo-scripts/`（`node run-all.mjs` 8/8 通过） | 完成 |
+| 架构定稿 | `hrm-dev/docs/server-architecture.md`（P0–P10 批次 + 36 表 + ADR-01~07 + §12.1 豁免登记 + C-01~C-11 兼容性缺口） | 完成 |
+| 数据库 | `hrm-dev/docs/db.md` v2.0 + 迁移 `V3`~`V13`（11 文件 / 33 新表）+ `hrm-dev/sql/schema/mysql/init.sql`（37 表 / 52 索引） | 完成 |
+| P0 地基 | 三角色 `RoleEnum`+`@RequireRoles`（fail-closed）、数据范围三层机制、`PageQuery` 越界→400、`ErrorCode` 补至 96xx、脱敏扩姓名/银行卡、`AlgoProperties`+`hrm.algo.*`、37 类域分包迁移 | 完成 |
+| P1 运行日志 | client_log 3 接口 + S8 指纹去重/截断/白名单脱敏 | 完成 |
+| P2 通知 | notification 6 接口（本人收口 + 范围扇出） | 完成 |
+| P3 考勤与排班 | attendance **22 接口** + 5 表实体/Mapper/JSON 类型处理器 + 算法 **S3 排班生成 / S4 异常检测**（内部能力） | 完成 |
+
+## 算法离线实测（固定种子可复现）
+
+| 场景 | 关键提升 |
+| ---- | ---- |
+| S3 排班 | 覆盖率 0.7778→**1.0**，最少在岗违规 20→**0**（发现 Mock 朴素轮休 `(e+d)%6==5` 数学上蕴含 `%3==2`，轮休恒落第 3 班次） |
+| S6 派单 | SLA 达成 78.3%→**100%**，平均完成 9.447h→**1.504h** |
+| S7 包裹 | Holt-Winters MAPE **5.34%**；20 万级落盘 **105.83MB**（数据盘 46G 的 0.22%）；游标扫描 38 行 vs 深分页 20020 行 |
+| S5 请假 | 计薪提速 **18.5×**、重叠判定提速 6147×，0 结果差异 |
+| S4 异常检测 | 稳健 z（median/MAD）F1 **0.889**（普通 z 0.667） |
+| S8 限频/日志 | 峰值 23→**14**/s；10 万日志聚合提速 114×、压缩比 199× |
+| S2 工资 | 幂等 0 差异；新增来源类型核心零改动 |
+| S1 KPI | 等价性 1200 项 0 不一致 |
+
+## 待用户裁定（未定前一律用「与现状逐位等价」默认值）
+
+| # | 口径 | 建议 |
+| ---- | ---- | ---- |
+| Q1 | KPI 等级阈值 90/80/70 | 外置，默认保持现状 |
+| Q2 | 分位映射模式 | **建议不启用**（实测全员均分≈50，与 90/80/70 严重不匹配，191/200 落「待改进」） |
+| Q3 | 绩效 `capRatio` 上限 / 允许负净额 | 实测出现 −360 元 |
+| Q4 | 工单 SLA 48/24/8h | 外置，默认保持 |
+| Q5 | 派单三目标权重 | **必须用户定**（重技能 Jain 0.786 / 重负载 0.9996 / 默认 0.978） |
+| Q6 | 请假扣款开关 + 连续缺卡阈值 | 默认不扣；连缺 3 天（2 天 F1 仅 0.455） |
+
+非口径开放问题：① **部署目标**（hrm-server 与现网 courier-server 是否并存、端口/域名分配）；② `GET /leave/settings` 角色口径（api.md 不限角色 vs Mock ADMIN，需定唯一真源）；③ 公开端点 `/work-orders/auto-dispatch` 是否允许公网可达（涉外部暴露面，须 P0.5 安全评估前置）；④ 非 ADMIN 且 `stationId=null` 兜底语义（已按「收敛为空数据」实现，标 TODO）。
+
+## 批次进度
+
+| 批次 | 范围 | 状态 |
+| ---- | ---- | ---- |
+| P0 | 地基兼容性改造（C-01~C-11） | 完成 |
+| P1 | systemlog（3）+ S8 日志聚合 | 完成（指纹去重 + 窗口聚合；令牌桶判定本批不适用，保留键位待三期企微） |
+| P2 | notification（6） | 完成 |
+| P3 | attendance（22）+ S3/S4 | 完成（贪心+模拟退火；稳健 z；79 新文件） |
+| P4 | kpi（9）+ S1 | 完成（阶梯参数化；分位默认关闭；与 Node 原型 1200 项 0 不一致） |
+| P5 | hr（16） | 完成（本表此前未同步；据 update-log 与 P10 任务输入 P0~P9 均已交付） |
+| P6 | finance（15）+ S2 | 完成（同上） |
+| P7 | leave（13）+ S5 | 完成（同上） |
+| P8 | workorder（9）+ S6 | 完成（S6 多目标排序；见 update-log P8） |
+| P9 | sync（22） | 完成（配置中心四层 + CSV 导入导出；见 update-log P9） |
+| P10 | parcel（6）+ S7 | **完成**（包裹 6 接口 + S7 趋势预测/容量热力/游标分页；145 接口收官；本批未执行迁移） |
+
+### 各批已发现缺口（待收口统一处理）
+
+- **种子数据缺失**：`V6__kpi.sql` 无 `kpi_metric` 种子（Mock 播 7 项）→ 上线后指标列表空、算分回 9203。**待 P5–P10 完成后统一补一个演示种子迁移**（联调用，生产上线前清理）。
+- `api.md` 无 KPI 章、`test-cases.md` 无 KPI 用例 → P4 契约真源为 Mock `routes/kpi.js`；契约落档待收口时统一补。
+- `kpi_score` 落库粒度：db.md 为「一员工一账期一行 + `metric_detail` JSON」，Mock 为「一员工一账期一指标逐行」→ 已按 db.md 聚合行实现（列表读聚合列、明细读快照）。
+- P3 契约扩展：`POST /schedules/batch-by-station` 智能模式（`shiftId` 缺省）追加 `violations/fallback` 出参，**手动模式与 Mock 逐位一致**；是否写入 `api.md` 待收口裁定（前端忽略未知字段，无破坏）。
+- S4 异常检测为内部能力（Mock 无对应出参字段），待 `api.md` 定义端点后接入；接入前不联动扣款（Q6 未裁定）。
+- `@RequireAdmin` 及兼容分支待确认无引用后删除。
+
+**P10 检查点（2026-09-24 追加）**：包裹 M10 6 接口 + S7 三项落地（Holt-Winters 预测/降级、IQR 容量热力、默认游标分页）。
+影响文件：`hrm-server` 新增 `entity/Parcel`、`mapper/ParcelMapper`、`controller/parcel/ParcelController`、
+`service/parcel/{ParcelService,impl/ParcelServiceImpl,support/*}`、`dto/parcel/*`、`vo/parcel/*`；改 `config/AlgoProperties.java`（Parcel 段扩键）。
+回滚：本地 `git checkout` 上述新增/改动文件（未提交、未执行迁移、无生产影响）。
+契约扩展（默认关闭）：trend 的 `forecastInbound`、ranking 的 `pendingPickup/utilization/capacityLevel/outlier`、请求 `cursor` + 响应 `nextCursor`。
+遗留：深分页超限返回空 list 待裁定；趋势未来点出参待裁定；新配置键待回填架构/算法文档。
+
+## 本轮用户补充的硬约束
+
+- 生产库落 **`/data/mysql-host`**（宿主 MySQL 3307），**系统盘只放系统文件**；上传/导出临时目录须指向 `/data`（`spring.servlet.multipart.location`）。
+- **数据库适应频繁迭代**：小步迁移、已执行脚本永不修改、只加列不删列不改列类型、索引必附回滚脚本、不用存储过程/触发器/物理外键（ADR-04）。
+- 迁移**执行**属 C 档，须主智能体三步授权后由运维执行；上线前备份库。
+- 本机无 JDK/Maven/MySQL/Redis → Java 改动**无法编译与实跑**，验收一律为静态审查 + 标注「收敛到服务器阶段」。
+
+## 待同步文档 / 遗留
+
+- `test-cases.md` TC-E01-019 仍期望「pageSize=200 → 钳制为 100」，与 C-04「越界→400」冲突，待测试工程师同步。
+- 架构 §3.2 C-03 写 `interceptor/` 包，实装于 `config/`（与既有拦截器位置一致）；`HandlerInterceptor` 无法替换请求对象，L1 改为「拦截器写 `DataScopeContext` + Query 基类消费」。
+- `@RequireAdmin` 及兼容分支待下一批确认无引用后删除。
+
+---
+
+# 并行工作流 · 登录体系改造与三端拆分（2026-09-24 起）
+
+> 145 接口实现完成后，用户追加需求：短信验证码登录 + 设备信任 + 3 天会话、三端独立代码、部署联调、商用级测试。
+
+## 用户确认的登录口径
+
+1. **双通道登录**：密码登录 + 短信验证码登录并存于同一登录页；
+2. **设备信任**：密码登录采集设备细节，**新设备**额外短信验证；
+3. **会话 3 天**：登录态保留 3 天，**每 3 天短信重认证一次**；
+4. **阿里云短信** Key 待申请（适配器 + 降级）；**高德定位** Key 待申请（现为 Haversine 降级）。
+
+## 设计产出
+
+- `hrm-dev/docs/multi-client-architecture.md`（架构师）：**API 不按端分区**（角色驱动；分区将牵动 300+ 处路径引用、回归面=全量）；**模块化单体**（否决微服务）；**8080 已被 courier-app 占用 → hrm-server 用 8081**；**6379 已被 courier-redis 占用 → 需独立 Redis 实例**；会话多端化（`hrm:session:{sid}` + `hrm:session:idx:{employeeId}` 索引，互踢粒度降为「端+设备」）；登录新增端点 A1/A2/B1-B4/C1-C2/D1 + **错误码新开 11xx 认证增强段**；批次 M1–M5。
+- `hrm-dev/docs/security-auth-review.md`（网络安全工程师）：见下。
+
+## 安全评估硬阻断项（未闭环不得公网可达）
+
+| 编号 | 严重级 | 问题 | 处置 |
+| ---- | ---- | ---- | ---- |
+| SEC-AUTH-01 | **严重** | `POST /work-orders/auto-dispatch` 未认证公开写端点（可伪造工单、通知轰炸、污染 SLA 统计） | 企微验签落地前 **Nginx 层默认拒绝公网**（内网/IP 白名单+限流）；**不得因白名单已就位即放行** |
+| SEC-AUTH-02 | **高** | 未强制 HTTPS / 无 HSTS | 全站 HTTPS + 80→301 + HSTS |
+| SEC-AUTH-03 | **高** | 登录无频控/无失败锁定/无验证码 | 至少一层限流 + 失败锁定 |
+| SEC-AUTH-04 | **高** | 公开白名单已就位但验签未做（流程缺口） | 新增公开端点须再过 P0.5 |
+
+**设备信任设计修正（本次最关键）**：前端采集的设备指纹**可伪造**——若以它判断「已信任设备」，攻击者伪造已信任指纹即可**绕过短信二次验证**。放行依据必须是**服务端签发的 `device_token`**（HttpOnly+Secure、限有效期与设备数、改密即失效）。
+**正向结论**：JWT（HS256 固定 + 强制验签 + 密钥长度校验）、Redis jti 会话比对、角色 fail-closed、路径归属校验均合格；**IDOR 抽查 5 条端点全部通过**。
+
+## 待用户裁定（架构师 Q1–Q10，关键 8 项）
+
+Q1 **3 天到期路径**（强制重登 vs 短信续期，建议续期）；Q2 是否可查看/撤销信任设备（建议允许）；Q3 短信是否配图形验证码（建议风控触发）；Q4 三端拆分时机（建议最后拆）；Q5 API 是否按端分区（建议不分区）；Q6 与 courier-server 共存（建议独立子域 + 8081）；Q7 Redis 归属（建议独立实例）；Q8 是否允许滑动续期（建议不允许）。
+
+## 批次进度（M 系列）
+
+| 批次 | 范围 | 状态 |
+| ---- | ---- | ---- |
+| M1 | 会话多端化地基（不改契约） | 完成（`hrm:session:{sid}` 多会话 + 索引；sid 256bit SecureRandom；旧 token 回退；并发上限淘汰最旧） |
+| M2 | 配置命名空间 + 短信/高德适配器端口 + 降级 | 完成（`hrm.auth/sms/geo.*`；验证码 SecureRandom + 恒定时间比较；**生产未配 Key 则 fail-fast**；日志不含验证码） |
+| M3 | 设备信任表 + 服务端 `device_token` | 待开工（DDL 属 C 档） |
+| M4 | 登录契约改造（11xx + 状态机） | **阻塞于 Q1 裁定** |
+| M5 | 三端独立拆分 | 待开工（建议最后） |
+
+## 部署与上线记录（2026-09-24）
+
+### 前端静态站已上线（修复「消息打不开」）
+
+- **真因**：不是代码 bug —— 修复（新增通知阅读页 `NoticeReader.vue` + `/staff|boss/message/notice` 路由 + `NoticeList` 点击改跳转）只存在于本地工作区，**从未提交/构建/部署**；线上跑的是 HEAD 旧版（点击按 `bizType` 分流但**无 `else` 兜底**，公告类通知点了无反应）。
+- **上线动作**：本地 `npm run build`（三入口，55s）→ 打包上传 → 服务器 `/data/www/hrm-demo/` 解压 → `.env` 的 `DEMO_TAG` 改 `20260924-1` → `bash deploy-demo.sh up` → 新镜像 `hrm-demo-static:20260924-1` 启动。
+- **回滚点**：旧镜像 `hrm-demo-static:20260923-1` 保留；`dist.bak.20260923` 保留。回滚 = `.env` 改回 tag + `deploy-demo.sh up`。
+- **线上验证**：`https://kongzhen1.com/` 200、`/mobile.html` 200、`/assets/NoticeReader-b7CL4ueI.js` 200。
+- **第 2 次部署（文案「老板」→「管理员」）**：tag `20260924-2`；`root`/`mobile` 200。
+- **第 3 次部署（三端登录页）**：tag `20260924-3`；`root`/`mobile`/`pc` 均 200。
+  - 内容：三端登录页（双通道登录 + 新设备短信二次验证为「卡片内第 2 步」+ 3 天到期强制重登 + redirect），设计见 `demo-login-redesign.md`；`verify:mock` **919/919**（基线 892 → +27）、浏览器走查 **32/32**、`build`/`build:prod` 均 EXIT=0、**prod 产物已剔除 Mock 与演示固定码**、`hrm-admin` 零改动。
+  - **纪律**：部署演示站**必须**先跑 `npm run build`（演示态）；`build:prod` 产物不可用于演示站（会剥离 Mock 导致页面无数据）。
+  - 新增 Mock 端点：`/auth/sms/send`、`/auth/sms/login`、`/auth/device/verify`、`/auth/devices`(GET/DELETE)、`/auth/captcha`；既有 4 个 auth 端点入参出参**零变更**。
+  - **待后端 M4 配合的 3 项契约**：① `A1 /auth/sms/send` 需支持可选 `twoFactorTicket`（设备步手机号脱敏只读，前端无法回传明文）；② `1108`（会话到期）的 HTTP 语义（当前 200 + code）；③ `1110` 端准入入参字段名（`clientType`/`as` 待定稿）。
+  - **影响既有 e2e**：新增「新设备二次验证」步骤后，凡经 UI 登录的 e2e 用例需测试工程师同步适配（前端**未改** e2e 资产，遵 A06）。
+
+### 两个必须记住的坑
+
+1. **`docker.io` DNS 被污染**：服务器拉 `nginx:1.27-alpine` 报 `dial tcp 31.13.95.169:443: i/o timeout`（该 IP 为错误解析）。本地已有 `nginx:1.25-alpine` 可用；仓库 `deploy/docker-demo/Dockerfile` **已同步改为 1.25** 以免漂移。`TODO(扩展)`：配镜像加速器或修 DNS 后可评估升回。
+2. **重建 demo 容器后必须 reload `courier-nginx`**：`courier-nginx` 用 `proxy_pass http://hrm-demo-static:80`，Nginx **启动时静态解析并缓存 IP**；容器重建换 IP 后公网 **502**。修复：`docker exec courier-nginx nginx -s reload`（本次即由此恢复）。`TODO(扩展)`：建议改 `resolver 127.0.0.11 valid=10s` + `set $upstream` 从根上避免（涉现网 Nginx 配置，C 档）。
+
+### 服务器环境实测（2026-09-24）
+
+- **无 JDK / Maven**（后端编译须走 Docker 或宝塔 Java 环境）；Docker 29.7.2 + Compose v5.5.0 可用。
+- 端口占用：8080（courier-app）、6379（courier-redis）、3307（宿主 MySQL，绑 `127.0.0.1`/`172.17.0.1`/`172.19.0.1`）；**8081 空闲** → hrm-server 可用。
+- 磁盘：`/` 9.1G/29G（32%）、`/data` 2.8G/49G（7%，可用 44G）；内存可用 2.3G；`courier-mysql` 已停用（符合预期）。
+
+### 后端 hrm-server 编译与运行验证（2026-09-24，用户授权后执行）
+
+- **编译环境**：服务器无 JDK/Maven → `apt install openjdk-17-jdk-headless maven`（JDK 17.0.20.1 + Maven 3.6.3）。
+- **部署路径**：源码 `/data/www/hrm-server`；外置配置 `/data/www/hrm-config/application-dev.yml`（600，**密钥服务器生成、未回显、未入库**）；jar `hrm-server.jar`；日志 `/data/log/hrm/app.log`。
+- **验证结果**：编译 `BUILD SUCCESS`（jar 69MB）→ **单测 441 run / 0 failures / 0 errors** → **Flyway V1–V13 全部校验通过（38 表）** → **应用启动成功（Tomcat 8081，21.8s）** → 冒烟：未授权 `/auth/me` **401**、登录空体 **400**、公开端点空体 **8006**、错误口令 **1001**。
+- **数据库**：新库 `kdyzgl`（与现网 `courier_station` 隔离），账号 `hrm_app@localhost`（仅授权 kdyzgl）；种子 `admin`（ADMIN，`pwd_changed=0` 首登强制改密，明文见 `db.md` §5.2）。
+- **进程**：`java -jar hrm-server.jar --spring.profiles.active=dev --spring.config.additional-location=file:/data/www/hrm-config/`，绑 `127.0.0.1:8081`（**不对公网**）；`courier-server`/`courier_station`/`courier-nginx` 全程未受影响。
+- **二次复验（新增需求「PC 端仅管理员登录」完成后）**：单测 **455 run / 0 failures / 0 errors**；重启成功（27s）。
+  - 实现：`ClientRolePolicy`（纯逻辑）+ `AuthProperties.pcAllowedRoles` + 登录链路在「密码与状态校验通过后、签发 token 前」做端维度角色校验；新错误码 **1110「该账号无权登录此端」**（11xx 段，M4 将补齐其余）。
+  - 配置键：`hrm.auth.pc-allowed-roles`（默认 `ADMIN`；**逗号分隔全 ASCII 单值**，刻意避开非 ASCII 键坑）。
+  - 「伪造端类型不能获得额外权限」已论证：端类型只影响登录准入，会话 `role` 恒取自 DB，业务授权由 `@RequireRoles` 依会话 role 判定。
+  - **未实测 1110**（库中仅 `admin` 一个种子账号，缺 STAFF/STATION_ADMIN）→ 收敛到联调阶段。
+- **三次复验（M4 登录契约改造 + V14/V15 迁移后）**：
+  - 迁移：`V14__hr_flow_operator_columns.sql`（`hr_flow` 补 `operator_id`/`operator_name`）、`V15__auth_trusted_device.sql`（新表 18 列 / 3 索引）；**已执行成功**（Flyway 至 v15，表数 38→**39**），迁移前备份 `/data/backup/kdyzgl-pre-v14-*.sql.gz`（16K）。
+  - 编译 **PACK_EXIT=0**（jar 69.5MB）、**应用启动成功**（21s）。
+  - 冒烟：`POST /auth/sms/send` 空体 → **400「请输入正确的 11 位手机号」**；`GET /auth/devices` 无 token → **401**。
+  - **单测 509 run / 0 failures / 0 errors（已修复，全绿）**。原 5 项失败的判定与修复：
+    1. `EndAdmissionPolicyTest.h5BossView` → **实现 bug**：`AS_BOSS` 常量小写而 `normalizeToken(as)` 转大写，`equals` 永不命中致 boss 视图约束被静默跳过 → 改 `equalsIgnoreCase`。
+    2. `SmsCodeStoreTest.saveCodeSetsTtlAndClearsAttempts` → **测试 bug**：断言误期望连刚 `set` 的验证码一并删除（自相矛盾）→ 改精确断言 `delete(ATTEMPT_KEY)`。
+    3-5. `TrustedDeviceRegistryTest` × 3 → **测试 bug**：`LambdaUpdateWrapper.set(...)` 是**即时**解析列名，纯单测无 MyBatis-Plus 上下文必抛 `can not find lambda cache`（query 类因惰性解析而通过）→ 测试 `@BeforeAll` 注册 `TableInfoHelper.initTableInfo`。
+  - 修复过程中修掉 2 处 M4 编译错误：`AuthRequestContext` record 访问器名（`incomingDeviceToken()` 而非 `deviceToken()`）、`SmsCodeStore` 的 `counter()` 返回 `long` 而 `SmsThrottlePolicy.dailyLimitExceeded(int,int)` 要 `int`（**注意：是首个参数需转型，不是第二个**）。
+  - **M4 已实现内容**：端点 A1 `/auth/sms/send`（含 `twoFactorTicket`）、A2 `/auth/sms/login`、B2 `/auth/device/verify`、C1/C2 `/auth/devices`、D1 `/auth/captcha`；`/auth/login` 改造（可选 `clientType`/`as`/`device`，新增可选出参）；**B3 renew 未实现**（3 天到期强制重登 → 服务端返 **1108**）；`jwt.expire` 86400→**259200**；新增 `hrm.auth.expiry-grace-seconds`(300)；设备信任服务端签发（库中只存 SHA-256 摘要 + HttpOnly/Secure Cookie + 改密/禁用即失效 + 设备数上限 5）；错误码补齐 1101–1109；`HrFlow` 已移除 `exist=false`。
+
+### 本轮修复的 3 类真实缺陷（均为「未编译验证」暴露）
+
+| # | 问题 | 根因 | 修复 |
+| ---- | ---- | ---- | ---- |
+| 1 | 主源码编译失败 | `HrFlow` 实体用了表中**不存在**的 `operator_id/operator_name` 列；`KpiScoreServiceImpl` 排名类型注解写错 | 实体字段标 `@TableField(exist=false)`；类型改回 `RankedEntry`。**表结构缺口登记**：`hr_flow` 需补两列（新版本号迁移，C 档） |
+| 2 | 单测 18 项失败（8 失败 + 10 错误） | 2 处实现 bug（`ClientLogSanitizer` 对不可变 `List.of` 调 `contains(null)` → NPE；`SyncConfigValidator` 时间窗结束误用 `isClock` 而非 `isEndClock`）+ 6 处测试/夹具问题 | 逐条按契约真源判定后修复（**未弱化任何断言、未删用例**） |
+| 3 | 应用启动失败（配置绑定） | **Spring `ConfigurationPropertyName.adapt()` 会静默删除非 `[A-Za-z0-9-]` 字符** → `keyword-weights` 的 4 个中文子键被归一为同一父名，Binder 取首值 `1.0` 当整张 Map（flow/block/加引号三种写法**等效无效**） | `Dispatch.keywordWeights`(`Map`) → `keywordWeightList`(`List<KeywordWeight>`)，中文只作**值**；派生只读 `getKeywordWeights()`，消费方零改动 |
+
+### 本轮新增的坑与纪律
+
+1. **`pkill -f 'hrm-server.jar'` 会杀掉执行命令的 shell 自身**（shell 命令行含同名字符串）→ 改用 `ss -tlnp | grep ':8081' | grep -oP 'pid=\K[0-9]+'` 端口定位后 `kill`。
+2. **MCP `upload` 只允许 `C:\Users\16626` 下的本地路径**（D 盘报 `LOCAL_PATH_NOT_ALLOWED`）→ 打包产物先落 `$env:TEMP` 再上传。
+3. **`mvn test` 不产出 jar**：只跑 test 后启动会报 `Unable to access jarfile`，须 `mvn package`。
+4. **prod profile 下 M2 短信 fail-closed 守卫会拒绝启动**（阿里云 Key 待申请）→ 测试环境用 `dev` profile（设计内路径：非生产装配日志降级实现，且**不打印验证码明文**）。
+5. **YAML 中非 ASCII 的配置键不可用**（见上表 #3）→ 后续新增配置一律 ASCII 键 + 值承载中文。
+6. 前端静态站重建容器后**必须 reload `courier-nginx`**（第 2 次部署已验证该结论）。
+
+---
+
 # 会话状态 — 三端 Demo（网页端 / 老板端 / 员工端）
 
-> 最后更新: 2026-09-23（本次追加「并行工作流 · 服务器存储与登录收敛」）
+> 最后更新: 2026-09-23（本次追加「B2 切换生产库到宿主实例」并回填 §B 遗留项）
 > 状态：**需求 1–10 已全部实现并通过契约与构建验收，交付包已归档到桌面**
 > 分支：`feature/三端演示Demo`
 > 里程碑台账见 `hrm-dev/docs/demo-milestones.md`
@@ -34,13 +265,46 @@
 | 磁盘结果 | 系统盘 `13G/43% → 8.7G/31%`；数据盘 `/data` `2.8G/49G = 7%` |
 | 文档 | `hrm-dev/docs/deploy.md` 新增 **§0.5 存储策略（系统盘/数据盘分工）** + §0.3 端口表补 3307 行 |
 
+### B2. 切换生产库到宿主实例（2026-09-23，用户授权「开始」后执行）
+
+| 项 | 内容 |
+| ---- | ---- |
+| s6 只读预检 | 服务器 HEAD `691c794`；`git status` 仅 `M courier-server/nginx/nginx.conf`（历史遗留，与本次无关）；补「容器侧在 `courier-net` 内连宿主 3307」preflight → `PREFLIGHT_OK 3` |
+| s7 切换前备份 | 落 `/data/backup/pre-switch-20260923150836/`：`courier_station-final-20260923152756.sql`（43112B，22 CREATE TABLE，尾部 `-- Dump completed`）、`/data/mysql` 物理快照 tgz、宿主配置 `.bak`、本次脚本留档 `scripts/` |
+| s8 宿主库准备 | 建 `courier_station` + `root@'172.19.%'` 授权 + 导入 dump；**22 张表逐表 `CHECKSUM TABLE` + 行数比对，宿主 vs 容器 22/22 完全一致** |
+| s9 可达性 | 宿主 `bind-address` 增 `172.17.0.1,172.19.0.1`（实测 `host.docker.internal`→172.17.0.1）；UFW 定向放行 `3307` ← `172.19.0.0/16`、`172.17.0.0/16`；systemd drop-in `After/Wants=docker.service` + `StartLimitIntervalSec=0` |
+| s10 仓库改动 | `docker-compose.yml` 移除 `mysql` 服务 + `app` 增 `extra_hosts` + `DB_URL` 改宿主；`docker-compose.override.yml` 删 `mysql.ports`；`deploy.sh` 等待就绪改宿主 `mysql -uroot`；`scripts/backup.sh` 改宿主 socket。提交 `aad162f`/`ea245cb`/`4167d57`，fast-forward 合入 `dev` 与 `main`，推送 Gitee |
+| s11 切换 | 服务器 `git pull` 至 `4167d57` → 停写 → 容器库最终 dump → 宿主库 DROP/重建/导入 → `docker compose -f docker-compose.yml up -d app`（中断约 1 分钟） |
+| s11 关键坑 | 首次 `docker compose up -d app` 因**自动加载 override（dev profile：Redis→localhost、JDBC 编码 utf8mb4）** 启动失败；改显式 `-f docker-compose.yml` 后 7 次轮询 `healthy`。**现网必须显式 `-f`** |
+| s12 验证 | `https://kongzhen1.com/` 与 `/health` 均 200；宿主 `processlist` 出现 `172.19.0.4`（courier-app）5 条连接；应用日志无连库/编码/权限错误；`backup.sh` 实跑成功（22 表） |
+| s12 收尾 | 旧容器 `docker update --restart=no` + `stop courier-mysql`（Exited 0），容器与 `/data/mysql` 保留供回滚；删预检误拉镜像 `mysql:8`（1.12G）；**内存 used 1.7G → 1.22G，释放约 480MB** |
+| 文档回填 | `deploy.md` §0.3/§0.5 更新；`zz-kdyzgl-storage.cnf` 与实测对齐（多地址绑定 + 注释）；`KDYZZHXT/update-log.md` 新增 2026-09-23 条目 |
+
 ### 遗留待决策（勿擅自推进）
 
-1. 是否把 `courier-server` 从容器 MySQL(3306) 切到宿主实例(3307) —— **切换会中断现网**，需独立评估。
+1. ~~是否把 `courier-server` 从容器 MySQL(3306) 切到宿主实例(3307)~~ → **已完成（2026-09-23，用户授权「开始」）**，详见 B2；旧容器与 `/data/mysql` 保留，回滚路径见 `KDYZZHXT/update-log.md`。
 2. 是否创建生产库 `kdyzgl` 与 `hrm_app` 账号（涉及凭据，须按项目规则 §7 由主智能体授权）。
-3. 上一轮 HTTPS 修复在服务器侧产生 commit `691c794`，因 DeployKey 只读未 push，需从服务器拉回本地再推 Gitee。
+3. ~~上一轮 HTTPS 修复在服务器侧产生 commit `691c794`，因 DeployKey 只读未 push，需从服务器拉回本地再推 Gitee~~ → **已完成**（本地同步后推送 Gitee，服务器已 pull 至 `4167d57`）。
 4. 口令 `Aa16626369983..` 已进公开 JS 产物，若与其他系统同口令须轮换。
 5. `hrm-dev/deploy/docker-demo/.env.example` 被根 `.gitignore` 的 `.env.*` 规则挡住未跟踪，与规则 §4 要求不符。
+6. 本地 `KDYZZHXT` 仓库 remote URL 明文含 Gitee 私人令牌，需轮换并改为无令牌形式。
+
+## 老板端更名「驿站精灵」+ 考勤六分区下钻明细（2026-09-23）
+
+> 分支 `feature/前端演示项目拆分与精细化`，**工作区改动，尚未 commit**。
+> 规范真源：`hrm-dev/docs/demo-boss-ui-spec.md`（§13 品牌落位 / §14 明细页 / §15 主智能体裁决 / **§16 落地复核纠正**，冲突以 §16 为准）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 需求 | ①「老板端」正式更名「驿站精灵」，统一界面/标题/导航栏/系统提示；②考勤概览六分区（应到/实到/正常/迟到/早退/缺卡）可点击下钻明细（姓名·日期·打卡时间·异常说明），可返回、风格一致 |
+| 范围裁决 | 更名**仅限移动端老板端视角**；PC 端 / 员工端 / 工程名 / 安卓壳 `app_name` 一律不动 |
+| 品牌落地 | 门户卡 `驿站精灵（经营视角）`；**`APP_NAME_BOSS` 真源改 `驿站精灵`**（§16.1 推翻原「主标题不改」裁决）；新增 `APP_NAME_SYSTEM` 兜住无 `as` 入口（§16.2）；老板端首页 Hero 加品牌行；`/boss*` 路由 `afterEach` 写 `document.title=驿站精灵`；登录页 `?as=boss` 主标题即品牌，另加视角行「老板经营视角」 |
+| 未改（有据） | 各业务页 NavBar、老板端「我的」页顶部、员工端一切位置、安卓壳 `app_name` |
+| 明细页 | 新增 `/boss/attendance/detail`（`name: bossAttendanceDetail`，`?dim=` 六维度白名单，非法回落 `SHOULD`）；六卡全部接线；维度二次切换走 `router.replace`，返回一步即回概览；零新增组件（复用 `PageNav`/`PageState`/`StatCard`/`ListItemCard`/`StatusTag`） |
+| 数据口径 | 新增 `GET /attendance/detail`；`attendanceStore` 抽出共用 `attendanceScope`，明细与 `attendanceSummary` **同一真源**（缺卡 = 应到 − 实到差集；异常卡六维度均不承载；早退按下班卡判定） |
+| 门禁实测（全部转绿） | `lint` 0 error / `lint:style` 0 problem / `test` 336/336 / `verify:mock` **887/887**（+8 项新断言）/ `verify:mobile` 48/48 / `build` ✓ / `build:prod` ✓ / `e2e` **38/38** |
+| ⚠️ 过程阻塞（已解除） | 收口期间另一并行会话在途重构员工端考勤页（`views/staff/attendance.vue` 引 `ShiftCard` 路径未落盘），致 `build` 与 e2e `A3-2`/`A3-3` 瞬时失败。该会话落盘后自动恢复，**未代为修改其文件** |
+| 遗留 TODO | ① ~~`db.js:877` 演示公告「老板端」~~ → **已改**（用户 2026-09-23 批准；⚠️ 该文件含并行会话的预留账号改动，提交时须**按 hunk 挑选**）；② ~~`lint:style` 基线红灯~~ → **已转绿**（0 problem）；③ 登录页副标题对比度 4.332:1 待真机复测后按实测合成色取值；④ 375px 真机档 / ≥1280px 宽屏 / iOS Safari / 企微内置浏览器未复测 |
 
 ## 交付物
 
@@ -590,7 +854,7 @@
 # 会话状态 — 员工端模块化拆分与精细化
 
 > 最后更新: 2026-09-22
-> 状态：**B0 基建批次已完成并提交（`638fccb`）；B1 考勤域待开工**
+> 状态：**B0 基建批次已完成并提交（`638fccb`）；B1 考勤域（B1a `9d36310` + B1b `d47cadc`）已完成并提交；B2 工单域待开工**
 > 分支：**`feature/前端演示项目拆分与精细化`** ⚠️ 见下「并发冲突」——原建分支名 `feature/员工端拆分与精细化` 已被另一会话改名
 > 改造深度（用户拍板）：**拆分 + UI/UX 精细化重设计**；**允许扩展 Mock 端点/字段并同步断言**
 
@@ -641,13 +905,21 @@
   - 门禁（主智能体独立复跑 7 项）：`lint` **0 error**（41 warn）/ `verify:tokens` EXIT=0 / `verify:mock` **887/0** / `verify:mobile` **48/0** / `test` **42 文件 336 用例全过** / `build` **EXIT=0**（首次 EPERM 失败系 `dist/index.html` 被占用的环境态，单跑即通过）/ `build:prod` EXIT=0；`hrm-admin`+`hrm-server` **零改动**
   - 提交范围控制：`views/login/index.vue`、`src/portal/main.js` 与并发会话**同文件混改**，采用「备份 → 摘出他人 hunk → `git add` → 还原工作区」的**行级剥离**；提交后已还原并发会话残余 hunk（两文件工作区仍为 `M`，归属他人）。`SESSION-STATE.md` 因多方写入，本批次**未纳入提交**
   - ⚠️ **待浏览器复核**：员工端 `document.title` 依赖 vue-router 路由对象引用变化触发 `watchEffect`，本机无可用浏览器走查 → 收敛到浏览器复核后才能声称已生效
-- [ ] B1b 考勤域页面拆分（`attendance.vue` 972 行 → 壳 + `ClockHero/PeriodCard/CheckSlotRow/CheckResultPanel/VerifyCard/MakeupPopup` + composables + model；另 3 页）
+- [x] **B1b 考勤域页面拆分已完成并提交 `d47cadc`**（29 文件 / +2576 −1049）
+  - 打卡页 `views/staff/attendance.vue` **972 → 148 行壳**（ESLint max-lines 口径 133）+ `views/staff/attendance/{components,composables,model}`：6 组件（`ClockHero`/`PeriodCard`/`CheckSlotRow`/`CheckResultPanel`/`VerifyCard`/`MakeupPopup`）+ 2 composable（`useAttendanceStatus`/`useMakeupForm`）+ 1 model（`attendanceUi`）+ 9 个 spec
+  - `useCheckIn` **纯增量**扩展 `options.{key,coordinate,demoHint}` 并销项其 17–19 行 `TODO(扩展)`，打卡页不再直连 api 的 `checkIn`（`grep checkIn(` 仅命中 composable 一处）；首页 `AttendanceStatusBar` 调用方式**一字未改**（`submit(period, checkType, rule)`，options 缺省路径与原实现逐行等价）
+  - `stores/attendance` 失败语义改为**保留 last-good 快照**（首次失败=空快照+error → 渲染重试；刷新失败=保留快照+error → 只提示），打卡页取数改走该 store，消除重复取数；`update()` 留 `TODO(扩展)` 给 B6 首页一键打卡
+  - 新增域共享 `views/staff/components/StepNavButton.vue`；`attendanceRecords`/`schedule`/`makeupList` 复用 `ListItemCard`/`Chip`/`FilterChips`/`ShiftCard`，净删自绘与重复样式约 67 行（`schedule` 顺带修 P1-1：`day.color` 直出改经 `ShiftCard` 的契约色→Token 映射）
+  - 提交范围控制：与并发会话**同文件**（`views/login/index.vue`、`src/portal/main.js`）的行级剥离在本批次未再涉及；本批次 29 个路径**逐个甄别**，并发会话脏文件（`api/attendance.js`、`constants/appName.js`(+spec)、`components/{StatCard,ListItemCard}.vue`、`modules/boss/**`、`router/index.js`、`views/staff/{home,parcelDetail}.vue`、`shared/mock/**`、`scripts/verify-mock.mjs`、`e2e/{01,03}-*.spec.js` 等）**一律未纳入**
+  - 门禁（主智能体独立复跑 5 项 + 测试工程师实跑 8 项，结论一致）：`lint` **0 error**（38 warn，全为存量）/ `verify:tokens` EXIT=0 / `verify:mock` **887/0** / `verify:mobile` **48/0** / `test` **52 文件 427 用例全过** / `build` + `build:prod` **EXIT=0** / `e2e` **38 passed 0 failed**（含既有待复验项 B2-2 本次通过）/ `hrm-admin`+`hrm-server` **零改动**
+  - Review 裁决：① `done` 态改为**无按钮**——UI 规范 §4.2 C6 明定「无按钮」，原实现给已打卡槽位留按钮且点击必被服务端打回，属 §10.1 允许的交互形态变化，**采纳规范实现**；② 要求补做「接入 `stores/attendance`」收口（原实现使 B0 交付的 store 成为死代码，违反 §4.3 与精简原则）
+  - 遗留：`views/staff/home.vue`（并发会话占用）仍直连 `getAttendanceStatus`，待 **B6 首页域**切 `useAttendanceStore()` 后收敛；`AttendanceStatusBar.vue` 的 `border-left: 3px` → 4px 归属 **B6**
 - [ ] B2 工单域 / B3 包裹域 / B4 我的域 / B5 请假域 / B6 首页与消息域 / B7 同步域
 - [ ] B8 性能与门禁收口 + 视觉/无障碍走查
 
-## ⚠️ 待复验项：e2e B2-2（PC 登录页 Slow 3G 首屏）
+## ✅ 已闭环：e2e B2-2（PC 登录页 Slow 3G 首屏）
 
-**结论：非员工端改动引入，归属并发会话的 PC 拆分；但未闭环，不得声称 e2e 全绿。**
+**结论：2026-09-23 B1b 门禁实跑中该用例通过**（`e2e/07-network.spec.js:82`，耗时 `3.0m`，在 420s 预算内渲染完成），e2e 全量 **38 passed / 0 failed**。此前 383,641ms 未渲染（2026-09-22）属**机器负载叠加**（并发会话 dev/build 同时运行）+ dev 未打包模块数激增，非代码缺陷。下表为历史记录，保留备查。
 
 | 项 | 数据 |
 | --- | --- |
@@ -667,7 +939,7 @@ B1–B7 原本都要把页面改为 `views/staff/<域>/index.vue` 并同步改 `
 
 ## 批次门禁基线（随批次上调，不得弱化）
 
-`verify:mock` **887**（附加批次后） / `verify:mobile` **48** / `test` **336**（42 文件，附加批次后） / `e2e` **36 通过 + 1 待复验（B2-2，PC 侧）** / `lint` **0 error** / `verify:tokens` EXIT=0 / `build`+`build:prod` EXIT=0 / `hrm-admin`+`hrm-server` 零改动
+`verify:mock` **887**（B1b 后） / `verify:mobile` **48** / `test` **427**（52 文件，B1b 后） / `e2e` **38 passed / 0 failed**（B1b 后，B2-2 已闭环） / `lint` **0 error** / `verify:tokens` EXIT=0 / `build`+`build:prod` EXIT=0 / `hrm-admin`+`hrm-server` 零改动
 
 ## 关键结论
 
@@ -917,3 +1189,69 @@ B1–B7 原本都要把页面改为 `views/staff/<域>/index.vue` 并同步改 `
 3. **协作方仍需补齐**：新增角色与调度规则会影响历史会话的既有习惯；`.trae/skills/{engineering-discipline,devops-pipeline}` 中「安全评估」仍用裸词，建议后续统一为「操作安全评估」（`TODO(扩展)`）。
 4. **文档漂移（历史遗留，本轮未处理）**：项目规则 §5 写「宝塔 + systemd `hrm-server.jar`、库名 `kdyzgl`」，实测生产为 Docker 栈 `courier-server` + 库名 `courier_station`（见本文件 PC 端小节遗留 6）。
 5. **算法/UI 两处落盘路径仍 `TODO(扩展)`**：Design Tokens 生产端路径、算法基准数据独立目录（详见 `agent-team-design.md` §10）。
+
+***
+
+# 会话状态 — 记忆与检查点基建（规范层，非代码）
+
+> 最后更新: 2026-09-24
+> 分支：`feature/前端演示项目拆分与精细化`（本轮改动**未提交**）
+> 目标：解决「换对话就失忆」与「多会话互相覆盖」
+
+## 改动
+
+| 项 | 内容 |
+| --- | --- |
+| 新建 `AGENTS.md` | 新会话入口（≤80 行，仅状态 + 指针，不复制规则正文）。TRAE「设置 → 规则与记忆 → 导入设置」的 AGENTS.md 开关此前**空转**（仓内无该文件），现已生效 |
+| `SESSION-STATE.md` | 顶部新增「当前状态摘要」（≤40 行）+ 追加纪律；历史近千行小节**原样保留** |
+| `.trae/rules/智能体调度规则.md` | §11 检查表改为「先读 `AGENTS.md` + 摘要，不通读全文」；新增 **§12 检查点/记忆/并发纪律（M01–M06）**；反模式新增 A18–A20，A14 改为即时追加 |
+| **`项目规则1.md` → v2.3**（+ `.github/CONTRIBUTING.md` 同源镜像） | §0 步骤 1 / §1.3 / §8 权限与流程第 5 条 / §13 自检四处，消除「**长任务收尾必须更新**」与调度规则 §12 M02「即时追加」的**口径冲突**（该冲突会使 M02 被项目规则覆盖）；附录 B 新增 **B4**；已实测两份正文 SHA256 完全一致（仅差顶部 2 行镜像声明） |
+| 提交 `ece8db1`（4 文件） | ⚠️ **过程中踩坑并已修正**：并发会话把 37 项 `hrm-server` 重构留在 **git 暂存区**，首次 `git commit` 把它们一并扫入（41 文件）；已 `git reset --soft` 回退 + 改用 `git commit -- <路径>` 重提，最终恰好 4 文件。**教训已写入调度规则 §12 M04 与反模式 A21**（并发会话共享的不只是文件，还有 index） |
+
+## 依据（实测）
+
+- TRAE 记忆按**工作区路径**分桶：`~/.trae-cn/memory/projects/-d-...-kdyzgl-base--p2-<hash>/`，含 `project_memory.md`(10 KB) + 按天 `topics.md` + `session_memory_*.jsonl`；`user_profile.md` 为跨项目层
+- 记忆内容偏**约束与偏好**，**不含进行中的任务进度** → 进度必须靠本文件承载
+- 记忆目录中另有一桶 `-d-...-KDYZZHXT--p2-<hash>`：经核读为**前身项目**（uni-app 三端、`/data/www/kdyzzhxt`），**非路径漂移**
+
+## 遗留
+
+1. 全部未提交；提交前须 `git branch --show-current` + 核对范围（工作区另有并发会话改动）
+2. 「换路径打开导致记忆重分桶」为**推断**（从目录命名规律得出），**尚未实测复现**
+
+***
+
+# 会话状态 — 服务端 P3 考勤与排班（22 接口 + 算法 S3/S4）
+
+> 最后更新: 2026-09-24
+> 分支：`feature/前端演示项目拆分与精细化`（多会话共用；本轮全部改动**未提交**）
+> 状态：**代码 + 单测 + 文档同步完成；本机无 JDK/Maven → 全部编译/运行结论收敛到服务器阶段**
+
+## 交付（新增文件，`hrm-dev/hrm-server/`）
+
+- `entity/`：`AttendanceRule / AttendanceShift / AttendanceSchedule / AttendanceRecord / AttendanceMakeup / CheckPeriod / WifiEntry`
+- `handler/`：`CheckPeriodListTypeHandler / WifiEntryListTypeHandler`（JSON 列显式泛型，规避 List 擦除）；`util/JsonUtil`
+- `mapper/`：`Attendance{Rule,Shift,Schedule,Record,Makeup}Mapper`
+- `service/attendance/support/`（纯逻辑，可单测）：`HaversineCalculator / AttendancePeriodResolver / AttendanceCheckPolicy / AttendanceSummaryPolicy / AttendanceDetailPolicy / SchedulePlanner / AttendanceAnomalyDetector / CsvSupport / AttendanceSupport / AttendanceConstants / AttendanceCard`
+- `service/attendance/`：`AttendanceRuleService / AttendanceShiftService / AttendanceScheduleService / AttendanceRecordService / AttendanceMakeupService / AttendanceAnomalyService` + `impl/*`
+- `dto/attendance/*`（17）+ `dto/support/StationScopeQuery`（非分页 L1 收敛基类）
+- `vo/attendance/*`（12）
+- `controller/attendance/`：`AttendanceController（10）/ AttendanceMakeupController（4）/ ScheduleController（4）/ ShiftController（4）`
+- `src/test/.../service/attendance/support/`：7 个单测类（打卡判定边界 / 跨天 / Haversine / 补卡相关口径 / 排班 10 项边界 / 异常检测 6 项边界）
+
+## 关键决策
+1. **S3 的接口承载**：Mock 无「智能排班」端点 → 落在 `batch-by-station` 的 `shiftId` 缺省分支（对既有端点的**可选扩展**，手动模式逐位不变），**是否固化进 `api.md` 需主智能体裁定**。
+2. **S4 只做内部能力**：Mock 出参无异常字段 → 不新增接口、不改出参，`AttendanceAnomalyService` 待契约定义后接入。
+3. **JSON 列自写类型处理器**：MP `JacksonTypeHandler` 泛型 `List<T>` 存在错型风险 → 显式 `JavaType`，行为确定且可静态审查。
+4. **`check-in` 不加事务**（校验失败仍留 ABNORMAL 痕）；**批量排班加事务**（原子提交，错误码文案不变）。
+
+## 实测证据（本机可执行部分）
+- `node hrm-dev/docs/algo-scripts/s3-schedule.mjs`：覆盖率 0.7778→**1.0**、最少在岗违规 20/90→**0**、J 20266.667→8.667（贪心）→**2.667**（+退火）
+- `node hrm-dev/docs/algo-scripts/s4-anomaly.mjs`：稳健 z F1 **0.8889** / 普通 z 0.6667 / 连缺阈值 3 天 F1 1.0
+- 其余（编译、Flyway、端到端冒烟、JSON 列真实读写、CSV 流、属性绑定）**未验证**，收敛到服务器阶段
+
+## 遗留与 `TODO(扩展)`
+1. `batch-by-station` 智能模式契约待裁定（见关键决策 1）
+2. `AttendanceAnomalyService` 接口承载待 `api.md` 定义
+3. `OPEN_AHEAD_MIN/CLOSE_DELAY_MIN`、S3 贪心补缺口放大系数、默认围栏坐标/半径：暂为等价常量，待算法参数表增键后外置
+4. 事实性纠正 4 项（`hrm.storage.export-path` vs `export-dir`、`pageNum<1` 口径、非法数值入参文案、S4 MAD=0 降级范围）见 `hrm-dev/docs/update-log.md` 本轮条目
