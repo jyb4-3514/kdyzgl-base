@@ -1,0 +1,19 @@
+# 宿主 MySQL 8 存储落盘配置（安装位置：/etc/mysql/mysql.conf.d/zz-kdyzgl-storage.cnf）
+#
+# 存储策略：业务数据（库文件 / 错误日志 / 临时文件）全部落数据盘 /data，
+#          系统盘只放程序与系统文件。详见 hrm-dev/docs/deploy.md §0.5。
+#
+# 端口 3307：原为避开容器 MySQL 的 3306；2026-09-23 生产库已切换到本实例，
+#          容器 courier-mysql 停用（容器与 datadir 保留供回滚），3307 即现网生产端口。
+# 为什么收敛内存：宿主机仅 3.8G 内存且与容器栈共用，
+#          默认配置（buffer pool 128M + performance_schema）在压力下易触发 OOM 波及生产。
+[mysqld]
+datadir                 = /data/mysql-host
+port                    = 3307
+# 多地址绑定：127.0.0.1 本机管理；172.17.0.1(docker0) 与 172.19.0.1(courier-net)
+#          供容器经 host.docker.internal 访问。UFW（INPUT 默认 DROP）须同步定向放行 3307。
+bind-address            = 127.0.0.1,172.17.0.1,172.19.0.1
+log_error               = /data/log/mysql/error.log
+tmpdir                  = /data/mysql-tmp
+innodb_buffer_pool_size = 128M
+performance_schema      = OFF

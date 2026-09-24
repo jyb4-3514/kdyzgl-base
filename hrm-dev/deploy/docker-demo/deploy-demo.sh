@@ -17,21 +17,8 @@ HOST_PORT="$(grep -E '^HOST_PORT=' .env 2>/dev/null | cut -d= -f2 || true)"
 HOST_PORT="${HOST_PORT:-8090}"
 
 require_env() {
-  if [ ! -f .env ]; then
-    echo "[错误] 缺少 .env —— 请复制 .env.example 为 .env 并填写真实值（勿入库）" >&2
-    exit 1
-  fi
-  # compose 的 ${VAR:?} 已能拦缺失，这里提前给出人话提示
-  for k in BASIC_AUTH_USER BASIC_AUTH_HASH; do
-    if ! grep -qE "^${k}=." .env; then
-      echo "[错误] .env 缺少 ${k}" >&2
-      exit 1
-    fi
-  done
-  if grep -qE '^BASIC_AUTH_HASH=.*[^$]change_me' .env; then
-    echo "[错误] .env 里 BASIC_AUTH_HASH 仍是模板占位值" >&2
-    exit 1
-  fi
+  # 认证已收敛到站内登录页，.env 只含 DEMO_TAG / HOST_PORT（无凭据）→ 缺失时全部走默认值
+  [ -f .env ] || echo "[提示] 未找到 .env，使用默认参数（DEMO_TAG=latest, HOST_PORT=8090）"
 }
 
 require_dist() {
@@ -56,10 +43,9 @@ case "${1:-up}" in
     docker compose ps
     echo "--- 自验 ---"
     echo "healthz(应 200)       : $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${HOST_PORT}/healthz")"
-    echo "根路径(应 401 未鉴权)  : $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${HOST_PORT}/")"
+    echo "根路径(应 200 免鉴权)  : $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${HOST_PORT}/")"
     echo "缺失资源(应 404)       : $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${HOST_PORT}/assets/not-exist-abcdefgh.js")"
-    echo "带凭据的鉴权验证需用明文口令，脚本故意不保存明文 → 请人工执行："
-    echo "  curl -u '$(grep -E '^BASIC_AUTH_USER=' .env | cut -d= -f2):<口令>' -o /dev/null -w '%{http_code}\\n' http://127.0.0.1:${HOST_PORT}/"
+    echo "站内登录由前端登录页承担（纯账号 + 密码），容器不再有网关口令"
     ;;
   status)
     docker compose ps

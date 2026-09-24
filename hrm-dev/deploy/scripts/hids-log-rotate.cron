@@ -1,0 +1,4 @@
+# 宝塔 HIDS 日志每周轮转（只保留近 7 日），防止系统盘被入侵检测日志吃满
+# 安装位置：/etc/cron.d/hids-log-rotate（权限 644，文件名不含点）
+# 脚本来源仓库：hrm-dev/deploy/scripts/hids-log-rotate.sh → /usr/local/bin/hids-log-rotate.sh
+30 3 * * 0 root /usr/local/bin/hids-log-rotate.sh >> /data/log/hids-log-rotate.log 2>&1

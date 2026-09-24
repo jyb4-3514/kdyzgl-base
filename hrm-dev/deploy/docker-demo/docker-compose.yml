@@ -13,12 +13,6 @@ services:
       dockerfile: Dockerfile
     image: hrm-demo-static:${DEMO_TAG:-latest}
     container_name: hrm-demo-static
-    env_file:
-      - .env
-    environment:
-      # 显式声明为必填：缺失时 compose 直接报错，避免起出一个「没有 Auth 的裸站」
-      BASIC_AUTH_USER: ${BASIC_AUTH_USER:?BASIC_AUTH_USER 未设置，请检查 .env}
-      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH:?BASIC_AUTH_HASH 未设置，请检查 .env}
     networks:
       - courier-net
     ports:
