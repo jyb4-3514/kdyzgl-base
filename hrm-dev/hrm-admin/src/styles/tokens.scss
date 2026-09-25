@@ -1,0 +1,52 @@
+/**
+ * 网页端（一期 hrm-admin）Design Token 接入层（ADR-SM-02 / ADR-structure-migration §2.2）
+ *
+ * 消费方式（A-2 取①）：以**相对路径 `@use`** 只读消费中立真源 `@kdyzgl/tokens`；
+ * 不改本工程 package.json、不引入 npm 依赖、不改业务代码。
+ * 依赖方向单向：hrm-admin → hrm-clients/packages/tokens（真源零反向依赖）。
+ *
+ * 本文件只承载 hrm-admin 私有平台层：
+ *   1) Element 变量覆盖（`--el-color-primary` 等）；
+ *   2) **现状字面量登记白名单** —— 供 ADR §2.3 A5 断言机器化比对
+ *      （`hrm-admin/src` 下的十六进制字面量须全部落在本文件登记集合内，未登记 = 0）。
+ *
+ * 取值纪律（B2 硬约束，行为不变）：**一律等于接入前源码现值，本批不改任何视觉取值**。
+ * hrm-admin 换主色属用户待裁定项 U-A（`update-log.md` B0 冻结登记），**暂停**。
+ *
+ * A5 比对口径：两边十六进制字面量归一到「6 位小写」后比较（#fff ≡ #ffffff）。
+ */
+
+/* 真源：跨端 Design Token 唯一真源（L1 原始色值 + L2 共用语义 + 通用基础）。
+ * 相对路径跨越到 hrm-clients/packages/tokens；@use 一个编译单元只装载一次，
+ * 且模块 CSS 先于引用方输出，天然满足「先真源、后平台覆盖」的层叠顺序。 */
+@use '../../../hrm-clients/packages/tokens/src/tokens.base.scss';
+
+:root {
+  /* ==================== Element 变量覆盖（现状值，零变更） ==================== */
+  /* Element Plus 默认主色即 #409eff，此处显式登记为契约、不产生视觉变化 */
+  --el-color-primary: #409eff;
+
+  /* ==================== 中性色（现状字面量登记） ==================== */
+  --c-text-primary: #303133; /* 正文主色，index.scss / layout / dashboard / login 现状 */
+  --c-text-regular: #606266; /* 次级正文（layout 用户区） */
+  --c-text-placeholder: #909399; /* 占位/说明文字，employee/dashboard/department/station/login/index.scss 现状 */
+  --c-bg-page: #f0f2f5; /* 页面底色（index.scss 现状） */
+  --c-border-base: #e4e7ed; /* 分隔线（layout 头部下边框） */
+  --c-white: #ffffff; /* 纯白（#fff 等价，layout/dashboard 现状） */
+  --c-aside-bg: #001529; /* 侧栏深底（layout 现状） */
+
+  /* ==================== 品牌/统计渐变（login、dashboard 现状字面量登记） ==================== */
+  --c-brand-800: #1f3b73; /* login 渐变起点 */
+  --c-brand-600: #2f6bd8; /* login 渐变中停 / dashboard 蓝卡终点 */
+  --c-brand-400: #66a6ff; /* login 渐变终点 */
+  --c-stat-blue: #4facfe; /* dashboard 蓝卡起点 */
+  --c-stat-green: #43e97b; /* dashboard 绿卡起点 */
+  --c-stat-teal: #38f9d7; /* dashboard 绿卡终点 */
+  --c-stat-orange: #f6a23c; /* dashboard 橙卡起点 */
+  --c-stat-orange-deep: #f76b1c; /* dashboard 橙卡终点 */
+  --c-stat-purple: #a18cd1; /* dashboard 紫卡起点 */
+  --c-stat-indigo: #7c4dff; /* dashboard 紫卡终点 */
+
+  /* TODO(扩展): hrm-admin 换主色（U-A）落地后，把上表中的「现状字面量」逐步替换为 var(--...) 引用，
+   * 并同步收缩本白名单；本批只登记不替换（严禁改视觉）。 */
+}

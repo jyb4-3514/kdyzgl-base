@@ -109,7 +109,7 @@ function push(entry) {
 }
 
 /**
- * 上报通道自建 axios 实例，刻意不复用业务实例（PC 的 @admin/utils/request、移动的 utils/http）：
+ * 上报通道自建 axios 实例，刻意不复用业务实例（PC 端业务实例、移动的 utils/http）：
  * 业务实例的 401 拦截器会把一次上报失败当成「登录失效」强制登出（PC 还会跳登录页），
  * 而且它自身会采集上报请求，形成「采集→上报→失败→再采集」的递归。
  * 自建实例只借用业务实例的 Mock 适配器 —— installMock 只改 defaults.adapter，因此演示态下依然打到假后端。

@@ -12,7 +12,7 @@
     "serve:dist": "node scripts/serve.mjs",
     "verify:mock": "node scripts/verify-mock.mjs",
     "verify:mobile": "node scripts/verify-mobile-t13-t16.mjs",
-    "verify:tokens": "node scripts/gen-element-tokens.mjs --check",
+    "verify:tokens": "node ../hrm-clients/packages/tokens/scripts/gen-element-tokens.mjs --check --targets src/pc/styles/tokens.scss,src/mobile/styles/tokens.scss",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",

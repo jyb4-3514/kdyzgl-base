@@ -1,7 +1,7 @@
 /**
  * 移动端 Design Tokens（demo-ui-redesign.md 第 2 章）
  *
- * 分层：跨端一致的部分已抽到 shared/styles/tokens.base.scss（L1 原始值 + L2 共用语义 + 通用基础），
+ * 分层：跨端一致的部分在共享真源 packages/tokens（L1 原始值 + L2 共用语义 + 通用基础），
  * 本文件只保留移动端私有内容：字号阶梯、旧名别名过渡、Vant 变量覆盖、安全区与容器尺寸。
  *
  * 引入顺序（main.js）：vant 组件样式 → tokens.scss（内含 tokens.base）→ mobile.scss。顺序错则 Vant 变量覆盖不生效。
@@ -10,7 +10,9 @@
  * `--van-tag-*` 组合替代（Vant Tag 无法一次指定底/字/描边三色，StatusTag 改自绘）。
  */
 
-@use '../../shared/styles/tokens.base.scss';
+/* 真源上移（ADR-SM-02 / B2）：Token 真源唯一落在 hrm-clients/packages/tokens，
+ * 演示工程不再自持副本；相对路径只读消费，单向依赖（Demo → packages/tokens） */
+@use '../../../../hrm-clients/packages/tokens/src/tokens.base.scss';
 
 :root {
   /* ==================== 旧名别名过渡（P1-2） ==================== */

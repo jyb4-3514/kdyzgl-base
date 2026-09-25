@@ -5,7 +5,7 @@ import { codeMessage } from '@kdyzgl/shared/constants/errorCode.js'
  * 跨端请求层工厂（ADR §3.5 第 1 项）
  *
  * 为什么是「工厂 + 端注入」而不是搬一份现成实例：
- * 现状 PC 端走 `@admin/utils/request.js`（import Element Plus 的 ElMessage、动态 import 自己的 router），
+ * 现状 PC 端走一期管理端的 `utils/request.js`（import Element Plus 的 ElMessage、动态 import 自己的 router），
  * 移动端走 `src/mobile/utils/http.js`（import Vant 的 showFailToast、用 window 事件广播跳转）。
  * 两者语义同构（baseURL / Bearer / 按 body.code 分发 / 401 清态），但与各自的 UI 与路由强绑定，
  * 直接搬任一份都会把端耦合带进共享包。故把「与端无关的契约」收在本文件，与端相关的一律注入：
