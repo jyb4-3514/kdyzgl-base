@@ -1,3 +1,11 @@
 # 复制本文件为 local.properties，填入本机 Android SDK 路径。
 # local.properties 含本机绝对路径，已 gitignore，绝不入库。
 sdk.dir=/path/to/Android/Sdk
+
+# H5 入口地址（可选）：真实联调 / 生产地址只落本文件或命令行 -P，严禁写入仓库与代码。
+# 优先级：-P 构建参数 > local.properties > app/build.gradle 的占位默认（example.invalid）。
+# 键名按变体命名，四选一（与 app/build.gradle 的 H5_URL_PLACEHOLDERS 对应）：
+# h5UrlStaffDebug=http://<模拟器约定地址或局域网IP>:5189/staff/
+# h5UrlStaffRelease=https://<真实域名>/staff/
+# h5UrlBossDebug=http://<模拟器约定地址或局域网IP>:5190/boss/
+# h5UrlBossRelease=https://<真实域名>/boss/

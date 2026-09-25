@@ -2,12 +2,39 @@ plugins {
     id 'com.android.application'
 }
 
+// ── H5 入口地址：一律构建参数注入，仓库内只落占位（真实域名 / IP 严禁入库）─────────────
+// 优先级：-P 构建参数 > local.properties（不入库）> 占位默认（本表）。
+// 属性名按变体命名：h5UrlStaffDebug / h5UrlStaffRelease / h5UrlBossDebug / h5UrlBossRelease。
+// 用法：./gradlew assembleStaffRelease -Ph5UrlStaffRelease=https://<真实域名>/staff/
+def H5_URL_PLACEHOLDERS = [
+        // 10.0.2.2 是安卓模拟器访问宿主机的约定地址，非真实 IP；端口与 apps/staff-h5(5189) 对齐
+        staffDebug  : 'http://10.0.2.2:5189/staff/',
+        // example.invalid 为保留域（RFC 2606），仅占位，永不解析
+        staffRelease: 'https://example.invalid/staff/',
+        bossDebug   : 'http://10.0.2.2:5190/boss/',
+        bossRelease : 'https://example.invalid/boss/'
+]
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    // local.properties 含本机绝对路径与可能的真实联调地址，已 gitignore，绝不入库
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+
+// 变体名 -> H5_URL；解析顺序：-P 参数 > local.properties > 占位默认
+def resolveH5Url = { String variantName ->
+    String key = "h5Url${variantName.substring(0, 1).toUpperCase()}${variantName.substring(1)}"
+    project.findProperty(key) ?: localProperties.getProperty(key) ?: H5_URL_PLACEHOLDERS[variantName]
+}
+
 android {
     namespace 'com.example.hrmwebview'
     // SDK 版本占位：须与本机已安装的 SDK Platform 一致，本机无 SDK 未验证
     compileSdk 35
 
     defaultConfig {
+        // 中性基线：实际 applicationId 由下方 flavor 覆盖（两壳必须可区分）
         applicationId 'com.example.hrmwebview'
         minSdk 24
         targetSdk 35
@@ -20,17 +47,30 @@ android {
         buildConfig = true
     }
 
+    // 「两个 APK」形态：同一工程、同一份 Java（桥接契约零改动），
+    // 仅以包名 / 应用名 / H5 入口区分两端 —— 避免单壳双入口的混登审计复杂度（ADR-SM-07）。
+    // 产出 4 个可区分变体：staffDebug / staffRelease / bossDebug / bossRelease，
+    // 对应 APK：app-staff-debug.apk / app-staff-release.apk / app-boss-debug.apk / app-boss-release.apk
+    flavorDimensions 'brand'
+    productFlavors {
+        staff {
+            dimension 'brand'
+            // 包名占位（com.example 为安卓官方保留示例域）；真实包名待用户裁定，真实域名不得写入
+            applicationId 'com.example.hrmwebview.staff'
+        }
+        boss {
+            dimension 'brand'
+            applicationId 'com.example.hrmwebview.boss'
+        }
+    }
+
     buildTypes {
         debug {
-            // 10.0.2.2 是安卓模拟器访问宿主机的约定地址，非真实 IP；
-            // 真机调试改为局域网地址时，需同步放行 network_security_config.xml
-            buildConfigField 'String', 'H5_URL', '"http://10.0.2.2:5188/mobile.html"'
+            // H5_URL 已改为按变体注入（见文件末尾 androidComponents），此处不再硬编码任何地址
         }
         release {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // TODO(扩展): 生产 H5 地址改为构建参数注入（如 -Ph5Url=...），真实域名禁止写进仓库
-            buildConfigField 'String', 'H5_URL', '"https://example.invalid/mobile.html"'
         }
     }
 
@@ -38,6 +78,16 @@ android {
         // 与 AGP 8.x 要求的 JDK 17 对齐
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// 按变体注入 H5_URL（落地 ADR §3.4 的构建参数注入口径；原 buildTypes 内硬编码已移除）
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        String url = resolveH5Url(variant.name)
+        variant.buildConfigFields.put('H5_URL',
+                new com.android.build.api.variant.BuildConfigField(
+                        'String', "\"${url}\"", 'H5 入口；构建参数注入，真实域名不入库'))
     }
 }
 

@@ -1,10 +1,20 @@
-# hrm-android-shell · 安卓 H5 壳
+# hrm-android-shell · 安卓 H5 壳（两个 APK）
 
-三端演示 Demo 的移动端载体：H5（`hrm-dev/hrm-demo`）套一层 Android WebView 外壳。
-包名占位 `com.example.hrmwebview`（`com.example` 是安卓官方保留的示例域，不含真实公司域名）。
+移动端载体：H5 套一层 Android WebView 外壳。**同一工程经 `productFlavors` 产出两个可区分的 APK**
+（ADR-SM-07 / split-plan D5 = 「两个 APK」，非单壳双入口）：
+
+| 壳 | 应用名 | applicationId（占位） | H5 入口子路径 |
+| - | - | - | - |
+| `staff` | 驿站助手 | `com.example.hrmwebview.staff` | `/staff/` |
+| `boss` | 驿站精灵 | `com.example.hrmwebview.boss` | `/boss/` |
+
+`com.example` 是安卓官方保留的示例域，不含真实公司域名；**真实包名由用户后续裁定**。
+两壳**共用同一份 Java**（`MainActivity` / `HrmJsBridge` 逐字不变），仅包名 / 应用名 / H5 入口区分，
+**主题与图标沿用现有**（U-A 未裁定，不做视觉分叉）。
 
 > **状态：未编译验证。** 本机无 JDK / Android SDK / adb / gradle，工程仅完成骨架与代码编写，
-> 未做过任何编译、安装、真机运行。构建步骤见 [BUILD.md](./BUILD.md)。
+> 未做过任何编译、安装、真机运行。**运行期验收（壳加载 / 桥接 / HTTPS / 混合内容 / WebView 缩放缓存）
+> 本批未运行，收敛到具备 Android SDK 的构建环境**；本工程**不声称可交付**。构建步骤见 [BUILD.md](./BUILD.md)。
 
 ## 1. 薄壳决策
 
@@ -13,6 +23,9 @@
 
 理由：三期移动端选型（小程序 / 安卓 H5 壳）尚未定稿，壳做厚会把未定稿的选型提前固化；
 薄壳还意味着 H5 迭代不需要重新发版。
+
+**两壳而非单壳双入口**：单壳运行时切 URL 要求壳内自建品牌 UI，且「同一 APK 内两端登录态混登」
+带来审计复杂度，与端准入 fail-closed 的产品意图相左（详见 ADR §3.4 备选栏）。
 
 ## 2. 目录结构
 
@@ -27,18 +40,21 @@ hrm-android-shell/
 ├── local.properties.example
 ├── .gitignore
 └── app/
-    ├── build.gradle
+    ├── build.gradle                      # 双 flavor + H5_URL 按变体注入
     ├── proguard-rules.pro
-    └── src/main/
-        ├── AndroidManifest.xml
-        ├── java/com/example/hrmwebview/
-        │   ├── MainActivity.java
-        │   └── HrmJsBridge.java
-        ├── assets/h5/                      # 离线包放置位（构建产物拷贝，gitignore）
-        └── res/
-            ├── layout/activity_main.xml
-            ├── xml/network_security_config.xml
-            └── values/{strings.xml, themes.xml}
+    └── src/
+        ├── main/
+        │   ├── AndroidManifest.xml        # applicationId / label 由 flavor 覆盖，无需分叉
+        │   ├── java/com/example/hrmwebview/
+        │   │   ├── MainActivity.java
+        │   │   └── HrmJsBridge.java
+        │   ├── assets/h5/                  # 离线包放置位（构建产物拷贝，gitignore）
+        │   └── res/
+        │       ├── layout/activity_main.xml
+        │       ├── xml/network_security_config.xml
+        │       └── values/{strings.xml, themes.xml}
+        ├── staff/res/values/strings.xml    # 驿站助手（覆盖 app_name）
+        └── boss/res/values/strings.xml     # 驿站精灵（覆盖 app_name）
 ```
 
 ## 3. 桥接约定速查
@@ -88,14 +104,25 @@ H5 在 App 挂载时注册。所有调用统一走 `WebView.evaluateJavascript(.
 
 ## 4. H5 地址配置
 
-`BuildConfig.H5_URL` 由 `app/build.gradle` 的 `buildConfigField` 注入：
+`BuildConfig.H5_URL` **不再硬编码**，改为在 `app/build.gradle` 的 `androidComponents.onVariants`
+中按变体注入（`variant.buildConfigFields.put('H5_URL', ...)`），地址来源见 `resolveH5Url`：
 
-- debug：`http://10.0.2.2:5188/mobile.html`（`10.0.2.2` 是安卓模拟器访问宿主机的**约定地址**，非真实 IP）
-- release：`https://example.invalid/mobile.html`（`example.invalid` 为保留域，占位）
+| 变体 | H5 入口（占位默认） | 说明 |
+| ---- | ---- | ---- |
+| `staffDebug` | `http://10.0.2.2:5189/staff/` | `10.0.2.2` 是安卓模拟器访问宿主机的**约定地址**，非真实 IP |
+| `staffRelease` | `https://example.invalid/staff/` | `example.invalid` 为保留域（RFC 2606），占位 |
+| `bossDebug` | `http://10.0.2.2:5190/boss/` | 端口与 `apps/boss-h5`(5190) 对齐 |
+| `bossRelease` | `https://example.invalid/boss/` | 占位 |
 
-仓库内**不出现任何真实 IP、域名、密钥**。生产地址应由构建参数传入。
+**取值优先级：`-P` 构建参数 > `local.properties`（不入库）> 上表占位默认。** 键名按变体命名：
 
-明文流量只对 `10.0.2.2` / `localhost` 放行（见 `res/xml/network_security_config.xml`），其余强制 HTTPS。
+```bash
+# 真实地址只在命令行 / 本地 local.properties 出现，仓库内不落任何真实域名、IP、密钥
+./gradlew assembleStaffRelease -Ph5UrlStaffRelease=https://<真实域名>/staff/
+```
+
+`local.properties.example` 已给出四个键的注释样例（值为占位符）。明文流量只对 `10.0.2.2` / `localhost`
+放行（见 `res/xml/network_security_config.xml`），其余强制 HTTPS。
 
 ## 5. 安全约定
 
@@ -112,3 +139,9 @@ H5 在 App 挂载时注册。所有调用统一走 `WebView.evaluateJavascript(.
 | Q10 | AGP / Gradle / JDK 版本组合 | **部分查证**，见 BUILD.md 第 1 节；补丁号未定 |
 | Q11 | `setStatusBarStyle` 的 `dark` 语义映射方向（dark=true 表示图标深色还是深色主题） | **待确认**，设计文档 8.2 未写明，需与 `hrm-demo` 侧调用方对齐 |
 | Q12 | `displayCutout` 在刘海屏上的实际取值 | **未验证**，需真机/模拟器实测 |
+| Q13 | 真实包名（`com.example.hrmwebview.staff` / `.boss` 为**占位**） | **待用户裁定**；裁定前不得填真实域名/品牌 |
+| Q14 | 两壳图标 | **沿用现有**（无自定义图标资源，用系统默认）；U-A 未裁定，**禁止视觉分叉** |
+| Q15 | `androidComponents.onVariants` 注入 `H5_URL` 的语法 | **未编译验证**（本机无 SDK），需在具 SDK 环境首跑确认 |
+
+> **待办（运行期，未执行）**：壳加载、`HrmBridge`/`HrmShell` 桥接通、HTTPS 强制与混合内容拦截、
+> WebView 缩放与缓存行为（U-3）—— 本批**未运行**，收敛到具备 Android SDK 的构建环境。

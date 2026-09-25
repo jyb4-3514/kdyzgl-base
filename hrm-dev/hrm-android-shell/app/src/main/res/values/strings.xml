@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 中性默认值：staff / boss 两壳分别在各自 flavor 源集覆盖（见 src/staff|boss/res/values/strings.xml） -->
     <string name="app_name">快递驿站</string>
     <string name="exit_confirm">再按一次退出应用</string>
 </resources>

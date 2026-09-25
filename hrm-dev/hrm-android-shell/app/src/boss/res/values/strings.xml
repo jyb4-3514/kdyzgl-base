@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 驿站精灵：管理端/boss 壳的应用名（flavor 源集覆盖 main 的中性默认值） -->
+    <string name="app_name">驿站精灵</string>
+</resources>
