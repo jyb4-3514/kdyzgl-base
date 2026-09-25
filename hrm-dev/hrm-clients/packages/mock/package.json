@@ -1,0 +1,15 @@
+{
+  "name": "@kdyzgl/mock",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mock 层（路由 + 引擎 + 数据层）：演示态唯一行为规格，装配契约不变",
+  "dependencies": {
+    "@kdyzgl/shared": "*",
+    "axios": "^1.7.9"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./*": "./src/*"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "@kdyzgl/tokens",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Design Token 真源（中立共享包）：tokens.base.scss + Element 浅色阶校验脚本",
+  "files": ["src", "scripts"]
+}

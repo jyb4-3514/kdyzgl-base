@@ -1,0 +1,15 @@
+{
+  "name": "@kdyzgl/clients",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "快递驿站智汇系统 · 多端 workspace（B1：建骨架 + 抽共享包，行为不变）",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "verify:mock": "node scripts/verify-mock.mjs",
+    "verify:tokens": "node packages/tokens/scripts/gen-element-tokens.mjs --check --targets ../hrm-demo/src/pc/styles/tokens.scss"
+  },
+  "devDependencies": {
+    "axios": "^1.7.9"
+  }
+}

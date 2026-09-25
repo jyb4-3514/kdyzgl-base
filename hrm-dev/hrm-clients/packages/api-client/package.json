@@ -1,0 +1,17 @@
+{
+  "name": "@kdyzgl/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "跨端请求层：createHttp 工厂 + 登录态存储工厂 + 契约类型（只 peerDependency axios）",
+  "dependencies": {
+    "@kdyzgl/shared": "*"
+  },
+  "peerDependencies": {
+    "axios": "^1.7.9"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./*": "./src/*"
+  }
+}

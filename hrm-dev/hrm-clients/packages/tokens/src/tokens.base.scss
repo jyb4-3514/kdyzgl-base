@@ -1,0 +1,259 @@
+/**
+ * 跨端 Design Token 真源（P1-2）
+ *
+ * 为什么抽这一层：PC 与移动端此前各维护一份 tokens，同一处颜色被写成两个名字
+ *（amber/yellow、bronze/brown、neutral-400 与 border-control 字面量、text-inverse/on-dark…），
+ * 改一端漏一端。这里只放「两端含义完全一致」的部分：
+ *   L1 原始色值全量 + L2 共用语义（文本/表面/描边/六态/图表/排行）+ 通用基础（字体栈/字重/间距/圆角/阴影/动效）。
+ * 平台私有内容不进本文件：Element 与 Vant 的变量覆盖、字号阶梯、以及尺寸类 L3（--gauge-size/-stroke、
+ * --step-dot/-gap、--aside-w、--van-*、--el-*）——这些两端取值本就不同，属合法平台差异。
+ *
+ * 命名基准取 PC：amber 对应 W3C 命名色、bronze 有「铜牌」语义、维度用 neutral-400/450 而非自造名。
+ * 移动端的历史名字一律在 mobile/styles/tokens.scss 里保留为别名过渡，不做一次性全量改名。
+ *
+ * 引入方式：pc/styles/tokens.scss 与 mobile/styles/tokens.scss 顶部 @use 本文件。
+ * 为什么用 @use 而不是 @import：@use 一个编译单元只装载一次，且模块 CSS 先于引用方 CSS 输出，
+ * 天然满足「先真源、后平台覆盖」的层叠顺序（sass 1.104 实测编译通过）。
+ */
+
+:root {
+  /* ==================== L1 Primitive ==================== */
+
+  /* 蓝（品牌主色族，基准 #1890FF） */
+  --c-blue-50: #e8f4ff;
+  --c-blue-100: #d1e9ff;
+  --c-blue-200: #badeff;
+  --c-blue-300: #8cc8ff;
+  --c-blue-400: #5db1ff;
+  --c-blue-500: #1890ff;
+  --c-blue-600: #1273e6;
+  --c-blue-700: #0958d9;
+  --c-blue-800: #0745a8;
+  --c-blue-900: #063a8a;
+
+  /* 橙（物流/包裹强调，基准 #FA8C16） */
+  --c-orange-50: #fff7e6;
+  --c-orange-100: #ffe7ba;
+  --c-orange-300: #ffc069;
+  --c-orange-500: #fa8c16;
+  --c-orange-600: #d46b08;
+  --c-orange-700: #b45309;
+
+  /* 绿（成功族） */
+  --c-green-50: #f6ffed;
+  --c-green-200: #b7eb8f;
+  --c-green-500: #52c41a;
+  --c-green-600: #389e0d;
+  --c-green-700: #237804;
+
+  /* 琥珀（警告族，语义名对齐 W3C amber） */
+  --c-amber-50: #fffbe6;
+  --c-amber-200: #ffe58f;
+  --c-amber-500: #faad14;
+  --c-amber-700: #b45309;
+
+  /* 红（危险族） */
+  --c-red-50: #fff1f0;
+  --c-red-200: #ffccc7;
+  --c-red-500: #ff4d4f;
+  --c-red-600: #cf1322;
+
+  /* 铜（排行榜第 3 名，与橙/灰同族，避免出现第 4 种「冠军色」） */
+  --c-bronze-700: #92400e;
+
+  /* 中性灰阶（蓝灰族，与 #1F2937 同源） */
+  --c-neutral-0: #ffffff;
+  --c-neutral-25: #fafbfc;
+  --c-neutral-50: #f5f7fa;
+  --c-neutral-100: #edf0f4;
+  --c-neutral-200: #e3e7ed;
+  --c-neutral-300: #cbd2da;
+  --c-neutral-400: #9aa4b2;
+  /* 可交互控件边界专用（白底 3.10:1，满足 SC 1.4.11）；两端同名，PC 原先的 #8A93A0 字面量收口到这里 */
+  --c-neutral-450: #8a93a0;
+  --c-neutral-500: #6b7280;
+  --c-neutral-600: #4b5563;
+  --c-neutral-700: #374151;
+  --c-neutral-800: #1f2937;
+  --c-neutral-900: #111827;
+  /* 图表暗底（预留，本轮不用） */
+  --c-neutral-950: #0b1220;
+
+  /* ==================== L2 Semantic · 品牌 ==================== */
+
+  /* 主色取 700 档：承白字对比度 6.16:1 达 AA。
+   * 项目硬规则「500 档只做图标/线/描边，承白字实底一律 700 档」，实底主按钮统一走这里 */
+  --color-primary: var(--c-blue-700);
+  /* hover/active 态加深到 800 档：白字 8.66:1，比 Element 默认的 light-3（3.43:1）安全 */
+  --color-primary-hover: var(--c-blue-800);
+  /* 图标/线专用 500 档：细线、图标、描边、焦点环一律用它 */
+  --color-primary-icon: var(--c-blue-500);
+  /* TODO(扩展): PC 侧历史别名，取值与 --color-primary 完全相同（15 处调用点），下一轮统一收敛后删除 */
+  --color-primary-strong: var(--c-blue-700);
+  --color-primary-surface: var(--c-blue-50);
+  --color-primary-surface-strong: var(--c-blue-100);
+  --color-primary-border: var(--c-blue-200);
+
+  /* ==================== L2 Semantic · 语义色族 ==================== */
+
+  /* 主名统一用 --color-*：语义通用、两端同名；PC 原有的 --state-{tone}-{bg|fg|border} 在下方保留为别名 */
+  --color-success: var(--c-green-700);
+  --color-success-surface: var(--c-green-50);
+  --color-success-border: var(--c-green-200);
+  --color-success-icon: var(--c-green-500);
+
+  --color-warning: var(--c-amber-700);
+  --color-warning-surface: var(--c-amber-50);
+  --color-warning-border: var(--c-amber-200);
+  --color-warning-icon: var(--c-amber-500);
+
+  --color-danger: var(--c-red-600);
+  --color-danger-surface: var(--c-red-50);
+  --color-danger-border: var(--c-red-200);
+  --color-danger-icon: var(--c-red-500);
+
+  --color-info: var(--c-neutral-600);
+  --color-info-surface: var(--c-neutral-100);
+  --color-info-text: var(--c-neutral-600);
+
+  --color-accent: var(--c-orange-500);
+  --color-accent-surface: var(--c-orange-50);
+
+  /* ==================== L2 Semantic · 六态状态族 ==================== */
+  /* 状态标签配色（2.7 映射表的唯一取值来源，StatusTag 只做「语义 → 变量」映射）。
+   * 说明：色值不在此重复定义，只把 PC 的六态命名挂到上面的 --color-* 主名上，
+   * 移动端由此获得该族（此前移动端只有 --state-simulate-* 三条） */
+
+  --state-neutral-bg: var(--c-neutral-100);
+  --state-neutral-fg: var(--c-neutral-600);
+  --state-neutral-border: var(--c-neutral-200);
+
+  --state-success-bg: var(--color-success-surface);
+  --state-success-fg: var(--color-success);
+  --state-success-border: var(--color-success-border);
+
+  --state-warning-bg: var(--color-warning-surface);
+  --state-warning-fg: var(--color-warning);
+  --state-warning-border: var(--color-warning-border);
+
+  --state-danger-bg: var(--color-danger-surface);
+  --state-danger-fg: var(--color-danger);
+  --state-danger-border: var(--color-danger-border);
+
+  --state-primary-bg: var(--color-primary-surface);
+  --state-primary-fg: var(--color-primary);
+  --state-primary-border: var(--color-primary-border);
+
+  --state-outline-bg: var(--c-neutral-0);
+  --state-outline-border: var(--c-neutral-300);
+  --state-outline-fg: var(--c-neutral-500);
+
+  /* 超时未处理行整行底色（5.4）：比 danger-bg 更浅，只做「扫读时能定位」，不抢状态标签的注意力 */
+  --state-danger-row-bg: #fff7f7;
+
+  /* ==================== L2 Semantic · 文本 / 表面 / 描边 ==================== */
+
+  --text-1: var(--c-neutral-800);
+  --text-2: var(--c-neutral-600);
+  --text-3: var(--c-neutral-500);
+  --text-placeholder: var(--c-neutral-400);
+  --text-disabled: var(--c-neutral-300);
+  --text-inverse: var(--c-neutral-0);
+  /* TODO(扩展): 移动端旧名别名，下一轮清理 */
+  --text-on-dark: var(--text-inverse);
+
+  --surface-page: var(--c-neutral-50);
+  --surface-card: var(--c-neutral-0);
+  /* 次级表面（比卡面浅一档，用于表头/内嵌块） */
+  --surface-sub: var(--c-neutral-25);
+  /* TODO(扩展): 移动端旧名别名，下一轮清理 */
+  --surface-muted: var(--surface-sub);
+  /* 弱化表面（与页面底色同值，语义上表示「卡内嵌一块底」） */
+  --surface-subtle: var(--c-neutral-50);
+  --surface-hover: var(--c-blue-50);
+  --surface-sunken: var(--c-neutral-100);
+  --surface-aside: var(--c-neutral-800);
+
+  --border-line: var(--c-neutral-200);
+  --border-control: var(--c-neutral-450);
+
+  /* ==================== L2 Semantic · 品牌渐变 ==================== */
+  /* 三端登录页共用（此前仅存于移动层，PC 端登录页需同一深档承白字 ≥6:1）：
+   * 上移真源，避免 PC 与移动各写一份渐变公式后随迭代漂移；取值与移动层原定义逐字一致 */
+  --grad-hero: linear-gradient(135deg, var(--c-blue-700) 0%, var(--c-blue-800) 100%);
+  --grad-hero-deep: linear-gradient(135deg, var(--c-neutral-800) 0%, var(--c-neutral-900) 100%);
+
+  /* ==================== L2 Semantic · 图表 ==================== */
+
+  /* 系列色：两端共用一套，修 P39 的「同一系列两端四色」 */
+  --chart-inbound: var(--c-blue-500);
+  --chart-pickup: var(--c-green-600);
+  --chart-abnormal: var(--c-orange-500);
+  --chart-area: rgba(24, 144, 255, 0.08);
+  /* 轴线/基线/十字准线/空态图标：图表内中性前景，不能套 --text-disabled（语义错位） */
+  --chart-axis: var(--c-neutral-300);
+  /* 骨架条底色：图表加载占位块 */
+  --chart-skeleton: var(--c-neutral-100);
+
+  /* ==================== L2 Semantic · 排行榜徽标 ==================== */
+
+  /* 1/2/3 名实底白字，4+ 浅底深字，修 P18 的「冠军红」 */
+  --rank-1-bg: var(--c-amber-700);
+  --rank-2-bg: var(--c-neutral-500);
+  --rank-3-bg: var(--c-bronze-700);
+  --rank-rest-bg: var(--c-neutral-50);
+  --rank-rest-fg: var(--c-neutral-600);
+
+  /* ==================== 基础：字体栈 / 字重 / 间距 / 圆角 / 阴影 / 动效 ==================== */
+  /* 字号与行高阶梯两端取值不同（移动端另有一套），属合法平台差异，留在各自差异层 */
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Arial,
+    sans-serif;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  /* 间距（4px 基准，8px 步进） */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-full: 999px;
+
+  --e0: none;
+  --e1: 0 1px 2px rgba(31, 41, 55, 0.06);
+  --e2: 0 4px 12px rgba(31, 41, 55, 0.08);
+  --e3: 0 8px 24px rgba(31, 41, 55, 0.12);
+  --e4: 0 12px 32px rgba(31, 41, 55, 0.16);
+
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 300ms;
+  --ease-std: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-in: cubic-bezier(0, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* 动效降级（SC 2.3.3）：前庭敏感用户与低配设备下不做位移/缩放。
+ * 两端原先各写一份、内容完全相同，随真源一并收口 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

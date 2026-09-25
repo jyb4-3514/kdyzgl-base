@@ -1,0 +1,11 @@
+{
+  "name": "@kdyzgl/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "跨端共享：常量 / 领域纯函数 / 上报工具（零 UI、零端依赖）",
+  "exports": {
+    ".": "./src/index.js",
+    "./*": "./src/*"
+  }
+}
