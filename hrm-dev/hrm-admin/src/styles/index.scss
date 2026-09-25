@@ -19,8 +19,8 @@ body {
   font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB',
     'Microsoft YaHei', Arial, sans-serif;
   font-size: 14px;
-  color: #303133;
-  background-color: #f0f2f5;
+  color: var(--c-text-primary);
+  background-color: var(--c-bg-page);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -60,5 +60,6 @@ body {
   width: 100%;
   font-size: 12px;
   line-height: 1.4;
-  color: #909399;
+  /* 次级说明文字取真源 --text-3（白底 4.83:1）；原写死值仅 3.08:1，不达 WCAG AA 正文阈值 */
+  color: var(--text-3);
 }

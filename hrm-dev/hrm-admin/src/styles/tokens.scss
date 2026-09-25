@@ -2,16 +2,21 @@
  * 网页端（一期 hrm-admin）Design Token 接入层（ADR-SM-02 / ADR-structure-migration §2.2）
  *
  * 消费方式（A-2 取①）：以**相对路径 `@use`** 只读消费中立真源 `@kdyzgl/tokens`；
- * 不改本工程 package.json、不引入 npm 依赖、不改业务代码。
- * 依赖方向单向：hrm-admin → hrm-clients/packages/tokens（真源零反向依赖）。
+ * 不改本工程 package.json 的依赖（本次仅按 U-B 追加 lint/校验类 devDependencies，与 Token 消费无关）、
+ * 不引 npm 依赖、不改业务代码。依赖方向单向：hrm-admin → hrm-clients/packages/tokens（真源零反向依赖）。
  *
  * 本文件只承载 hrm-admin 私有平台层：
- *   1) Element 变量覆盖（`--el-color-primary` 等）；
- *   2) **现状字面量登记白名单** —— 供 ADR §2.3 A5 断言机器化比对
+ *   1) Element 变量覆盖（`--el-color-*`）；
+ *   2) **字面量登记白名单** —— 供 ADR §2.3 A5 断言机器化比对
  *      （`hrm-admin/src` 下的十六进制字面量须全部落在本文件登记集合内，未登记 = 0）。
  *
- * 取值纪律（B2 硬约束，行为不变）：**一律等于接入前源码现值，本批不改任何视觉取值**。
- * hrm-admin 换主色属用户待裁定项 U-A（`update-log.md` B0 冻结登记），**暂停**。
+ * U-A 落地（用户/主智能体已裁定，`ui-experience-optimization.md` §1.5 候选 ①）：
+ *   主/功能色整体对齐 700 档，白底实心 + 白字对比度 ≥ 4.5:1（主色 6.16:1）。
+ *   取值与 `hrm-demo/src/pc/styles/tokens.scss`、`hrm-clients/apps/web/src/styles/tokens.scss`
+ *   平台层逐值同源（三端同色，无第三种蓝）；因 apps/web 与 Demo PC 在本文件之后各自覆盖同名变量，
+ *   故本次变更对 apps/web / Demo PC 均为**零视觉变化**（见回报「影响范围」）。
+ *
+ * 边界：仅做「达标色值修复」，不改字阶/圆角/阴影/布局（方案 §0.2）。
  *
  * A5 比对口径：两边十六进制字面量归一到「6 位小写」后比较（#fff ≡ #ffffff）。
  */
@@ -22,20 +27,61 @@
 @use '../../../hrm-clients/packages/tokens/src/tokens.base.scss';
 
 :root {
-  /* ==================== Element 变量覆盖（现状值，零变更） ==================== */
-  /* Element Plus 默认主色即 #409eff，此处显式登记为契约、不产生视觉变化 */
-  --el-color-primary: #409eff;
+  /* ==================== Element 语义色覆盖（U-A：700 档） ====================
+   * base 走真源变量（--c-blue-700 / --c-neutral-600）；light-{3,5,7,8,9} 与 dark-2
+   * 与 Demo / apps/web 平台层逐值一致，并由 `verify:tokens` 按「算法复现（primary）+
+   * 手写基线（success/warning/danger/info）」两段式校验（改值即红，见 packages/tokens/scripts）。 */
+  --el-color-primary: var(--c-blue-700); /* #0958d9，白字 6.16:1 */
+  --el-color-primary-light-3: #538ae4;
+  --el-color-primary-light-5: #84acec;
+  --el-color-primary-light-7: #b5cdf4;
+  --el-color-primary-light-8: #cedef7;
+  --el-color-primary-light-9: #e6eefb;
+  --el-color-primary-dark-2: #0746ae;
 
-  /* ==================== 中性色（现状字面量登记） ==================== */
-  --c-text-primary: #303133; /* 正文主色，index.scss / layout / dashboard / login 现状 */
+  --el-color-success: #237804; /* 白字 5.59:1 */
+  --el-color-success-light-3: #6aa84f;
+  --el-color-success-light-5: #9dc98a;
+  --el-color-success-light-7: #cde5c1;
+  --el-color-success-light-8: #def0d6;
+  --el-color-success-light-9: #eef9e8;
+  --el-color-success-dark-2: #1c6003;
+
+  --el-color-warning: #b45309; /* 白字 5.02:1 */
+  --el-color-warning-light-3: #d08a50;
+  --el-color-warning-light-5: #e0ad84;
+  --el-color-warning-light-7: #efd2bc;
+  --el-color-warning-light-8: #f4e0d2;
+  --el-color-warning-light-9: #fef7e8;
+  --el-color-warning-dark-2: #903f04;
+
+  --el-color-danger: #cf1322; /* 白字 5.57:1 */
+  --el-color-danger-light-3: #dd5862;
+  --el-color-danger-light-5: #e78990;
+  --el-color-danger-light-7: #f1b7bc;
+  --el-color-danger-light-8: #f6ced1;
+  --el-color-danger-light-9: #ffeded;
+  --el-color-danger-dark-2: #a60f1b;
+
+  --el-color-info: var(--c-neutral-600);
+  --el-color-info-light-3: #8b9199;
+  --el-color-info-light-5: #aeb2b8;
+  --el-color-info-light-7: #d1d3d7;
+  --el-color-info-light-8: #e3e4e7;
+  --el-color-info-light-9: #edeeef;
+  --el-color-info-dark-2: #3c444f;
+
+  /* ==================== 中性色（hrm-admin 私有平台层） ==================== */
+  --c-text-primary: #303133; /* 正文主色：index.scss / layout / dashboard / login */
   --c-text-regular: #606266; /* 次级正文（layout 用户区） */
-  --c-text-placeholder: #909399; /* 占位/说明文字，employee/dashboard/department/station/login/index.scss 现状 */
-  --c-bg-page: #f0f2f5; /* 页面底色（index.scss 现状） */
+  --c-bg-page: #f0f2f5; /* 页面底色（index.scss） */
   --c-border-base: #e4e7ed; /* 分隔线（layout 头部下边框） */
-  --c-white: #ffffff; /* 纯白（#fff 等价，layout/dashboard 现状） */
-  --c-aside-bg: #001529; /* 侧栏深底（layout 现状） */
+  --c-white: #ffffff; /* 纯白（#fff 等价） */
+  --c-aside-bg: #001529; /* 侧栏深底（layout） */
+  /* 次级说明文字（.form-tip / 空态文案等）：U-A 收敛至真源 `--text-3`（#6b7280，白底 4.83:1），
+   * 原 #909399 仅 3.08:1 不达 AA，故直接引用真源语义变量、不在本层重复定义。 */
 
-  /* ==================== 品牌/统计渐变（login、dashboard 现状字面量登记） ==================== */
+  /* ==================== 品牌/统计渐变（login、dashboard 私有装饰色） ==================== */
   --c-brand-800: #1f3b73; /* login 渐变起点 */
   --c-brand-600: #2f6bd8; /* login 渐变中停 / dashboard 蓝卡终点 */
   --c-brand-400: #66a6ff; /* login 渐变终点 */
@@ -47,6 +93,6 @@
   --c-stat-purple: #a18cd1; /* dashboard 紫卡起点 */
   --c-stat-indigo: #7c4dff; /* dashboard 紫卡终点 */
 
-  /* TODO(扩展): hrm-admin 换主色（U-A）落地后，把上表中的「现状字面量」逐步替换为 var(--...) 引用，
-   * 并同步收缩本白名单；本批只登记不替换（严禁改视觉）。 */
+  /* TODO(扩展): 上表「品牌/统计渐变」为 hrm-admin 私有装饰色，尚未进真源；
+   * 若后续 PC 端需在 Demo/apps 间复用同一组渐变，应上移真源并在此收缩白名单。 */
 }

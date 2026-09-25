@@ -364,3 +364,115 @@ ADR 的两项主干决策**成立且有据**：① Design Token 真源必须移�
 
 1. **上一轮报告自身 1 处取证错误（须更正）**：`tech-review-structure-migration.md:59`（§1.1 P-1）与**必改项 4①** 称「`#409EFF` 在 `hrm-admin/src` **无出现**（它是 Element Plus 的默认变量值，不是 `hrm-admin` 写的字面量）」。**实测不符**：`hrm-admin/src` 存在 `#409eff` **4 处**、`#909399` **6 处**（大小写不敏感共 10 处，见附.1 必改项 4① 复核）。ADR v2 L34 的计数**正确**，上一轮该处事实依据系误判——**须以本轮实测为准**。
 2. **ADR v2 其余关键行号 / 引证经独立复核一致**（附.1、附.2 全部「独立复核」列），未发现新的无源结论或与实测不符项。
+
+---
+
+## 附：ADR v3 复评记录（2026-09-25）
+
+- **评估对象：** `hrm-dev/docs/adr-structure-migration.md`（**v3**，2026-09-25 修订；状态栏 L5 自述「v3（非主干修订：落地后事实回填 + 回滚点补全；决策与裁定结论不变）」）
+- **作者：** 架构师 `express-station-architect`；**评估方：** `express-station-tech-reviewer`（与产出方分离，未参与本 ADR 任何内容产出，符合 §8 第 8 条 ③ 与 A22/A23）
+- **复评依据：** `项目规则1.md` §8 ④ 与调度规则 **P0.6 / L8 / R25**「评估结论绑定方案版本，方案版本变更须重评」——本任务即该重评。**评估范围冻结**于 v3 自述的三类改动（① §3.7 四处回滚点补全；② 执行期事实回填；③ 新增文末「v3 修订记录」），**不新增无关要求**（反模式「评估范围漂移」）。
+- **评估方式：** **静态文档级评估**——逐条对照 ADR v3 原文行号 + 独立重读事实来源（`update-log.md` / `deploy.md` §11 / `project-tree.md` §2.1 / `portal.html` / `portal/main.js`），**不采信 ADR 自述**。本机 **无 JDK / Maven / MySQL / Redis / Android SDK**，未运行 `verify:*` / `build*` / `lint` / `test` / `e2e` / 现网核查，相关结论一律**未运行**；服务器事实以 `update-log.md` 与 `deploy.md` §11 记载为输入。
+
+### 复1 · 四处回滚点逐条核对（必改项 1 遗留的 B3/B4/B5/B6）
+
+| 批次 | 要求（`update-log.md` 实测回滚点） | ADR v3 证据（行号 + 原文摘录） | 独立复核 | 判定 |
+| --- | --- | --- | --- | --- |
+| **B3** | `update-log.md:91`：① 删 `apps/staff-h5/`；② **还原 `hrm-demo` 5 文件**（`src/mobile/views/message/{MessagePage,NoticeReader}.vue`、`src/mobile/router/index.js`、`vite.config.js`、`vitest.config.mjs`）+ **复原** `src/mobile/views/staff/kpi.vue`；③ 还原 `hrm-clients/e2e-utils/harness.js` | **L254**：「**回滚（v3 补全，实测）**：① 删除 `apps/staff-h5/`；② 还原 `hrm-demo` **5 个文件**（…四文件…），并**复原** `src/mobile/views/staff/kpi.vue`（原改为 `src/mobile/views/kpi/`）；③ 还原 `hrm-clients/e2e-utils/harness.js`；④ 撤销 `packages/shared/src/ui/` 中立页提升（`MessagePage`/`NoticeReader`/`KpiDetail`）。…线上零影响」 | 逐项与 `update-log.md:91` 逐字吻合；**⑤ 比对 `update-log.md:87` B3 产出**（「`packages/shared/src/ui/`（13 文件…）」）→ ADR 第 ④ 项（撤销中立页提升）为**合理超集**（update-log 回滚段未列，但 B3 产出确实新建该目录，回滚须撤销） | **完整**（ADR 4 项 ⊇ update-log 3 项，无缺项） |
+| **B4** | `update-log.md:71`：① 删 `apps/boss-h5/`；② **还原 `hrm-clients/package.json`**（去 `verify:tokens` boss 目标与 `e2e:boss`）+ `package-lock.json`；注明本批未改 `hrm-demo`/`apps/staff-h5`/`e2e-utils` | **L255**：「**回滚（v3 补全，实测）**：① 删除 `apps/boss-h5/`；② 还原 `hrm-clients/package.json`（去 `verify:tokens` 的 boss 目标与 `e2e:boss`）+ `hrm-clients/package-lock.json`。本批**未改** `hrm-demo` / `apps/staff-h5` / `e2e-utils`（与 B3 不同，**无 `hrm-demo` 反向 diff**）；**线上零影响**」 | 逐字吻合 `update-log.md:71` | **完整** |
+| **B5** | `update-log.md:61`：① 删 `apps/web/`；② **还原 `hrm-clients/package.json`**（去 web 目标与 `e2e:web`）；③ **还原 `package-lock.json`（+44 包）**；④ 可选 `npm ci`；无需还原 `hrm-demo`/`hrm-admin`/Nginx | **L256**：「**回滚（v3 补全，实测）**：① 删除 `apps/web/`；② 还原 `hrm-clients/package.json`（去 web 目标与 `e2e:web`）；③ 还原 `hrm-clients/package-lock.json`（**+44 包**）；④ 可选 `npm ci` 清理 workspace 依赖。**无需还原** `hrm-demo` / `hrm-admin` / Nginx（零改动、线上零影响）」 | 逐字吻合 `update-log.md:61`（含 `+44 包`） | **完整** |
+| **B6** | `update-log.md:51`：还原 `app/build.gradle`（恢复 `buildTypes` 两处 `H5_URL`）→ **删除 `app/src/staff/`、`app/src/boss/`** → 还原 `app/src/main/res/values/strings.xml`、`local.properties.example`、`README.md`、`BUILD.md` | **L257**：「**回滚（v3 补全，实测）**：① 还原 `app/build.gradle`（恢复 `buildTypes` 内两处 `H5_URL`）；② **删除 `app/src/staff/`、`app/src/boss/`**（flavor 源集）；③ 还原 `app/src/main/res/values/strings.xml`、`local.properties.example`、`README.md`、`BUILD.md`。**完全可逆、未发布、无线上影响**」 | 逐项吻合 `update-log.md:51`；`app/src/{staff,boss}/`（flavor 源集）已含 | **完整** |
+| **§6 回滚总表** | 与 §3.7 各批一致，可独立复核 | **L340**：「B3 / B4 / B5 \| 删除对应 `apps/*` 目录 **+ 还原 `hrm-clients/package.json` / `package-lock.json`**；**B3 另**还原 `hrm-demo` 5 文件 + `e2e-utils/harness.js` + 撤销 `packages/shared/src/ui`（**详 §3.7 各批回滚点**，v3 补全）」；**L341**：「B6 \| 还原 `build.gradle` / 壳配置…**+ 删除 `app/src/staff/`、`app/src/boss/` + 还原 `strings.xml` / `local.properties.example` / `README.md` / `BUILD.md`**（**详 §3.7 B6**，v3 补全）」 | 与 §3.7 L254–L257 方向一致、并显式指向详版；`update-log.md:37` B7 遗留项所列缺项（`hrm-clients/package.json`、`package-lock.json`、`hrm-demo` 5 文件、`e2e-utils`、flavor 源集、`local.properties.example`）**均已落位** | **完整** |
+
+**复1 小结：** 四处回滚点**均已补全且与 `update-log.md` 实测记载一致**（B3 为合理超集），`update-log.md:17 / :37` 所列「B3/B4/B5/B6 回滚点不完整」**已闭环**。
+
+### 复2 · 执行期事实回填核对
+
+| 事项 | 要求（权威记录） | ADR v3 证据（行号 + 原文摘录） | 独立复核 | 判定 |
+| --- | --- | --- | --- | --- |
+| 站点根实落路径 | `update-log.md:23`：宿主 `/data/www/download/hrm-clients/{web,staff,boss}`（文件数 167/80/97，`map=0`） | **L324**：「**〔v3 回填〕实落偏差（正式确认）：** B7 实际落点为宿主 **`/data/www/download/hrm-clients/{web,staff,boss}`**（三端文件数 **167 / 80 / 97**，`map=0`）——**非**本示例…**原因：** `courier-nginx` 仅挂载 `/data/photos`、`/data/www/apk`、`/data/www/download`…」 | 路径与文件数与 `update-log.md:23` 一致；与 `deploy.md:1032–1037`（§11.1 站点根表 + 「为何是 `/data/www/download/hrm-clients/`」）一致 | **一致** |
+| 变更载体路径 | `update-log.md:25`：宿主 `/data/www/kdyzzhxt/courier-server/nginx/nginx.conf`（`ro` 挂载进容器） | **L322**：「**〔v3 回填〕必改项 6 最终答案（执行期事实）：** 变更载体实为宿主 **`/data/www/kdyzzhxt/courier-server/nginx/nginx.conf`**（`ro` 挂载进 `courier-nginx`）…」；**L323**：「**〔v3 回填〕已闭环：** 现网载体路径 = 宿主 **`/data/www/kdyzzhxt/courier-server/nginx/nginx.conf`**（`ro` 挂载进 `courier-nginx`，容器内可见）；核实方法（`docker inspect` 查挂载 / `nginx -T` 看生效配置）…已登记 `deploy.md` §11 与 `update-log.md`」 | 路径与 `update-log.md:25` 一致；核实方法与 `deploy.md:1053/1056`（§11.2）一致；必改项 6（v1/v2 遗留）**已闭环** | **一致** |
+| 单文件 bind mount 保 inode | `update-log.md:25`：「单文件 bind mount **必须原地改写（`cat >`）保 inode**，用 `mv` 换文件容器看不到」 | **L322**：「…**关键技术点：单文件 bind mount 必须原地改写（`cat >`）保 inode，用 `mv` 换文件容器看不到**；变更前备份 `nginx.conf.<时间戳>`，**未改动任何既有行**」 | 与 `update-log.md:25` 逐字一致；与 `deploy.md:1059`（§11.2「单文件 bind mount 必须「原地改写」保 inode（重要坑）」）一致 | **一致** |
+| B8 判定期起点 | `update-log.md:5`：「**起点 = B7 上线日 2026-09-25**」 | **L183**：「…① B7 上线后新子路径入口连续 **1 个发布周期**（**计时起点 = B7 上线日 2026-09-25**）…」；**L267**：「**`as` 退役节奏（B-4，v2 补；v3 回填执行期事实）：** 计时起点 = **B7 上线日 2026-09-25**…**〔v3 回填〕B8 批实际执行（2026-09-25）：**…当前 **①③ 均未满足**…→ **旧入口（`mobile.html?as=`）与 `as` 兼容读保留**…」 | 与 `update-log.md:5` / `deploy.md:1104`（§11.6「起点 = B7 上线日 **2026-09-25**」）一致；与 `portal/main.js:21` 注「旧 `?as=` 入口未退役（ADR §3.3 退役三项条件未满足）」自洽 | **一致** |
+| 两处既有死链处置 | `update-log.md:17`：「`/admin/` 500 与 `/download` 404 两处**既有死链未修**（载体为 `courier-nginx`，修复属 C 档需授权）」；`deploy.md:1097/1098`（§11.5 标题「非本次引入，**待修**」）：`/admin/`「待修（未变更载体）」、`/download`「待修」 | **L356**：「…本轮属 **C 档显式修复**（载体 = 现网 `courier-nginx`，须 P0.5 安全结论 + 主智能体 §10.3 三步授权）。登记以备追溯…」；**表头 L358**「本轮处置（C 档显式修复）」；**L360** 旧-1「**改为 `return 301 /web/`**」；**L361** 旧-2「**只增宿主 `/data/www/download/index.html` 下载页**（**未改 Nginx**）」 | 行号与原文**真实存在**；但 ADR 以「**本轮处置**」+ 完成式「改为 / 只增」登记，而权威执行记录（`deploy.md` §11.5、`update-log.md` B8）均记为**未修 / 待修**；v3 修订记录 **#10（L529）** 依据列自述为「**任务提供的服务器事实**」（非仓库执行记录） | **口径矛盾（见复4(b) / 复9-①）** |
+
+### 复3 · 行号纠正独立复核（实测）
+
+| 对象 | ADR v3 声称 | 实测行号（本次独立读取） | 判定 |
+| --- | --- | --- | --- |
+| `hrm-dev/deploy/docker-demo/portal.html` 三链接 | **L310**：「现状已改为 `/web/` `/staff/` `/boss/`（**portal.html:31-33**，原记 L30–32 **行号随之回填**）」 | **L31** `<a href="/web/">网页端…`、**L32** `<a class="alt" href="/staff/">驿站助手…`、**L33** `<a class="alt2" href="/boss/">驿站精灵…` | **成立** ✅（L31–33，顺序 `/web/` `/staff/` `/boss/` 吻合） |
+| `hrm-dev/hrm-demo/src/portal/main.js` 三处 `link` | **L307**：「三张卡片实际链接已为 `/web/`（**L28**）、`/boss/`（**L35**）、`/staff/`（**L42**）——**行号自 L24/31/38 偏移**」 | **L28** `link: '/web/',`、**L35** `link: '/boss/',`、**L42** `link: '/staff/',` | **成立** ✅（三处 `link:` 行号逐一吻合）；「原记 L24/31/38」（与 `update-log.md:7` 同源、本报告附.1 必改项 8 亦记 L24/31/38）为**历史值，不执行 git 无法复核**，标注**未运行**；偏移量 +4 与现文 L18–22 新增注释块位置自洽 |
+
+### 复4 · 是否引入新的主干缺陷（v3 逐项排查）
+
+| 子项 | 排查方式 | 结论 |
+| --- | --- | --- |
+| **(a) 与 `api.md` / `db.md` 的未声明冲突** | 通读 v3 全部改动位置（L5–L7、L17、L183、L254–L257、L267、L307、L310、L322–L324、L340–L341、L354–L361、L467、L473、L510–L532）；检索新增内容是否涉接口 / 表结构 / 错误码 | **无** ✅。v3 改动仅涉 Nginx 现网事实、回滚点、文档指针与既有死链登记；`hrm-server` / `sql` 零改动声明未被 v3 触动 |
+| **(b) 无源结论（「经验表明」类）** | Grep `经验表明｜一般来说｜业界普遍｜通常情况下｜众所周知｜应该是` 全文 | **0 命中** ✅。v3 新增事实均带「〔v3 回填〕」标注且指 `update-log.md` 条目为据（唯 §6.2 处置依据标「任务提供的服务器事实」，见复2 / 复9-①） |
+| **(c) 对已裁定结论（D1–D10 / A-2 / A-4 / B-3 / B-4 / B-5）的擅自改动** | 逐行比对 §7.1（L373–L381）/ §7.2（L389–L393）/ §7.3（L401–L402）与 v2 记录；核对 §1.3-5（L62）撤回声明、§3.4（L192–L193）包名占位、§3.3（L183）B-4 触发条件 | **无擅自改动** ✅。v3 **未触碰 §7 任何一行**；A-2/A-4/B-3/B-4/B-5 结论逐字未变；§1.3-5 仍保持「原文定性无误、本 ADR v2 已撤回」 |
+| **(d) 为「好看」删除既有风险登记** | 检索 §6.1（L347–L352）R新-1 / R新-2 是否仍在；核对 §6 回滚表 L338–L343 行数与 v2 | **无删除** ✅。`R新-1`（产物被覆盖）/ `R新-2`（无 CI）**完整保留**；v3 仅**新增** §6.2 小节（L354–L361），`deploy-demo.sh` 头部**新增**冻结发布 banner（`update-log.md:9`，`git diff` 仅新增 `+#` 行） |
+
+**复4 小结：** v3 **未引入主干缺陷**（无契约冲突、无无源结论、无裁定篡改、无风险删除）。唯一新问题为 §6.2 的**状态口径表述**（复2/复9-①），属**表述级、不涉主干正确性**。
+
+### 复5 · §11 回填指针完成状态标注核实（打开文件确认）
+
+| ADR v3 声明 | 对象文件实测 | 判定 |
+| --- | --- | --- |
+| **L467**：「`hrm-dev/docs/project-tree.md` …**已完成（v3 回填）**：已补 **§2.1 `hrm-clients/` 多端 workspace 树**与端口 / base 表（5191 `/web/`、5189 `/staff/`、5190 `/boss/`）」 | `project-tree.md`：**L98 `### 2.1 多端 workspace：hrm-clients/（2026-09-25 回填，追加）`** 确实存在；L104 起为 `hrm-clients/` 目录树；L219 变更记录载「dev 端口 5191/5189/5190，base `/web/` `/staff/` `/boss/`」 | **属实** ✅ |
+| **L473**：「`hrm-dev/docs/deploy.md` …**已完成（v3 回填）**：已新增 **§11「现网实况与 B7 三端入口」**（三端入口与站点根、为何是 `/data/www/download/hrm-clients`、变更载体 + 载体核实方法（`docker inspect` / `nginx -T`）、单文件 bind mount 保 inode、全站 `.map` 404 与缓存头纪律、一键回滚、既有缺陷、B8 判定期），并在 §0.1 加**矛盾标注**」 | `deploy.md`：**L1022 `## 11. 现网实况与 B7 三端入口（2026-09-25 回填）`** 存在，含 **§11.1–§11.6**（L1028/1040/1069/1075/1093/1103）；§11.1 站点根表 L1032–L1034、L1037「为何是 `/data/www/download/hrm-clients/`」；§11.2 L1053 `docker inspect` / L1056 `nginx -T` / L1059 保 inode；§11.3 `.map`；§11.4 一键回滚；§11.5 既有缺陷；§11.6 B8 判定期；**L39 §0.1 矛盾标注**存在 | **属实** ✅ |
+
+### 复6 · 新结论等级与理由
+
+**结论等级：有条件通过**（报审准入：**可报主智能体审批**，须随附本报告复7 必改项 R1）
+
+理由：
+1. **复评范围内 v3 三类改动全部核对完毕**：四处回滚点**完整且与实测一致**（复1）；执行期事实回填**四项一致、一项口径矛盾**（复2）；行号纠正**成立**（复3）；§11 指针**属实**（复5）。
+2. **未命中打回红线**：无 `api.md`/`db.md` 未声明冲突、无无源结论、无硬编码经验值、无对既定裁定（D1–D10 / A-2 / A-4 / B-3 / B-4 / B-5）的擅自改动、无风险登记删除（复4）。故**不判「打回」**。
+3. **存在 1 项不影响主干正确性的必改项**（§6.2 状态口径），符合「有条件通过」定义（存在**不影响主干正确性**的必改项：表述 / 补充依据 / 登记 TODO）。故**不判「通过」**。
+4. **闸门合规**：按 `项目规则1.md` §8 第 8 条与调度规则 **P0.6 / L8 / R25**，ADR 属**方案阶段产物**，v3 版本变更**已重评**（即本记录），结论为「有条件通过」→ **具备报审资格**；评估结论**绑定 v3 版本**。
+
+### 复7 · 剩余必改项（1 条，表述级，不阻塞主干）
+
+```
+必改项 R1：§6.2 既有死链的「执行状态」与权威记录口径不一致 —— 见复2 / 复9-①
+- 问题：ADR v3 §6.2（L354–L361）表头写「本轮处置（C 档显式修复）」，行 旧-1/旧-2 以完成式
+  「改为 `return 301 /web/`」「只增宿主下载页」登记，读作「已处置」；而权威执行记录
+  `deploy.md` §11.5（L1097「待修（未变更载体）」、L1098「待修」）与 `update-log.md:17`
+  （「两处既有死链**未修**…修复属 C 档需授权」）均记为**未执行**；v3 修订记录 #10（L529）
+  依据列自述「任务提供的服务器事实」，非仓库执行记录。表述不可判定（易被读作已修复/已授权）。
+- 依据：`项目规则1.md` §8 ④（结论绑定版本、方案应可判定）；本报告维度 1（依据充分性）与
+  维度 5（风险/状态登记）；`deploy.md:1093–1098`；`update-log.md:17`。
+- 验收标准：§6.2 引言 + 表头改为可判定状态表述——「以下为**拟处置方案**（C 档，待 P0.5 安全结论
+  + §10.3 三步授权后执行）；**当前状态 = 待修**（与 `deploy.md` §11.5、`update-log.md` B8 一致）」；
+  删去/限定「本轮处置」为「拟处置」；依据列改引 `deploy.md` §11.5 / `update-log.md` B8，删「任务提供的
+  服务器事实」。**不得**以完成式表述登记未执行的现网变更。
+- 复核方式：读 §6.2（L354–L361）+ v3 修订记录 #10（L529），比对 `deploy.md:1097–1098` 与 `update-log.md:17`。
+- 阻塞：否（表述级；不影响 A/B 决策与裁定结论；报审须附本必改项）。
+```
+
+### 复8 · 复评结论绑定版本
+
+- **绑定对象：** ADR **v3**（`hrm-dev/docs/adr-structure-migration.md`，2026-09-25 修订版）。本结论**仅对 v3 有效**。
+- **重评触发：** 方案版本再变更（含正文任一决策 / 批次 / 裁定结论 / 契约关系变化）→ **须重新提交技术评审**（`项目规则1.md` §8 第 8 条 ④、调度规则 L8「评估结论绑定方案版本」）。**R1 为表述级修订，作者按验收标准改毕后，按复评触发条件「逐条核对即可、不须整体重评」**。
+- **随报审转交（非本角色结论）：**
+  1. **安全面**：v3 新增内容含服务器绝对路径（`/data/www/kdyzzhxt/courier-server/nginx/nginx.conf`、`/data/www/download/hrm-clients/*`）与现网 bind mount 机制——虽**非**凭据声明列举的「凭据 / 域名 / IP / AppKey」，仍建议由**网络安全工程师**形式核对是否构成暴露面（§9 SP7 口径）；**本报告不含安全实质结论**。
+  2. **既有死链修复**（`/admin/` `return 301 /web/`；`/download` 增下载页）属 **C 档现网变更**，其 P0.5 安全结论 + §10.3 三步授权归**网络安全工程师 / 主智能体**，本角色**不代授权**。
+
+### 复9 · 事实性纠正（本轮复评发现）
+
+1. **〔口径矛盾，v3 引入〕** ADR `adr-structure-migration.md:354–361`（§6.2 表头「本轮处置」+ L360/L361 完成式）↔ `deploy.md:1093–1098`（§11.5「非本次引入，**待修**」/「待修（未变更载体）」）↔ `update-log.md:17`（「两处既有死链**未修**…修复属 C 档需授权」）：**同一两处死链，ADR 记「本轮处置」、权威记录记「未修 / 待修」** → 见必改项 R1；**标注待运维复核**（本角色不推翻 ADR，只要求状态口径对齐）。
+2. **〔上游一致性，非 v3 引入，待主智能体确认〕** ADR `:377`（§7.1 D5）仍写「…**仅剩「两 APK vs 单壳双入口」待定**」，而 `update-log.md:79`（2026-09-25「用户授权推进 ADR 全量 + 三项裁定补登」）已补登「**D5 安卓壳产物形态 = 两个 APK**」（并解锁 B6），§3.7 B6 前置（L257）亦写「D5 裁定」。**ADR §7.1 D5 状态措辞滞后于 `update-log.md`**——**非 v3 改动引入**（v3 未触碰 §7），**不计入本轮必改项**，登记供架构师后续对齐 / 主智能体确认。
+3. **〔差异说明，非矛盾〕** §3.7 **B3 回滚点（L254）含 4 项**，较 `update-log.md:91` B3 回滚段（3 项）**多**「④ 撤销 `packages/shared/src/ui/` 中立页提升」。经比对 `update-log.md:87` B3 产出（「`packages/shared/src/ui/`（13 文件…）」）确为 B3 新建 → ADR 第 ④ 项为**合理补全**，**非缺项、非矛盾**，仅标注来源差异。
+4. **〔未运行声明〕** `portal/main.js`「原记 L24/31/38」与「`name` 字段逐字未变」（L307）系**历史态**断言，本机不执行 git，**未运行、无法复核**；当前态行号 L28/L35/L42 已实测成立（复3）。
+
+### 复10 · 本轮独立取证方式（供复核）
+
+| 事项 | 取证方式 | 结果 |
+| --- | --- | --- |
+| 四处回滚点 | 读 ADR `L254–L257` + `L340–L341`，逐项比对 `update-log.md` B3:91 / B4:71 / B5:61 / B6:51 | 逐项吻合（B3 为超集） |
+| 执行期事实 | 读 ADR `L183/L267/L322/L323/L324`，比对 `update-log.md:5/23/25` 与 `deploy.md:1032–1037/1044/1053/1056/1059/1104` | 四项一致、一项口径矛盾（§6.2） |
+| 门户行号 | Read `hrm-dev/deploy/docker-demo/portal.html` / `hrm-dev/hrm-demo/src/portal/main.js` | `portal.html:31/32/33`；`main.js:28/35/42`（均成立） |
+| §11 指针 | Grep/Read `deploy.md`（`## 11`→L1022，§11.1–§11.6）、`project-tree.md`（`### 2.1`→L98，变更记录 L219） | 均**存在** |
+| 契约冲突 | 核对 ADR `hrm-server`/`sql` 零改动声明是否被 v3 触动 | 未触动 |
+| 无源结论 | Grep 全文 `经验表明｜一般来说｜业界普遍｜通常情况下｜众所周知｜应该是` | 0 命中 |
+| 真实域名/IP | Grep `kongzhen1｜\.com｜\.cn｜https?://[0-9]｜IPv4` | 0 命中（凭据声明成立） |

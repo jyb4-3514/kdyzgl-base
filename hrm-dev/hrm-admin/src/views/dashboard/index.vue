@@ -87,23 +87,23 @@ onMounted(loadSummary)
       width: 56px;
       height: 56px;
       border-radius: 12px;
-      color: #fff;
+      color: var(--c-white);
       flex-shrink: 0;
 
       &.icon-blue {
-        background: linear-gradient(135deg, #4facfe 0%, #2f6bd8 100%);
+        background: linear-gradient(135deg, var(--c-stat-blue) 0%, var(--c-brand-600) 100%);
       }
 
       &.icon-green {
-        background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+        background: linear-gradient(135deg, var(--c-stat-green) 0%, var(--c-stat-teal) 100%);
       }
 
       &.icon-orange {
-        background: linear-gradient(135deg, #f6a23c 0%, #f76b1c 100%);
+        background: linear-gradient(135deg, var(--c-stat-orange) 0%, var(--c-stat-orange-deep) 100%);
       }
 
       &.icon-purple {
-        background: linear-gradient(135deg, #a18cd1 0%, #7c4dff 100%);
+        background: linear-gradient(135deg, var(--c-stat-purple) 0%, var(--c-stat-indigo) 100%);
       }
     }
 
@@ -111,14 +111,14 @@ onMounted(loadSummary)
       .stat-value {
         font-size: 28px;
         font-weight: 600;
-        color: #303133;
+        color: var(--c-text-primary);
         line-height: 1.2;
       }
 
       .stat-label {
         margin-top: 4px;
         font-size: 13px;
-        color: #909399;
+        color: var(--text-3);
       }
     }
   }

@@ -1,5 +1,19 @@
 # 变更日志
 
+## 2026-09-25 · 两处既有死链修复 + U-A/U-B 落地 + ADR v3 回填与复评（C 档修复，主智能体执行；含 R1 口径回填）
+
+**一、既有死链修复（C 档，用户授权「全部修」；非 B7/B8 引入）**：① **`/admin/` 由恒 500 改为 `return 301 /web/`** —— 原 `alias /usr/share/nginx/html/admin/`（容器内该目录**不存在**）+ `try_files $uri $uri/ /admin/index.html` 形成 `rewrite or internal redirection cycle`；一期 PC 端已由 `apps/web` 承接（含只读引用的 9 张一期页面），故 301 至 `/web/`。载体：宿主 `/data/www/kdyzzhxt/courier-server/nginx/nginx.conf`；**改动 1 个既有 location（6 行 → 6 行）**，备份 `nginx.conf.20260925123334`，`nginx -t` 通过后 `-s reload`；**原地改写（`cat >`）保 inode**。② **`/download` 由 404 改为 200** —— **只增宿主 `/data/www/download/index.html`（1773 字节）**：客户端/入口下载页（三端入口 + APK 待发布说明），**未改任何 Nginx 配置**。**验证**：`/admin/`、`/admin/employee`、`/admin/index.html` 均 **301**；`/download` **200**；**回归全不变** —— `/` 200、`/web/` `/staff/` `/boss/` 200、`/health` 200、`/apk/` 200、`/.well-known/` 200、`/api/actuator/health` 403、`/hrm-api/v1/auth/login` 200、**`.map` 仍 404**。**执行期注意**：reload 后新旧 worker 并存，需**复测一次**（首次测得的 `/admin/` 500 为瞬态，日志确认最终为 301）。
+
+**二、U-A 主色达标（前端）**：`hrm-admin` 采纳候选①（对齐 700 档），`tokens.scss` 覆盖 Element 语义色（primary `#0958d9`、success `#237804`、warning `#b45309`、danger `#cf1322`、info `#4b5563` + 30 项浅/深色阶）；`src/**` 字面量**全部收敛**为 `var(--el-*)` / `var(--c-*)` / 真源 `--text-3`（次级文字 `#909399` 3.08:1 → `#6b7280` 4.83:1）；**`index.scss` 承载色值归 0**（R5-3 唯一口径）。**对比度实测全部 PASS**：主按钮 6.16:1、success 5.59、warning 5.02、danger 5.57、info 7.56、次级文字 4.83、dark-2 hover 8.41（均 ≥4.5）；修复前主按钮 2.78:1 FAIL。**A5 断言机器化**：新增 `hrm-admin/scripts/verify-a5.mjs` + `npm run verify:a5` → 白名单 49 值 / 扫描 24 文件 / **未登记字面量 = 0** / `index.scss` 色值 = 0。**`verify:tokens` 现 6 目标全绿**，且 hrm-admin 目标由「0 命中跳过」变为 **30 项实校验**（断言只增不减）。
+
+**三、U-B 最小门禁（前端）**：新增 `hrm-admin/eslint.config.js`（ESLint 9 flat config）+ `package.json` 的 `lint` 与 `verify:a5` 脚本 + 6 项 devDeps 声明（`dev/build/preview` 未动）。**主智能体装依赖后实跑：`npm run lint` = 0 error（无输出即通过）**、`verify:a5` 通过、`npm run build` ✓。口径边界（避免误读）：ADR §7.2 **A-2「不改 `hrm-admin/package.json`」约束的是 Token 消费方式**（相对路径 `@use`、不引 npm 依赖），与 U-B 的门禁投入**不冲突**，本次**无一条依赖与 Token 消费相关**。
+
+**四、ADR v3 回填与复评**：架构师按非主干修订补全 **§3.7 B3/B4/B5/B6 四处不完整回滚点**、回填执行期事实（站点根实落 `/data/www/download/hrm-clients/*` 及其原因、变更载体最终答案 + bind mount 保 inode、`portal.html:31-33` / `portal/main.js:28/35/42` 行号纠正、B8 判定期起点 = 2026-09-25、两处死链处置）、新增「v3 修订记录」。技术评审按 §8④ 复评：**结论等级「有条件通过」**（可报主智能体审批），唯一必改项 **R1 = 口径矛盾**（ADR §6.2 记「本轮已修」而 `deploy.md` §11.5 记「待修」、本条 update-log 原记「未修」）——**本行即为 R1 的事实回填**：两处死链**已修复并验证**（见上「一」），后续 `deploy.md` §11.5 同步为「已修」。
+
+**五、`/web/` 重新部署（C 档）**：因 `hrm-admin/src/styles/**` 变更（`apps/web` 只读引用 `@admin` 样式），按「服务器产物须与工作区一致」重新构建 `apps/web` 并替换线上 `/web/`（剔除 `*.map`，含备份与逐条 curl 验证）。
+
+**遗留**：① 技术评审建议对 ADR v3 新增的**服务器绝对路径 / bind mount 机制**由**网络安全工程师形式核对暴露面**（§9 SP7 口径）——**未派发**，已登记待办（判断依据：均为内网路径、无凭据/域名/IP，且早前形式核对结论为「公开可得信息不构成新增暴露面」，可随时按需执行）；② ADR §7.1 **D5 仍标「待定」**（`update-log` 已登记 D5 = 两 APK），属状态滞后，待下次 ADR 修订一并回填；③ `hrm-admin` 未纳入 CI；`verify:a5` 未接入 workspace 根脚本（结构变更待裁定）；④ 必做-5.2 焦点环（`layout/index.vue:229` 仍 `outline: none`）与四态接入**未在本轮授权范围**，`TODO(扩展)`；⑤ 体验优化批次 A–D 未开工。
+
 ## 2026-09-25 · B8 演示站处置（门户收敛 + 冻结发布纪律 + 文档回填；**旧入口按条件保留**）
 
 **范围裁定**：依 **D1（`hrm-demo` 退役归档）** 与 ADR §3.3 **三项退役触发条件**——① B7 上线后新子路径入口连续 **1 个发布周期**无 P0 回滚；② 旧入口访问量归零或低于运维阈值；③ 旧壳 APK 完成一个发布周期（**任一不满足即顺延，不得静默下线**）。**起点 = B7 上线日 2026-09-25**，当前 **①③ 均未满足** → 本批**不下线**旧入口与 `as` 兼容读，只做：**门户收敛 + 冻结发布 + 文档回填 + 判定期登记**。

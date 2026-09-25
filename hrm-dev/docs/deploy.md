@@ -1091,14 +1091,15 @@ rm -rf /data/www/download/hrm-clients/web /data/www/download/hrm-clients/staff /
 - 回滚**不涉数据变更、不重建镜像/容器**；仅新入口消失，既有 location 未受影响。
 - 回滚动作与原因须登记 `update-log.md` / `SESSION-STATE.md`（由主智能体执行）。
 
-### 11.5 既有缺陷登记（**非本次引入，待修**）
+### 11.5 既有缺陷登记（**非本次引入；2026-09-25 已修复**）
 
 | 路径 | 现象 | 根因（已定位） | 状态 |
 | ---- | ---- | ---- | ---- |
-| `/admin/` | **500** | `alias` + `try_files` 形成内部重定向环（`rewrite or internal redirection cycle`），且容器内 `/usr/share/nginx/html/admin` 目录不存在 | 待修（未变更载体） |
-| `/download` | **404** | `/data/www/download/index.html` 不存在 | 待修 |
+| `/admin/` | ~~500~~ → **301** | `alias` + `try_files` 形成内部重定向环（`rewrite or internal redirection cycle`），且容器内 `/usr/share/nginx/html/admin` 目录不存在 | **已修**（2026-09-25，C 档）：该 location 改为 `return 301 /web/`（一期 PC 端已由 `apps/web` 承接）；备份 `nginx.conf.20260925123334` |
+| `/download` | ~~404~~ → **200** | `/data/www/download/index.html` 不存在 | **已修**（2026-09-25，**只增**宿主 `/data/www/download/index.html` 下载页，**未改 Nginx**） |
 
-> 另：B7 之前**全站 `.map` 原本无任何拦截**，本次已在 Nginx 侧补齐（见 §11.3）。
+> 修复验证：`/admin/`、`/admin/employee`、`/admin/index.html` 均 301；`/download` 200；既有 location 行为逐条不变，`.map` 仍 404。**注意**：`nginx -s reload` 后新旧 worker 并存，变更后须**复测一次**再判定。
+> 另：B7 之前**全站 `.map` 原本无任何拦截**，已在 Nginx 侧补齐（见 §11.3）。
 
 ### 11.6 B8 退役判定期（与本节相关）
 

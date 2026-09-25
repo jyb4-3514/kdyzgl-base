@@ -3,7 +3,7 @@
     <!-- 侧边栏：ADMIN 渲染全量菜单，STAFF 仅个人中心 -->
     <el-aside :width="isCollapse ? '64px' : '210px'" class="app-aside">
       <div class="app-logo">
-        <el-icon :size="24" color="#409eff"><Box /></el-icon>
+        <el-icon :size="24" color="var(--el-color-primary)"><Box /></el-icon>
         <span v-show="!isCollapse" class="app-title">快递驿站智汇</span>
       </div>
       <el-menu
@@ -11,9 +11,9 @@
         :collapse="isCollapse"
         :collapse-transition="false"
         router
-        background-color="#001529"
+        background-color="var(--c-aside-bg)"
         text-color="rgba(255, 255, 255, 0.68)"
-        active-text-color="#ffffff"
+        active-text-color="var(--c-white)"
         class="app-menu"
       >
         <template v-if="authStore.isAdmin">
@@ -160,7 +160,7 @@ async function handleLogout() {
 .app-aside {
   display: flex;
   flex-direction: column;
-  background-color: #001529;
+  background-color: var(--c-aside-bg);
   transition: width 0.2s;
   overflow: hidden;
 
@@ -171,7 +171,7 @@ async function handleLogout() {
     gap: 8px;
     height: 60px;
     flex-shrink: 0;
-    color: #fff;
+    color: var(--c-white);
 
     .app-title {
       font-size: 16px;
@@ -202,8 +202,8 @@ async function handleLogout() {
   justify-content: space-between;
   height: 60px;
   padding: 0 20px;
-  background-color: #fff;
-  border-bottom: 1px solid #e4e7ed;
+  background-color: var(--c-white);
+  border-bottom: 1px solid var(--c-border-base);
 
   .header-left {
     display: flex;
@@ -212,10 +212,10 @@ async function handleLogout() {
 
     .collapse-btn {
       cursor: pointer;
-      color: #606266;
+      color: var(--c-text-regular);
 
       &:hover {
-        color: #409eff;
+        color: var(--el-color-primary);
       }
     }
   }
@@ -225,12 +225,12 @@ async function handleLogout() {
     align-items: center;
     gap: 8px;
     cursor: pointer;
-    color: #303133;
+    color: var(--c-text-primary);
     outline: none;
 
     .user-avatar {
-      background-color: #409eff;
-      color: #fff;
+      background-color: var(--el-color-primary);
+      color: var(--c-white);
       font-size: 14px;
     }
 

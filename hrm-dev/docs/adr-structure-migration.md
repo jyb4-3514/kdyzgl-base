@@ -2,9 +2,9 @@
 
 | 项目 | 内容 |
 | ---- | ---- |
-| 状态 | **提议 v2（已按技术评审必改项 1–11 与自身错误 N1–N9 修订；待主智能体审批 → 用户裁定 U-A / U-B）** |
-| 日期 | 2026-09-25（v2 修订：2026-09-25） |
-| 评审结论 | **有条件通过**（[tech-review-structure-migration.md](tech-review-structure-migration.md)，2026-09-25）；必改项 **1 / 6 / 10** 分别为 **B2 / B7 / B6** 开工前置；必改项 **2** 须报审前闭环并转交网络安全工程师形式核对 |
+| 状态 | **v3（非主干修订：落地后事实回填 + 回滚点补全；决策与裁定结论不变）** —— 本方案已获主智能体审批并按 §3.7 分批落地（B2–B7、B8 部分）；v2 已按技术评审必改项 1–11 与自身错误 N1–N9 修订并**复评「通过」**；**v3 为非主干修订，按 §8 ④ 版本变更须重评后方可报审** |
+| 日期 | 2026-09-25（v2 修订：2026-09-25；v3 非主干修订：2026-09-25） |
+| 评审结论 | **有条件通过**（[tech-review-structure-migration.md](tech-review-structure-migration.md)，2026-09-25）；必改项 **1 / 6 / 10** 分别为 **B2 / B7 / B6** 开工前置；必改项 **2** 须报审前闭环并转交网络安全工程师形式核对。**〔v3 回填〕复评（2026-09-25）：结论「通过」，具备报审资格**（见同报告「[附：ADR v2 复评记录](tech-review-structure-migration.md)」）；**v3 属非主干修订，按 §8 ④ 须重评** |
 | 作者 | 架构师 `express-station-architect` |
 | 评估对象 | 本文件同时覆盖 **决策一 R-0（Token 真源归口）** 与 **决策二（移动端两端拆分独立）** —— 用户已批准「合并评估」 |
 | 权限档位 | **C 档 · 结构变更**（须主智能体 §10.3 三步授权；涉现网条目另须网络安全工程师结论，见 §9） |
@@ -14,7 +14,7 @@
 
 > **凭据声明：** 本文不记录任何真实凭据、域名、IP、AppKey；示例一律 `change_me_*` / `example.invalid` 占位。**v2 已清除 v1 误入的真实域名（全文真实域名 / IP / 凭据命中 = 0）**，并须按 §9 SP7 转交网络安全工程师形式核对。
 >
-> **版本绑定：** 本 v2 对应评审报告的必改项清单；**若方案版本再变更，须重新提交技术评审（评审结论绑定版本）。**
+> **版本绑定：** 本 v2 对应评审报告的必改项清单；**若方案版本再变更，须重新提交技术评审（评审结论绑定版本）。** **〔v3 回填〕** v2 复评结论「**通过**」（2026-09-25）；**v3 为非主干修订（落地后事实回填 + 回滚点补全），按 `项目规则1.md` §8 ④ 版本变更须重评后方可报审。**
 >
 > **安全声明（P0.5）：** 本文涉**现网 Nginx location、外部暴露面、安卓壳加载地址、共享包供应链**的条目均为「设计输入」而非安全结论；落地前须由**网络安全工程师**按 L7 出具技术评估（清单见 §9），主智能体方可授权。
 >
@@ -180,7 +180,7 @@
 - **`?as=` 参数处置：** 两端独立入口后，端类型应**由入口固定上报**（`clientType=BOSS` / `clientType=STAFF`，或 `X-Client-Type` 头），不再依赖 `as`。
   - **后端零改动依据：** `ClientAdmissionPolicy.parseEnd` 仅在取值等于旧值 `H5` 时才读取 `as` 派生（[L132-142](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-server/src/main/java/com/qiujie/service/auth/support/ClientAdmissionPolicy.java#L132-L142)）；新入口直接上报 `BOSS` / `STAFF` 即命中取值域，**`as` 无需后端配合**。
   - **兼容期：** 旧 APK / 旧书签仍可能带 `?as=`；迁移期新入口须**同时接受** `as` 与自身固定端类型（口径一致，冲突时以入口为准），避免已登录用户被登出或 1110 拒登。
-  - **退役触发条件（主智能体已裁定：保留 ≥ 1 个发布周期，不做无限期保留，§7.2 B-4）：** 满足以下**全部**条件方可于 **B8** 提交退役（删除 `as` 兼容读与旧入口）——① B7 上线后新子路径入口连续 **1 个发布周期**（以 B7 上线日记为起点）**无 P0 回滚**；② 旧入口（`mobile.html?as=`）访问量日志在**该周期末归零或在运维记录中低于约定阈值**（阈值由运维据现网日志定，**不落本文数字**）；③ 旧壳 APK 已按 D5 下发/提示升级并完成一个发布周期。**任一不满足即顺延一个周期，不得静默下线。**
+  - **退役触发条件（主智能体已裁定：保留 ≥ 1 个发布周期，不做无限期保留，§7.2 B-4）：** 满足以下**全部**条件方可于 **B8** 提交退役（删除 `as` 兼容读与旧入口）——① B7 上线后新子路径入口连续 **1 个发布周期**（**计时起点 = B7 上线日 2026-09-25**）**无 P0 回滚**；② 旧入口（`mobile.html?as=`）访问量日志在**该周期末归零或在运维记录中低于约定阈值**（阈值由运维据现网日志定，**不落本文数字**）；③ 旧壳 APK 已按 D5 下发/提示升级并完成一个发布周期。**任一不满足即顺延一个周期，不得静默下线。**
 - **基址一致性（易错点，split-plan §4.6）：** `vite.base`、`createWebHashHistory` 的 base、Nginx `alias` / `try_files` **三者必须一致**，否则资源 404。
 - **缓存纪律：** `index.html` 必须 `no-store`/`no-cache`（引用带 hash 的 chunk，缓存住会「新页面引旧 chunk」）；`assets/*` 长缓存；**缺失资源必须 404，不得回退 HTML**（否则 HTML 被当 ES 模块解析 → 整页白屏）。
 
@@ -251,10 +251,10 @@
 | **B0** | **裁定冻结** | — | §7 的 D 系列与 A/B 系列裁定结论落 `update-log.md`；未裁定项对应批次**不得开工**（P1 口径先行 / A04）。**B0 冻结项须含：③→② 收敛期限「不得晚于 B2 完成」（A-4）、`hrm-admin` 消费方式取 ①（A-2）、`as` 退役触发条件（B-4）、迁移期与终态统一子路径（B-5）** | 不涉变更 |
 | **B1** | **建 workspace + 抽共享包（行为不变）** | B0 的 D3（仓库粒度）/ D6（共享包边界） | ① workspace `npm ci` 通过；② `hrm-demo` 改 `file:` 引用后 `verify:mock` ≥ 冻结基线；③ `verify:mobile` ≥ 48；④ `verify:tokens` 绿；⑤ `build` / `build:prod` / `lint` / `lint:style` / `test` / `e2e` 全绿；⑥ `git diff -- hrm-dev/hrm-admin` 为**空** | 删除 `hrm-clients/` + 还原 `hrm-demo` import（纯新增 / 机械改动，反向 diff 即回滚） |
 | **B2** | **R-0 真源上移（决策一落地）** | B1 | A1–A3、A5、A6 断言全绿；**A4 删除演练四步通过**（移出/删除 `hrm-demo` + `npm ci` 清装 + 清 `dist` + 产物级断言：各 dist 内 `hrm-demo` = 0、`build:prod` 无 Mock chunk）；`hrm-admin` 对比度取值来自真源；全仓 `tokens.base.scss` 计数 = 1；**③ 已退出、② 生效**（A-4「不得晚于 B2 完成」） | 还原 Token 归属（反向 diff）+ 删 `packages/tokens` + 恢复 `verify:tokens` 旧扫描路径 |
-| **B3** | **拆员工端 `apps/staff-h5`（驿站助手）** | B2（**D9 已闭环**：后端多端会话 `hrm:session:{sid}` + 互踢粒度降为「端+设备」**已实现**，硬前置撤除）；B-3 共享页提升落地 | ① 独立 `build` / `build:prod` 通过；② 员工路径 e2e 平移通过（**含「拆分前后断言清单对照表」**）；③ `clientType=STAFF` 登录成、`as=station` 兼容读仍成；④ 无跨端源码复制（静态检索）；⑤ 两端并存不互踢（D9 已闭环，本批回归此行为） | 删除 `apps/staff-h5`（Nginx 未改，线上零影响） |
-| **B4** | **拆管理端 `apps/boss-h5`（驿站精灵）** | B3；B-3 已裁定（共享页 **B3 已落地**） | ① 同 B3；② `clientType=BOSS` 登录成、`as=boss` 兼容读仍成；③ **跨域直引残留 = 0**（`/boss/kpi` 已改引 `packages/shared/ui` 中立页） | 删除 `apps/boss-h5` |
-| **B5** | **拆网页端 `apps/web`** | B2；D2 裁定 | 同 split-plan §5.1 S2：独立构建；`build:prod` 产物无 Mock chunk；PC 用例平移；`hrm-demo` 未动 | 删除 `apps/web` |
-| **B6** | **安卓壳（两 APK）** | B3 + B4；D5 裁定 | **静态审查（可判定）**：① `H5_URL` 无硬编码真实域名；② 两壳应用名 / 包名区分为**占位**（`com.example.hrmwebview.boss` / `.staff`）；③ 桥接方法名未变。**运行期验收（壳加载 / 桥接 / HTTPS / 混合内容）标注未运行，收敛到具 Android SDK 环境，本批次不声称可交付**（必改项 10） | 还原 `build.gradle` 与壳配置（反向 diff） |
+| **B3** | **拆员工端 `apps/staff-h5`（驿站助手）** | B2（**D9 已闭环**：后端多端会话 `hrm:session:{sid}` + 互踢粒度降为「端+设备」**已实现**，硬前置撤除）；B-3 共享页提升落地 | ① 独立 `build` / `build:prod` 通过；② 员工路径 e2e 平移通过（**含「拆分前后断言清单对照表」**）；③ `clientType=STAFF` 登录成、`as=station` 兼容读仍成；④ 无跨端源码复制（静态检索）；⑤ 两端并存不互踢（D9 已闭环，本批回归此行为） | **回滚（v3 补全，实测）**：① 删除 `apps/staff-h5/`；② 还原 `hrm-demo` **5 个文件**（`src/mobile/views/message/{MessagePage,NoticeReader}.vue`、`src/mobile/router/index.js`、`vite.config.js`、`vitest.config.mjs`），并**复原** `src/mobile/views/staff/kpi.vue`（原改为 `src/mobile/views/kpi/`）；③ 还原 `hrm-clients/e2e-utils/harness.js`；④ 撤销 `packages/shared/src/ui/` 中立页提升（`MessagePage` / `NoticeReader` / `KpiDetail`）。**Nginx 未改、`mobile.html` 旧入口未动、无发布动作 → 线上零影响**（由「提交 `apps/staff-h5`」一句补全为**逐项可执行反向 diff**） |
+| **B4** | **拆管理端 `apps/boss-h5`（驿站精灵）** | B3；B-3 已裁定（共享页 **B3 已落地**） | ① 同 B3；② `clientType=BOSS` 登录成、`as=boss` 兼容读仍成；③ **跨域直引残留 = 0**（`/boss/kpi` 已改引 `packages/shared/ui` 中立页） | **回滚（v3 补全，实测）**：① 删除 `apps/boss-h5/`；② 还原 `hrm-clients/package.json`（去 `verify:tokens` 的 boss 目标与 `e2e:boss`）+ `hrm-clients/package-lock.json`。本批**未改** `hrm-demo` / `apps/staff-h5` / `e2e-utils`（与 B3 不同，**无 `hrm-demo` 反向 diff**）；**线上零影响** |
+| **B5** | **拆网页端 `apps/web`** | B2；D2 裁定 | 同 split-plan §5.1 S2：独立构建；`build:prod` 产物无 Mock chunk；PC 用例平移；`hrm-demo` 未动 | **回滚（v3 补全，实测）**：① 删除 `apps/web/`；② 还原 `hrm-clients/package.json`（去 web 目标与 `e2e:web`）；③ 还原 `hrm-clients/package-lock.json`（**+44 包**）；④ 可选 `npm ci` 清理 workspace 依赖。**无需还原** `hrm-demo` / `hrm-admin` / Nginx（零改动、线上零影响） |
+| **B6** | **安卓壳（两 APK）** | B3 + B4；D5 裁定 | **静态审查（可判定）**：① `H5_URL` 无硬编码真实域名；② 两壳应用名 / 包名区分为**占位**（`com.example.hrmwebview.boss` / `.staff`）；③ 桥接方法名未变。**运行期验收（壳加载 / 桥接 / HTTPS / 混合内容）标注未运行，收敛到具 Android SDK 环境，本批次不声称可交付**（必改项 10） | **回滚（v3 补全，实测）**：① 还原 `app/build.gradle`（恢复 `buildTypes` 内两处 `H5_URL`）；② **删除 `app/src/staff/`、`app/src/boss/`**（flavor 源集）；③ 还原 `app/src/main/res/values/strings.xml`、`local.properties.example`、`README.md`、`BUILD.md`。**完全可逆、未发布、无线上影响** |
 | **B7** | **发布切换（★ 唯一切换点）** | B3 / B4 / B5 产物就绪；**P0.5 安全结论 → 主智能体三步授权 → 变更前备份**；**变更载体明确**（§5.4：载体为**现网 `courier-nginx`**，真源不在仓库、以运维记录为准；**演示容器 `deploy/docker-demo/nginx.conf` 不在本批变更范围**） | ① 新增 location 后三端入口 `curl` 200；② 深链刷新落自身入口；③ 缺失资源 404（不回退 HTML）；④ `.map` 不可公开下载；⑤ HTTPS 强制；⑥ **既有 location（`/`、`/api/`、`/admin/`、`/hrm-api/`）行为逐条不变**；⑦ 新旧入口**并存可达**；⑧ **新站点根与既有 root/alias 隔离**（新站点根独立，不共用 `location /` 的 root，防产物互相覆盖） | 删除新增 location + 还原 `nginx.conf.<时间戳>` + `nginx -t` + `reload` |
 | **B8** | **演示站处置** | B7 通过；D1 裁定；**B-4 退役触发条件满足** | 三端全部可用；Mock 能力确认由 `VITE_MOCK_ENABLED` 构建模式承接；`as` 兼容读与旧入口**按 B-4 触发条件退役**；`hrm-demo` 若退役则 tag 保留；`portal/main.js` 与 `deploy/docker-demo/portal.html` 入口链接同步（见 §5.2） | 恢复 Nginx 指向 + 重新拉起演示容器（既有镜像 tag） |
 
@@ -264,7 +264,7 @@
 - 因此**迁移期线上零中断**：现网用户（**现网主域名正在使用的路径；域名值见运维记录，不落本文**）所依赖的既有 location 逐条不变；旧 `mobile.html?as=` 入口与旧壳 APK 继续可用；新入口仅追加。
 - **零中断的前提（v2 显式化）：** 旧路径由**演示容器旧产物**继续提供 → 故迁移期须**冻结演示站发布**（见 §6 R新-1）；且新站点根须与既有 `location /` 的 root/alias **隔离**（B7 验收 ⑧）。
 - **切换期观测判据（v2 补，必改项 9；任一命中即按 B7 回滚）：** ① 新入口 4xx/5xx 率超阈值（阈值由运维据现网基线定）；② 深链刷新失败（落不到自身入口）；③ `.map` 可公开下载探测命中；④ 新入口资源缺失回退 HTML 致白屏。观测数据源：现网 Nginx access/error log（**不引入新监控组件**）。
-- **`as` 退役节奏（B-4，v2 补）：** **B7 上线日即「1 个发布周期」的计时起点**；B8 依 §3.3**三项触发条件**判定是否退役（不满足即顺延一个周期，**不得无限期保留**）。
+- **`as` 退役节奏（B-4，v2 补；v3 回填执行期事实）：** 计时起点 = **B7 上线日 2026-09-25**；B8 依 §3.3**三项触发条件**判定是否退役（不满足即顺延一个周期，**不得无限期保留**）。**〔v3 回填〕B8 批实际执行（2026-09-25）：** 依 D1 与 §3.3 三项条件，当前 **①③ 均未满足**（① 未满 1 个发布周期；③ 旧壳 APK 未完成一个周期）→ **旧入口（`mobile.html?as=`）与 `as` 兼容读保留**；本批只做**门户收敛 + 冻结发布 + 文档回填 + 判定期登记**（依据 `update-log.md` B8 条目）。
 
 ---
 
@@ -304,10 +304,10 @@
 | `hrm-demo/src/pc/main.js` / `src/mobile/main.js` / `vite.config.js` | **改**：入口与别名、`dedupe`、`input` 随迁移调整（**`resolve.dedupe` 必须保留**）。归属 **B1–B5** |
 | `hrm-demo/mobile.html` | **不改（迁移期保留）**；终态由 `apps/{staff,boss}-h5/index.html` 取代。归属 **B8** |
 | `hrm-demo/index.html`（端选择页） / `hrm-demo/pc.html`（v2 补） | **迁移期不改**（旧入口继续可用）；**终态随 B8 演示站处置**（退役即删除，或改为指向新子路径的跳转页）。归属 **B8** |
-| `hrm-demo/src/portal/main.js`（v2 补） | **改（终态）**：硬编码旧入口链接（`pc.html`、`mobile.html#/login?as=boss` / `as=station`，L24/31/38）须改指新子路径；**迁移期不改**（保旧入口可用；如需展示新入口，只许「新增卡片、不改旧卡片」）。归属 **B8**；**执行角色 = 前端工程师** |
+| `hrm-demo/src/portal/main.js`（v2 补） | **改（终态）**：硬编码旧入口链接（`pc.html`、`mobile.html#/login?as=boss` / `as=station`，L24/31/38）须改指新子路径；**迁移期不改**（保旧入口可用；如需展示新入口，只许「新增卡片、不改旧卡片」）。归属 **B8**；**执行角色 = 前端工程师**。**〔v3 回填〕已执行（B8，2026-09-25）**：三张卡片实际链接已为 `/web/`（**L28**）、`/boss/`（**L35**）、`/staff/`（**L42**）——**行号自 L24/31/38 偏移**；同时剔除「已预填账号」失效 note 文案（`name` 字段逐字未变，**e2e 断言对象不受影响**） |
 | `hrm-demo/src/mobile/router/index.js` | **改**：拆为两端各自 router；跨域直引与中立共享页**已裁定归位**（§3.5 第 14 / 15 项，**B3 落地**）。归属 **B3 / B4** |
 | `hrm-admin/src/styles/index.scss` | **改**：接入 Token（字面量收敛）；`hrm-admin/src/styles/tokens.scss`（新增）。归属 **B2** |
-| `hrm-dev/deploy/docker-demo/portal.html`（v2 补） | **改（终态）**：内含硬编码绝对链接 `/pc.html`、`/mobile.html?as=station`、`/mobile.html?as=boss`（L30–32），**是旧入口的真源之一**；须与 `portal/main.js` **同步改**（或随演示站退役）。归属 **B8**；**执行角色 = 运维**（演示容器部署资产） |
+| `hrm-dev/deploy/docker-demo/portal.html`（v2 补） | **改（终态）**：内含硬编码绝对链接 `/pc.html`、`/mobile.html?as=station`、`/mobile.html?as=boss`（L30–32），**是旧入口的真源之一**；须与 `portal/main.js` **同步改**（或随演示站退役）。归属 **B8**；**执行角色 = 运维**（演示容器部署资产）。**〔v3 回填〕已执行（B8，2026-09-25，提交 `04975fd`）**：现状已改为 `/web/` `/staff/` `/boss/`（**portal.html:31-33**，原记 L30–32 **行号随之回填**），与 `portal/main.js` 保持一致；线上宿主 `/data/www/hrm-demo/dist/index.html` 已**原地覆盖**（备份 `index.html.bak.<时间戳>`）并经 `docker cp` 进演示容器。**注意：演示容器无挂载、门户为镜像内置，容器重建会回退**（宿主 `dist` 已同步更新，重建即生效） |
 | `hrm-dev/deploy/docker-demo/deploy-demo.sh` / `docker-compose.yml`（v2 补） | **迁移期不改**（演示容器 `hrm-demo-static` 保留）；**B8** 视演示站处置决定是否停容器 / 改 compose |
 | 门禁资产：`hrm-demo/scripts/verify-*.mjs` / `e2e/**` / `playwright.config.js`、`.husky/pre-commit`、`lint-staged.config.js`、`eslint.config.js`、`stylelint.config.cjs`、`commitlint.config.cjs`、`vitest.config.mjs`（v2 补） | **改**：随 workspace 提升到根（**B1**），各端继承落地（**B3–B5**）；**规则集不得少于现状**（§3.6） |
 
@@ -319,9 +319,9 @@
 
 | 项 | 影响 |
 | - | ---- |
-| Nginx（**v2 拆分载体，必改项 6**） | **变更载体 = 现网 `courier-nginx`**（配置真源**不在仓库**，以运维记录为准；B7 前由运维核实并登记）；**演示容器 `deploy/docker-demo/nginx.conf` 不在本批变更范围**。**变更内容：** **新增** 3 条 location（`/web/` `/staff/` `/boss/`）→ 各端**独立站点根**；**既有 location 逐条不变**；**新站点根与既有 `location /` 的 root/alias 隔离**（不共用 root，防产物互相覆盖）；`.map → 404`；`index.html` `no-store`；缺失资源 404 不回退 HTML |
-| 现网配置真源 | **不在仓库**（仓库仅有模板 `deploy/nginx.conf.example` 与演示容器配置 `deploy/docker-demo/nginx.conf`，二者均非现网真源）；B7 前须由运维核实现网配置文件路径 / 管理脚本并登记 `update-log.md` |
-| 站点根目录 | 新增 3 个（如 `/www/wwwroot/hrm-web`、`hrm-staff`、`hrm-boss`），与现有目录**不重叠**、与既有 root **隔离** |
+| Nginx（**v2 拆分载体，必改项 6**） | **变更载体 = 现网 `courier-nginx`**（配置真源**不在仓库**，以运维记录为准；B7 前由运维核实并登记）；**演示容器 `deploy/docker-demo/nginx.conf` 不在本批变更范围**。**变更内容：** **新增** 3 条 location（`/web/` `/staff/` `/boss/`）→ 各端**独立站点根**；**既有 location 逐条不变**；**新站点根与既有 `location /` 的 root/alias 隔离**（不共用 root，防产物互相覆盖）；`.map → 404`；`index.html` `no-store`；缺失资源 404 不回退 HTML。**〔v3 回填〕必改项 6 最终答案（执行期事实）：** 变更载体实为宿主 **`/data/www/kdyzzhxt/courier-server/nginx/nginx.conf`**（`ro` 挂载进 `courier-nginx`）；**关键技术点：单文件 bind mount 必须原地改写（`cat >`）保 inode，用 `mv` 换文件容器看不到**；变更前备份 `nginx.conf.<时间戳>`，**未改动任何既有行** |
+| 现网配置真源 | **不在仓库**（仓库仅有模板 `deploy/nginx.conf.example` 与演示容器配置 `deploy/docker-demo/nginx.conf`，二者均非现网真源）；B7 前须由运维核实现网配置文件路径 / 管理脚本并登记 `update-log.md`。**〔v3 回填〕已闭环：** 现网载体路径 = 宿主 **`/data/www/kdyzzhxt/courier-server/nginx/nginx.conf`**（`ro` 挂载进 `courier-nginx`，容器内可见）；核实方法（`docker inspect` 查挂载 / `nginx -T` 看生效配置）与载体路径已登记 `deploy.md` §11 与 `update-log.md`（B7 条目） |
+| 站点根目录 | 原方案示例：新增 3 个（如 `/www/wwwroot/hrm-web`、`hrm-staff`、`hrm-boss`），与现有目录**不重叠**、与既有 root **隔离**。**〔v3 回填〕实落偏差（正式确认）：** B7 实际落点为宿主 **`/data/www/download/hrm-clients/{web,staff,boss}`**（三端文件数 **167 / 80 / 97**，`map=0`）——**非**本示例，亦**非**手册规划的 `/data/www/hrm-clients`。**原因：** `courier-nginx` 仅挂载 `/data/photos`、`/data/www/apk`、`/data/www/download`，规划路径**容器内不可见**；为**不新建挂载 / 不重建容器**（避免中断 80/443），改用**已挂载且路径一致**的目录。**结论：** 该目录为 `ro` 挂载、只读服务静态资源无影响，且仅 `location = /download` 精确匹配会触达该目录 → **不新增暴露面**；偏差已登记 `deploy.md` §11 与 `update-log.md`，**本 ADR 予以确认** |
 | 容器 / 进程 | 演示容器（`hrm-demo-static`）迁移期保留；不新增后端服务；`hrm-server` 不动 |
 | 回滚 | 还原 `nginx.conf.<时间戳>` + `nginx -t` + `reload`；镜像 tag 保留 |
 
@@ -337,8 +337,8 @@
 | - | ---- | ---- | ---- |
 | B1 | 删除 `hrm-clients/` + 还原 `hrm-demo` import（反向 diff） | 完全可逆 | 无 |
 | B2 | 还原 Token 归属 + 删 `packages/tokens` + 恢复 `verify:tokens` 旧路径 | 完全可逆 | 无 |
-| B3 / B4 / B5 | 删除对应 `apps/*` 目录 | 完全可逆 | 无（Nginx 未改） |
-| B6 | 还原 `build.gradle` / 壳配置（反向 diff） | 完全可逆 | 无（未发布 App） |
+| B3 / B4 / B5 | 删除对应 `apps/*` 目录 **+ 还原 `hrm-clients/package.json` / `package-lock.json`**；**B3 另**还原 `hrm-demo` 5 文件 + `e2e-utils/harness.js` + 撤销 `packages/shared/src/ui`（**详 §3.7 各批回滚点**，v3 补全） | 完全可逆 | 无（Nginx 未改） |
+| B6 | 还原 `build.gradle` / 壳配置（反向 diff）**+ 删除 `app/src/staff/`、`app/src/boss/` + 还原 `strings.xml` / `local.properties.example` / `README.md` / `BUILD.md`**（**详 §3.7 B6**，v3 补全） | 完全可逆 | 无（未发布 App） |
 | B7 | 删除新增 location + 还原 `nginx.conf.<时间戳>` + `nginx -t` + `reload` | 可逆 | 仅新入口消失，旧入口未受影响 |
 | B8 | 恢复 Nginx 指向 + 重新拉起演示容器 | 可逆（镜像 tag 保留） | 演示站恢复 |
 
@@ -350,6 +350,15 @@
 | - | ---- | ---- | ---- | ---- |
 | **R新-1** | **演示站产物被覆盖 → 旧入口失效** | B7 之后**重新构建 / 发布 `hrm-demo` 并覆盖旧 `dist`**（或演示容器重建时拉取新产物） | 破坏「只增不改 → 零中断」前提：旧 `mobile.html?as=` 入口（`location /` 的 `try_files` 回退目标）失效 | **迁移期冻结 `hrm-demo` 发布**（仅允许 P0 修复，且须回归旧入口）；或对旧产物做**只读快照**（备份 `dist` + 冻结镜像 tag）；发布前核对 `git diff` 与备份点 |
 | **R新-2** | **无 CI 通道，构建 / 壳验收无法机器化** | 需 Android / Java 构建验收时 | 「收敛到 CI」不可达，验收只能人工或异地构建 | v2 措辞已改为「静态审查 + 标注未运行；运行期验收收敛到具 SDK 环境，**本批不声称可交付**」（§3.4 / §3.7 B6）；如需机器化，属**新增 CI 基建**，须另立任务并经主智能体授权 |
+
+### 6.2 既有缺陷登记（**非本方案引入**，v3 回填）
+
+> 下列两处为 **B7 变更前即存在**的既有死链，**非本方案（B7 / B8）引入**；本轮属 **C 档显式修复**（载体 = 现网 `courier-nginx`，须 P0.5 安全结论 + 主智能体 §10.3 三步授权）。登记以备追溯，**不改变本方案任何结论**。
+
+| # | 既有缺陷（非本方案引入） | 本轮处置（C 档显式修复） | 备注 |
+| - | ---- | ---- | ---- |
+| 旧-1 | `/admin/` 恒 **500**：`alias` 指向容器内**不存在**的目录 + `try_files` 形成**内部重定向环** | 改为 **`return 301 /web/`**（一期 PC 端已由 `apps/web` 承接） | **既有死链、非本方案引入** |
+| 旧-2 | `/download` **404**：宿主 `/data/www/download/index.html` 不存在 | **只增宿主 `/data/www/download/index.html` 下载页**（**未改 Nginx**） | **既有死链、非本方案引入** |
 
 ---
 
@@ -455,12 +464,13 @@
 
 | # | 文档 | 须同步内容 | 本轮 |
 | - | ---- | ---- | ---- |
-| 1 | `hrm-dev/docs/project-tree.md` | `TODO(扩展)` 三端独立代码 → 指向本 ADR 与 split-plan；补 `hrm-clients/` 目录树；更新 `hrm-demo` 定位 | 不改 |
-| 2 | `hrm-dev/docs/update-log.md` | 追加本 ADR 条目（**v1 新增文档**、**v2 按评审必改项修订**，均无源码改动）；并登记 B0 冻结裁定结论与「用户口径书面载体」 | **须追加（由主智能体执行）** |
+| 1 | `hrm-dev/docs/project-tree.md` | `TODO(扩展)` 三端独立代码 → 指向本 ADR 与 split-plan；补 `hrm-clients/` 目录树；更新 `hrm-demo` 定位 | **已完成（v3 回填）**：已补 **§2.1 `hrm-clients/` 多端 workspace 树**与端口 / base 表（5191 `/web/`、5189 `/staff/`、5190 `/boss/`） |
+| 2 | `hrm-dev/docs/update-log.md` | 追加本 ADR 条目（**v1 新增文档**、**v2 按评审必改项修订**、**v3 非主干修订（落地后事实回填 + 回滚点补全）**，均无源码改动）；并登记 B0 冻结裁定结论与「用户口径书面载体」 | **须追加（由主智能体执行）** |
 | 3 | `.trae/rules/项目规则1.md` §12 | §8 所列 **4 条修订 + 1 条补充**（修订：§12.1 / §12.3 / §12.5 / §12.8；补充：§12.7） | **主智能体裁定后执行** |
 | 4 | `hrm-dev/docs/ui-experience-optimization.md` | 其 §7.1 R-0 已由本 ADR 收敛，补指针；**并声明其 §7.1 R-0 选项② 定性无误**（本 ADR **v2 已撤回** v1 的「需修正」主张，见 §1.3-5；不再要求改动该文定性） | 待原作者/主智能体 |
 | 5 | `hrm-dev/docs/tech-review-ui-experience.md` | 必改项 1（R-0 兜底路径不闭合）与必改项 2（admin 换色决策）以本 ADR + A-2/A-4 + U-A 闭环为解；**注：**必改项 2 的「≥2 方案对比」在 `ui-experience-optimization.md` 侧仍缺，报审材料须提示 | 待技术评审 |
 | 6 | `AGENTS.md` / `SESSION-STATE.md` | 每批完成按 M02 **即时追加**检查点（阶段 + 影响文件 + 回滚点） | 每批即时 |
+| 7 | `hrm-dev/docs/deploy.md` | 回填现网实况与 B7 三端入口 | **已完成（v3 回填）**：已新增 **§11「现网实况与 B7 三端入口」**（三端入口与站点根、为何是 `/data/www/download/hrm-clients`、变更载体 + 载体核实方法（`docker inspect` / `nginx -T`）、单文件 bind mount 保 inode、全站 `.map` 404 与缓存头纪律、一键回滚、既有缺陷、B8 判定期），并在 §0.1 加**矛盾标注**（不改写历史结论）；**勿再重复要求** |
 
 ---
 
@@ -497,3 +507,28 @@
 - **未运行**：`verify:mock` / `verify:mobile` / `verify:tokens` / `build` / `build:prod` / `lint` / `test` / `e2e` / Android 构建 —— 基线数字以 **U-2 实跑冻结**为准。
 - **2026-09-25（v2 修订）**：按 [tech-review-structure-migration.md](tech-review-structure-migration.md)（结论「有条件通过」）**修订本 ADR**，闭环必改项 1–11 与自身错误 N1–N9：A4 升级为**四步可复核断言**并降级「唯一直证」→「**最接近充分的操作性证据**」；**清除真实域名**（全文无真实域名 / 凭据 / IP）并转交网络安全工程师形式核对（§9 SP7）；**撤回**对 `ui-experience-optimization.md` 选项② 的错误纠正（声明**原文定性无误**）；修正 `#409eff` / 旧壳 `H5_URL` 两处事实偏差；§8 / §11 数字统一为「**4 条修订 + 1 条补充**」；B7 **变更载体区分**（演示容器 `docker-demo/nginx.conf` ≠ 现网 `courier-nginx`，后者真源不在仓库、以运维记录为准）；补 **R新-1**（产物被覆盖）/ **R新-2**（无 CI）；影响面补 **4 类资产**（`index.html`/`pc.html`、`portal/main.js`、`docker-demo/portal.html`、`deploy-demo.sh`/`docker-compose.yml`/husky 等）；**NFR 补量化**与**切换期回滚判据**；`verify:mobile` 补**分端下限**；H4 删除不成立的 `@admin` 先例类比。**落地主智能体已裁定项**：A-2 / A-4 / B-3 / B-4 / B-5、D9 闭环、D4 统一子路径、§12.1 抽象表述、两 APK 包名占位；**U-A / U-B 保持「待用户裁定」**。**未改动任何源码、规则文件、契约文档**；未触达生产。
 - **下一步（v2）**：技术评审**复评**（按评审报告 §7 复评触发条件）→ 主智能体审批 + **B0 冻结** → 用户裁定 **U-A / U-B** → 开工 B1；**B2 / B7 / B6 开工前分别闭环必改项 1 / 6 / 10**。
+- **2026-09-25（v3 非主干修订）**：落地后**事实回填 + 回滚点补全**，逐条见下节「v3 修订记录」。**未新增决策、未改已裁定结论、未重新论证**；**未改任何其它文件**；未执行 git、未调用 MCP、未触达生产。
+
+---
+
+## v3 修订记录（2026-09-25）
+
+> **修订性质：非主干（落地后事实回填 + 回滚点补全）。** 本 v3 **不新增决策、不改已裁定结论、不重新论证**；只把 B3–B8 落地后的**执行期事实**与**实测回滚点**回填进本 ADR。产出方（架构师）**只修本方方案，不做评估、不代授权**（反模式 A22 / A23）；v3 版本变更按 `项目规则1.md` §8 ④ **须重评后方可报审**。
+
+| # | 改动位置 | 改了什么 | 依据 |
+| - | ---- | ---- | ---- |
+| 1 | 文首状态 / 日期 / 评审结论 / 版本绑定（L5–L7、L17） | 状态行 → **v3（非主干修订）**；日期补 v3；评审结论补「复评（2026-09-25）结论**通过**，具备报审资格」；版本绑定注「v3 须重评」 | `tech-review-structure-migration.md`「附：ADR v2 复评记录」§附.3；`update-log.md`「结构迁移 ADR v2 复评『通过』…」条目 |
+| 2 | §3.3（L183）、§3.7 `as` 退役节奏（L267） | 明确 B8 三项退役触发条件的**计时起点 = B7 上线日 2026-09-25**；回填 B8 实际执行（**①③ 未满足 → 旧入口与 `as` 兼容读保留**；本批只做门户收敛 / 冻结发布 / 文档回填 / 判定期登记） | `update-log.md` **B8 条目**（范围裁定段） |
+| 3 | §3.7 **B3** 回滚点（L254） | 由「删除 `apps/staff-h5`」补全为：删 `apps/staff-h5/` + 还原 `hrm-demo` **5 文件** + 复原 `src/mobile/views/staff/kpi.vue`（原改 `src/mobile/views/kpi/`）+ 还原 `hrm-clients/e2e-utils/harness.js` + 撤销 `packages/shared/src/ui/` 中立页提升 | `update-log.md` **B3 条目**「回滚点…实测不完整——已纠正」段 |
+| 4 | §3.7 **B4** 回滚点（L255） | 由「删除 `apps/boss-h5`」补全为：删 `apps/boss-h5/` + 还原 `hrm-clients/package.json`（去 `verify:tokens` boss 目标与 `e2e:boss`）+ `package-lock.json`；注明本批未改 `hrm-demo` / `apps/staff-h5` / `e2e-utils` | `update-log.md` **B4 条目**「回滚点…已纠正」段 |
+| 5 | §3.7 **B5** 回滚点（L256） | 由「删除 `apps/web`」补全为：删 `apps/web/` + 还原 `hrm-clients/package.json`（去 web 目标与 `e2e:web`）+ `package-lock.json`（**+44 包**）+ 可选 `npm ci` | `update-log.md` **B5 条目**「回滚点…已纠正」段 |
+| 6 | §3.7 **B6** 回滚点（L257） | 由「还原 `build.gradle` 与壳配置」补全为：还原 `app/build.gradle`（恢复 `buildTypes` 两处 `H5_URL`）+ **删除 `app/src/staff/`、`app/src/boss/`** + 还原 `strings.xml` / `local.properties.example` / `README.md` / `BUILD.md` | `update-log.md` **B6 条目**「回滚点…已补全」段 |
+| 7 | §6 回滚路径总表 B3–B6 行（L340–L341） | 与 §3.7 各批对齐并**指向 §3.7 详版**（补 `package.json` / `lock` / 壳 flavor 源集等）；**为一致性回填，可逆性与线上影响结论不变** | 依据本表 3–6 同源 |
+| 8 | §5.4（L322–L324） | 回填**必改项 6 最终答案**：载体 = 宿主 `/data/www/kdyzzhxt/courier-server/nginx/nginx.conf`（`ro` 挂载）+ 单文件 bind mount **须原地改写保 inode**；站点根实落 = `/data/www/download/hrm-clients/{web,staff,boss}` 及**偏差原因与结论**；现网载体路径**已闭环** | `update-log.md` **B7 条目**（产物与落点 / Nginx 变更段） |
+| 9 | §5.2（L307、L310） | 回填 B8 已执行：`portal/main.js` 链接实为 **L28/L35/L42**（原记 L24/31/38）；`portal.html:31-33` 已改 `/web/` `/staff/` `/boss/`（提交 `04975fd`），**两处行号随之更正** | `update-log.md` **B8 条目**（门户收敛段）+ **实测**（`portal/main.js:28/35/42`、`portal.html:31-33`） |
+| 10 | §6.2（**新增小节**，L354–L361） | 登记两处**既有死链、非本方案引入**（均属 C 档显式修复）：`/admin/` 恒 500 → 改 `return 301 /web/`；`/download` 404 → 只增宿主 `/data/www/download/index.html` 下载页（未改 Nginx） | 任务提供的服务器事实；`update-log.md` B7 / B8 条目「既有缺陷登记」 |
+| 11 | §11（L467、L473） | 标注 `project-tree.md`（已补 §2.1 多端 workspace 树）与 `deploy.md`（已补 §11 现网实况与 B7 三端入口，含矛盾标注）**回填完成**；**勿再重复要求** | `update-log.md` **B8 条目**（文档回填段） |
+
+**未改动：** 任何决策 / 裁定结论、附录 A / B 既有内容、回滚纪律本体、凭据与安全声明；**未改任何其它文件**（含 `update-log.md` / `tech-review-*.md` / `deploy.md` / 源码 / 配置）；**未执行 git、未调用 MCP**；**未触达生产**。
+
+**遗留（仍需回填 / 裁定，不属本轮）**：§9 安全清单 SP1–SP7 的复验结论（归网络安全工程师）；§7.3 **U-A / U-B 仍待用户裁定**；§7.2 A-2/A-4/B-3/B-4/B-5 与 §7.1 D1/D2/D5 的**书面裁定载体**（U-6）；§10.2 U-2/U-3/U-4/U-5 的实跑 / 核实冻结值；`hrm-demo` 与旧 `?as=` 入口的**终态退役**（B8 后续，依 §3.3 三项条件顺延，**不得静默下线**）。

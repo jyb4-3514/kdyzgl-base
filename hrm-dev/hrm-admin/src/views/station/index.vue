@@ -292,7 +292,7 @@ async function handleDelete(row) {
   .form-tip {
     font-size: 12px;
     line-height: 1.4;
-    color: #909399;
+    color: var(--text-3);
   }
 }
 </style>

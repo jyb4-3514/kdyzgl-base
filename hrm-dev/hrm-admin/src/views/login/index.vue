@@ -3,7 +3,7 @@
     <el-card class="login-card" shadow="always">
       <div class="login-header">
         <div class="login-logo">
-          <el-icon :size="36" color="#409eff"><Box /></el-icon>
+          <el-icon :size="36" color="var(--el-color-primary)"><Box /></el-icon>
         </div>
         <h2 class="login-title">快递驿站智慧管理系统</h2>
         <p class="login-subtitle">一期 · 员工管理平台</p>
@@ -139,7 +139,12 @@ async function handleLogin() {
   align-items: center;
   justify-content: center;
   height: 100%;
-  background: linear-gradient(135deg, #1f3b73 0%, #2f6bd8 55%, #66a6ff 100%);
+  background: linear-gradient(
+    135deg,
+    var(--c-brand-800) 0%,
+    var(--c-brand-600) 55%,
+    var(--c-brand-400) 100%
+  );
 
   .login-card {
     width: 400px;
@@ -158,13 +163,13 @@ async function handleLogin() {
         margin: 0;
         font-size: 22px;
         font-weight: 600;
-        color: #303133;
+        color: var(--c-text-primary);
       }
 
       .login-subtitle {
         margin: 8px 0 0;
         font-size: 13px;
-        color: #909399;
+        color: var(--text-3);
       }
     }
 
