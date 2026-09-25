@@ -19,7 +19,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
-      '@admin': fileURLToPath(new URL('../hrm-admin/src', import.meta.url))
+      '@admin': fileURLToPath(new URL('../hrm-admin/src', import.meta.url)),
+      // B-3：中立共享页真源（与 vite.config.js 同口径，供涉及中立页的用例解析）
+      '@kdyzgl/shared': fileURLToPath(new URL('../hrm-clients/packages/shared/src', import.meta.url))
     }
   },
   test: {

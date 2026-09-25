@@ -3,7 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "跨端共享：常量 / 领域纯函数 / 上报工具（零 UI、零端依赖）",
+  "description": "跨端共享：常量 / 领域纯函数 / 上报工具 / 中立共享 UI（零端依赖、零 Element/Vant 运行时依赖）",
+  "peerDependencies": {
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
   "exports": {
     ".": "./src/index.js",
     "./*": "./src/*"

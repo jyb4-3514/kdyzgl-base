@@ -37,11 +37,12 @@ const routes = [
   // 管理端域子表（../modules/boss/router.js）：/boss 重定向 + 22 个管理端页面 + 2 个中立共享页（/boss/message、/boss/message/notice）
   ...bossRoutes,
   // 考核明细复用员工端同页（A12-7：同一业务对象两端优先复用，仅按角色改标题与入口）
-  // 跨域复用，刻意留在聚合点；彻底去耦路径见方案 §3.2 的 TODO(扩展)（提升为中立共享页）
+  // B-3（ADR §3.5 第 15 项）：页面已提升为 @kdyzgl/shared/ui/KpiDetail.vue 中立页，
+  // 跨域直引已消解；薄容器落在中性目录 views/kpi/，两端共用同一组件，B4 验收「跨域直引残留 = 0」
   {
     path: '/boss/kpi/:employeeId',
     name: 'bossKpiDetail',
-    component: () => import('../views/staff/kpi.vue'),
+    component: () => import('../views/kpi/index.vue'),
     meta: { roles: [ROLE.ADMIN], title: '考核明细' }
   },
 
@@ -184,7 +185,7 @@ const routes = [
   {
     path: '/staff/kpi',
     name: 'staffKpi',
-    component: () => import('../views/staff/kpi.vue'),
+    component: () => import('../views/kpi/index.vue'),
     meta: { roles: STAFF_ROLES, title: '我的 KPI' }
   },
   {

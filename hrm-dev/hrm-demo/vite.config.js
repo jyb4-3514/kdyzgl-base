@@ -100,7 +100,13 @@ export default defineConfig(({ mode }) => ({
     dedupe: ['vue', 'vue-router', 'pinia', 'axios', 'element-plus', '@element-plus/icons-vue', 'vant'],
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
-      '@admin': fileURLToPath(new URL('../hrm-admin/src', import.meta.url))
+      '@admin': fileURLToPath(new URL('../hrm-admin/src', import.meta.url)),
+      /**
+       * B-3（ADR §3.5 第 14/15 项）：中立共享页提升到 hrm-clients/packages/shared/ui。
+       * hrm-demo 不在 hrm-clients workspace 内（无 @kdyzgl/* 依赖），故以只读别名消费同一份真源，
+       * 不复制源码；子路径 @kdyzgl/shared/ui/* → packages/shared/src/ui/*（见包 exports）。
+       */
+      '@kdyzgl/shared': fileURLToPath(new URL('../hrm-clients/packages/shared/src', import.meta.url))
     }
   },
   server: {

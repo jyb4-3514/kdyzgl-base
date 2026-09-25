@@ -1,8 +1,8 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import MessagePage from '@kdyzgl/shared/ui/MessagePage.vue'
 import NoticeList from '../../components/NoticeList.vue'
-import TodoList from '../../components/TodoList.vue'
 import { useAuthStore } from '../../stores/auth.js'
 import { useNotifyStore } from '../../stores/notify.js'
 import { useTodoStore } from '../../stores/todo.js'
@@ -10,13 +10,11 @@ import { useReselect } from '../../composables/useReselect.js'
 import { badgeText } from '../../utils/format.js'
 
 /**
- * 消息 Tab（D2-8）· 管理端与员工端共用，按角色渲染
+ * 消息 Tab 容器（D2-8）
  *
- * 两类内容的关系（A4-2）：通知是「事件流」（有已读概念），待办是「状态快照」（只有已处理，没有已读）。
- * 二者不合并、不去重 —— 同一次工单指派既产生一条通知，也产生一条待办，但它们是两个事实。
- *
- * 「发布」按钮不在本页：消息是 Tab 根页，页头由 TabbarLayout 统一渲染，发布动作放在那儿（避免两个 NavBar）。
- * 无权限差异：待办分组由 stores/todo.js 按角色给定；待办子视图不提供「标记已办」（会产生伪状态，A4-2）。
+ * B-3（ADR §3.5 第 14 项）：页面本体已提升为 @kdyzgl/shared/ui/MessagePage.vue 中立页，
+ * 本文件只做「取数 → props 注入 / 事件回流」的薄容器；中立页不 import 任何 store。
+ * 通知列表（含取数与写操作）由本容器经默认插槽注入，两端各持自己的 NoticeList（§3.2）。
  */
 const route = useRoute()
 const auth = useAuthStore()
@@ -41,42 +39,19 @@ useReselect(() => {
   if (activeTab.value !== 'notice') activeTab.value = 'notice'
   else notify.refresh()
 })
-
-onMounted(refreshAll)
 </script>
 
 <template>
-  <div class="page">
-    <van-tabs v-model:active="activeTab" class="bleed">
-      <van-tab name="notice">
-        <template #title>
-          通知<span v-if="noticeBadge" class="tab-count">{{ noticeBadge }}</span>
-        </template>
-      </van-tab>
-      <van-tab name="todo">
-        <template #title>
-          待办<span v-if="todoBadge" class="tab-count">{{ todoBadge }}</span>
-        </template>
-      </van-tab>
-    </van-tabs>
-
-    <NoticeList v-if="activeTab === 'notice'" />
-    <TodoList v-else :groups="todo.groups" :loading="todo.loading" :empty-text="emptyText" @retry="refreshAll" />
-  </div>
+  <MessagePage
+    v-model:active-tab="activeTab"
+    :notice-badge="noticeBadge"
+    :todo-badge="todoBadge"
+    :empty-text="emptyText"
+    :todo-groups="todo.groups"
+    :todo-loading="todo.loading"
+    @refresh="refreshAll"
+    @retry="refreshAll"
+  >
+    <NoticeList />
+  </MessagePage>
 </template>
-
-<style scoped>
-.tab-count {
-  display: inline-block;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  margin-left: var(--sp-1);
-  font-size: var(--fs-micro);
-  line-height: 16px;
-  color: var(--text-on-dark);
-  text-align: center;
-  background: var(--color-danger);
-  border-radius: var(--r-full);
-}
-</style>

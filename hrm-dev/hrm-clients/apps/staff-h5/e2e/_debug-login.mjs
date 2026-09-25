@@ -1,0 +1,33 @@
+import { chromium } from '@playwright/test'
+
+const browser = await chromium.launch()
+const page = await browser.newPage()
+const logs = []
+page.on('console', (m) => logs.push(`${m.type()}: ${m.text()}`))
+page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`))
+page.on('response', (r) => {
+  if (r.status() >= 400) logs.push(`http ${r.status()} ${r.url()}`)
+})
+await page.goto('http://localhost:5189/staff/#/login', { waitUntil: 'domcontentloaded' })
+await page.locator('.login__card').waitFor()
+await page.route('**/*vconsole*.js*', (route) =>
+  route.fulfill({ status: 200, contentType: 'application/javascript', body: 'export default class VConsole {}\n' })
+)
+const inputs = page.locator('.login__card input')
+console.log('input count:', await page.locator('.login__card input').count())
+await inputs.nth(0).fill('st001_staff')
+await inputs.nth(1).fill('demo1234')
+console.log('values:', await inputs.nth(0).inputValue(), await inputs.nth(1).inputValue())
+await page.locator('.login__submit button').click()
+await page.waitForTimeout(4000)
+const err = await page.locator('.login__error').allInnerTexts().catch(() => [])
+const fieldErr = await page.locator('.van-field__error-message').allInnerTexts().catch(() => [])
+const toasts = await page.locator('.van-toast').allInnerTexts().catch(() => [])
+console.log('URL:', page.url())
+console.log('login__error:', JSON.stringify(err))
+console.log('field errors:', JSON.stringify(fieldErr))
+console.log('toasts:', JSON.stringify(toasts))
+const storage = await page.evaluate(() => JSON.stringify(Object.fromEntries(Object.entries(localStorage))))
+console.log('localStorage:', storage)
+console.log('logs:\n' + logs.join('\n'))
+await browser.close()

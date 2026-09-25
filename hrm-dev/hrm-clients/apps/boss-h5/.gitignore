@@ -1,0 +1,7 @@
+node_modules
+dist
+e2e/evidence
+e2e/playwright-report
+.env.local
+.env.*.local
+*.log

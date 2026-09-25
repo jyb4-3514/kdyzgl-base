@@ -1,0 +1,212 @@
+/**
+ * 移动端 Design Tokens（demo-ui-redesign.md 第 2 章）
+ *
+ * 分层：跨端一致的部分在共享真源 packages/tokens（L1 原始值 + L2 共用语义 + 通用基础），
+ * 本文件只保留移动端私有内容：字号阶梯、旧名别名过渡、Vant 变量覆盖、安全区与容器尺寸。
+ *
+ * 引入顺序（main.js）：vant 组件样式 → tokens.scss（内含 tokens.base）→ mobile.scss。顺序错则 Vant 变量覆盖不生效。
+ * U1 已核对：Vant 变量名逐个取自已安装的 vant@4.10 ESM 产物（node_modules/vant/es/*），
+ * 与设计稿 2.9 不一致的两处已按实际名落地：`--van-button-radius`（非 border-radius）、
+ * `--van-tag-*` 组合替代（Vant Tag 无法一次指定底/字/描边三色，StatusTag 改自绘）。
+ */
+
+/* 真源（ADR-SM-02 / B2/B3）：Token 真源唯一落在 hrm-clients/packages/tokens，
+ * 本端以相对路径只读消费（单向依赖：apps/staff-h5 → packages/tokens），不再自持副本。 */
+@use '../../../../packages/tokens/src/tokens.base.scss';
+
+:root {
+  /* ==================== 旧名别名过渡（P1-2） ==================== */
+  /* 为什么保留：色族命名以 PC 为基准收敛（yellow→amber、brown→bronze、green-100→green-200…），
+   * 但移动端已有 40+ 页面引用旧名，一次性改名会制造大面积无收益 diff。
+   * 这些别名只做取值转发，值全部来自真源，不存在第二份色值 */
+
+  /* TODO(扩展): 旧名别名，下一轮清理 */
+  --c-yellow-50: var(--c-amber-50);
+  --c-yellow-100: var(--c-amber-200);
+  --c-yellow-500: var(--c-amber-500);
+  --c-yellow-700: var(--c-amber-700);
+  --c-green-100: var(--c-green-200);
+  --c-red-100: var(--c-red-200);
+  --c-red-700: var(--c-red-600);
+  --c-brown-700: var(--c-bronze-700);
+
+  /* ==================== 字号阶梯（移动端列，2.4） ==================== */
+
+  --fs-h1: 20px; /* 入口页主标题 */
+  --fs-h1-m: 18px; /* 移动 Hero 标题 */
+  --fs-h2: 16px; /* 弹层/抽屉标题 */
+  --fs-h3: 14px; /* 区块标题 */
+  --fs-body: 14px;
+  --fs-body-strong: 15px; /* 列表项标题 */
+  --fs-caption: 12px; /* 正文下限，辅助文字统一用 12px（修 P24 的 11px 正文） */
+  --fs-micro: 11px; /* 仅限图表轴标签（徽标计数改走 --fs-badge，一名两用会造成改一处错一处） */
+  --fs-num-lg-boss: 24px; /* 管理端主指标（3.2 差异表） */
+  --fs-num-lg-staff: 22px; /* 员工端主指标 */
+  --fs-num-md: 18px;
+  --fs-num-sm: 15px;
+  /* 打卡页顶部时钟：L3 组件私有尺寸（第 2.1 节的组件层），不进通用正文阶梯，仅打卡页使用 */
+  --fs-clock: 40px;
+  --lh-clock: 48px;
+
+  --lh-h1: 28px;
+  --lh-h1-m: 26px;
+  --lh-h2: 24px;
+  --lh-h3: 20px;
+  --lh-body: 21px;
+  --lh-caption: 18px;
+  --lh-micro: 16px;
+  --lh-num-lg: 30px;
+  --lh-num-md: 24px;
+  --lh-num-sm: 20px;
+
+  /* ==================== 移动端特有 L2 ==================== */
+
+  /* 触控下限 44×44 是项目硬性要求，此前以字面量散落在 20+ 处；
+     放移动层而非真源：PC 的最小值语义不同（24/32），同名不同值属合法平台差异（UI 规范 N1） */
+  --touch-min: 44px;
+
+  /* 移动密度族：单行 48 / 两行 64 / 三行 76 / 宫格与指标卡 88。
+     骨架高度一律由行高 × 行数派生，不再出现 96/108/120/148/156 字面量（UI 规范 N2–N5） */
+  --row-h-1: 48px;
+  --row-h-2: 64px;
+  --row-h-3: 76px;
+  --row-h-tile: 88px;
+
+  /* 模拟演示区（C3-1）：与 warning 语义分离 —— warning 说「业务有风险」，
+     simulate 说「这块是演示数据，不是真实功能」；共用一组变量会让两者互相牵连 */
+  /* TODO(扩展): 消费方为管理端「模拟派单」弹层（B3.5 本轮判定移动端不做），先按 C3 预置取值 */
+  --state-simulate-bg: var(--c-amber-50);
+  --state-simulate-fg: var(--c-amber-700);
+  --state-simulate-border: var(--c-amber-200);
+
+  /* 状态标签尺寸（P2-7）：PC 24 / 移动 20，属合法平台差异，故不进真源 */
+  --tag-h: 20px;
+  --tag-pad-x: 6px;
+
+  /* ==================== L3 Component · 徽标与班次色条尺寸（UI 规范 N6–N9） ==================== */
+  /* 徽标字号独立命名的理由：tabbar 50px 高度内需要 10px 密度，
+     与 --fs-micro（11px，图表轴专用）不是同一用途，合并会让改一处错一处 */
+  --fs-badge: 10px;
+  --badge-h: 16px;
+  --badge-pad-x: 4px;
+  /* 班次色条：打卡页与排班页是同一条视觉元素，宽度必须单点收口（N9） */
+  --shift-bar-w: 4px;
+
+  /* ==================== L3 · Vant 4 根级变量覆盖（2.9） ==================== */
+  --van-primary-color: var(--color-primary);
+  --van-success-color: var(--color-success);
+  --van-danger-color: var(--color-danger);
+  --van-warning-color: var(--color-warning);
+
+  --van-text-color: var(--text-1);
+  --van-text-color-2: var(--text-2);
+  --van-text-color-3: var(--text-3);
+  --van-background: var(--surface-page);
+  --van-background-2: var(--surface-card);
+  --van-border-color: var(--border-line);
+  --van-radius-sm: var(--r-xs);
+  --van-radius-md: var(--r-sm);
+  --van-radius-lg: var(--r-lg);
+  --van-font-size-md: var(--fs-body);
+  --van-font-size-sm: var(--fs-caption);
+
+  /* ==================== L3 · Vant 组件级变量（按 v4.10 产物核对） ==================== */
+  --van-nav-bar-height: 44px;
+  --van-nav-bar-background: var(--surface-card);
+  --van-nav-bar-title-text-color: var(--text-1);
+  --van-nav-bar-title-font-size: var(--fs-h2);
+  --van-nav-bar-icon-color: var(--text-1);
+
+  --van-tabbar-height: 50px;
+  --van-tabbar-background: var(--surface-card);
+  --van-tabbar-item-active-color: var(--color-primary);
+  --van-tabbar-item-text-color: var(--text-3);
+  --van-tabbar-item-icon-size: 22px;
+
+  --van-cell-font-size: var(--fs-body);
+  --van-cell-vertical-padding: var(--sp-3); /* 行高 ≥48：12×2 + 21 */
+  --van-cell-horizontal-padding: var(--sp-4);
+  --van-cell-text-color: var(--text-1);
+  --van-cell-value-color: var(--text-2);
+  --van-cell-label-color: var(--text-3);
+  /* 页面左右已留 12px，cell-group 再 inset 16px 会缩成 28px（修 5.8-S10） */
+  --van-cell-group-inset-padding: 0;
+
+  --van-button-radius: var(--r-sm);
+  --van-button-primary-background: var(--color-primary);
+  --van-button-primary-border-color: var(--color-primary);
+  --van-button-primary-color: var(--text-inverse);
+
+  --van-field-input-text-color: var(--text-1);
+  --van-field-placeholder-text-color: var(--text-placeholder);
+  --van-field-label-color: var(--text-2);
+
+  --van-tabs-line-height: 44px;
+  --van-tab-font-size: var(--fs-body);
+  --van-tab-text-color: var(--text-2);
+  --van-tab-active-text-color: var(--color-primary);
+  --van-tabs-bottom-bar-color: var(--color-primary);
+  --van-tabs-bottom-bar-width: 24px;
+
+  --van-search-input-height: 44px;
+  --van-search-background: transparent;
+  --van-search-content-background: var(--surface-card);
+  --van-search-action-text-color: var(--color-primary);
+
+  --van-tag-font-size: var(--fs-micro);
+  --van-tag-primary-color: var(--color-primary);
+  --van-tag-success-color: var(--color-success);
+  --van-tag-warning-color: var(--color-warning);
+  --van-tag-danger-color: var(--color-danger);
+  --van-tag-default-color: var(--text-2);
+
+  --van-empty-description-color: var(--text-3);
+  --van-empty-image-size: 80px;
+  --van-progress-color: var(--color-primary-icon);
+  --van-progress-background: var(--c-neutral-100);
+  --van-skeleton-paragraph-height: 16px;
+  --van-skeleton-paragraph-background: var(--c-neutral-100);
+  --van-popup-round-radius: var(--r-lg);
+  --van-list-text-color: var(--text-3);
+  --van-list-text-font-size: var(--fs-caption);
+  --van-pull-refresh-head-text-color: var(--text-3);
+  --van-radio-checked-icon-color: var(--color-primary);
+  --van-radio-border-color: var(--border-control);
+  --van-grid-item-text-color: var(--text-2);
+  --van-notice-bar-font-size: var(--fs-caption);
+  --van-notice-bar-height: 40px;
+
+  /* ==================== L3 · 自定义：安全区与容器尺寸（2.9 下半） ==================== */
+  /* 壳通过 bridge.js 写 --status-bar-height；保留原名做兼容别名，浏览器下为 0，布局不塌陷 */
+  --status-bar-height: 0px;
+  --safe-top: var(--status-bar-height, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  --tabbar-h: 50px;
+  --navbar-h: 44px;
+  --actionbar-h: 56px;
+  /* 固定底栏页面与 Tabbar 页面的底部留白，避免末元素被固定栏盖住 */
+  --page-pad-bottom: calc(var(--actionbar-h) + var(--safe-bottom) + var(--sp-2));
+  --page-pad-bottom-tab: calc(var(--tabbar-h) + var(--safe-bottom) + var(--sp-2));
+
+  /* 固定底栏向上投影：仅移动端有固定底栏，不进真源 */
+  --e3-up: 0 -1px 3px rgba(31, 41, 55, 0.12);
+
+  /* 环形进度（C3-2）：KPI 达成率环在 PC 与移动两处复用，尺寸必须收口，避免出现第三份私有值 */
+  /* TODO(扩展): 消费方 KpiGauge / KpiIndicatorCard 随需求 7 落地，本轮先按 C3 预置取值 */
+  --gauge-size: 80px;
+  --gauge-stroke: 8px;
+  --gauge-track: var(--c-neutral-100);
+  /* 原用 500 档 #1890FF 对 --gauge-track #EDF0F4 实测仅 2.839:1，不达 WCAG SC 1.4.11 的 3:1；
+   * 改 700 档后为 5.388:1。环形进度属「非文本内容」，不承载白字，按对比度取值 */
+  --gauge-fill: var(--color-primary);
+
+  /* 步骤条（C3-3）：入离职流程步骤点/连接线/间距，两端共用尺寸；颜色复用语义色，不新增色板 */
+  /* TODO(扩展): 消费方 FlowSteps 随需求 10 落地，横向 5 步的间距需要时再单独评估 */
+  --step-dot: 16px;
+  --step-line: 2px;
+  --step-gap: var(--sp-3);
+
+  /* Hero 渐变：已上移真源到 shared/styles/tokens.base.scss（三端登录页共用），此处不再重复定义。
+   * 取值仍为「承白字 ≥6:1 的深档」，全段任意位置放白字都合规（决策 D-3，修 P3） */
+}

@@ -1,66 +1,51 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import KpiGauge from '../../components/KpiGauge.vue'
-import KpiIndicatorCard from '../../components/KpiIndicatorCard.vue'
-import MonthPicker from '../../components/MonthPicker.vue'
-import PageNav from '../../components/PageNav.vue'
-import PageState from '../../components/PageState.vue'
-import StatusTag from '../../components/StatusTag.vue'
-import { KPI_LEVEL } from '@/shared/constants/dict.js'
-import { getKpiScoreDetail } from '../../api/kpi.js'
-import { useAuthStore } from '../../stores/auth.js'
-import { recentMonths } from '../../utils/format.js'
-import { KPI_CODE } from '@/shared/constants/errorCode.js'
+import KpiGauge from './KpiGauge.vue'
+import KpiIndicatorCard from './KpiIndicatorCard.vue'
+import MonthPicker from './MonthPicker.vue'
+import PageNav from './PageNav.vue'
+import PageState from './PageState.vue'
+import StatusTag from './StatusTag.vue'
+import { KPI_LEVEL } from '@kdyzgl/shared/constants/dict.js'
 
 /**
- * B7 得分明细（A12-7 的复用约定：同一业务对象两端共用一个页面，只按角色改标题与入口）
- * - 管理端：/boss/kpi/:employeeId（从排名点人进来，看「这分怎么来的」）
- * - 员工端：/staff/kpi（员工号取登录身份，契约侧强制只返回本人）
+ * B7 考核明细中立页（A12-7 复用约定）—— 员工端 /staff/kpi 与管理端 /boss/kpi/:employeeId 共用
+ * （ADR §3.5 第 15 项，B-3 裁定取 ①：提升为 packages/shared/ui 中立页，消除跨域直引）
+ *
+ * 中立约束：数据一律 props 注入、交互一律 emits 上抛，**禁 import stores/ api/ mock**，
+ * 也不 import Element Plus / Vant 运行时（模板里的 <van-*> 由宿主 App 全局注册）。
+ * 取数（getKpiScoreDetail）、员工号来源（登录身份 vs 路由参数）与角色判定由宿主容器承担。
  *
  * 无考核记录（9204）走空态而不是错误态：那是业务上「这月还没算分」，不是系统故障。
  */
-const route = useRoute()
-const auth = useAuthStore()
+defineProps({
+  /** 考核明细（宿主取数后注入；null = 无数据 → 空态） */
+  detail: { type: Object, default: null },
+  /** 当前账期 'YYYY-MM' */
+  month: { type: String, default: '' },
+  loading: { type: Boolean, default: false },
+  error: { type: String, default: '' },
+  /** 导航标题：管理端「考核明细」/ 员工端「我的 KPI」 */
+  title: { type: String, default: '我的 KPI' },
+  /** 管理端视角：仅影响空态引导文案 */
+  isBossView: { type: Boolean, default: false }
+})
 
-const employeeId = computed(() => Number(route.params.employeeId) || auth.user.id)
-const isBossView = computed(() => auth.isAdmin)
-
-const month = ref(recentMonths()[0])
-const loading = ref(true)
-const error = ref('')
-const detail = ref(null)
-
-async function load() {
-  loading.value = true
-  error.value = ''
-  detail.value = null
-  try {
-    detail.value = await getKpiScoreDetail(employeeId.value, { month: month.value })
-  } catch (e) {
-    // 9204：该员工该月尚未算分，落空态并由「去生成本期考核」引导（管理端）或等待人事（员工端）
-    if (e.code !== KPI_CODE.SCORE_NOT_EXISTS) error.value = e.message || '加载失败'
-  } finally {
-    loading.value = false
-  }
-}
-
-function onMonthChange(value) {
-  month.value = value
-  load()
-}
-
-onMounted(load)
-watch(employeeId, load)
+const emit = defineEmits(['update:month', 'retry'])
 </script>
 
 <template>
   <div class="kpi-detail">
-    <PageNav :title="isBossView ? '考核明细' : '我的 KPI'" />
+    <PageNav :title="title" />
     <div class="page page--loose">
-      <MonthPicker :model-value="month" label="考核周期" @update:model-value="onMonthChange" />
+      <MonthPicker :model-value="month" label="考核周期" @update:model-value="emit('update:month', $event)" />
 
-      <PageState :loading="loading" :error="error" :empty="!detail" :empty-text="`${month} 暂无考核结果`" @retry="load">
+      <PageState
+        :loading="loading"
+        :error="error"
+        :empty="!detail"
+        :empty-text="`${month} 暂无考核结果`"
+        @retry="emit('retry')"
+      >
         <template #empty-action>
           <p class="tip">
             {{
