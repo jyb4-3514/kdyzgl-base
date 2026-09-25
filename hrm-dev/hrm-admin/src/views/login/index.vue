@@ -100,7 +100,10 @@ async function handleLogin() {
   try {
     const data = await login({
       username: loginForm.username,
-      password: loginForm.password
+      password: loginForm.password,
+      // 端准入：PC 管理端恒上报 WEB（服务端 pc-allowed-roles 默认仅 ADMIN）。
+      // 为什么必须显式上报：端类型缺失即 fail-closed 返回 1110，管理员会被自己的准入规则拒之门外。
+      clientType: 'WEB'
     })
     authStore.setAuth(data.token, data.employee)
 
