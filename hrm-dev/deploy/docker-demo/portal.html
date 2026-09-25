@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>快递驿站智汇系统</title>
+<!--
+  三端门户页（静态，无构建依赖）
+  为什么独立成文件：生产构建 `npm run build:prod` 只产出 pc.html / mobile.html，不产出 index.html，
+  故部署演示站时须把本文件拷为 dist/index.html，否则根路径 404。
+  部署：cat hrm-dev/deploy/docker-demo/portal.html > dist/index.html（保持 inode，勿用 mv）
+-->
+<style>
+  body{margin:0;font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh;align-items:center;justify-content:center}
+  .box{text-align:center;padding:32px;max-width:520px}
+  h1{font-size:22px;font-weight:600;margin:0 0 8px}
+  p{color:#94a3b8;font-size:13px;margin:0 0 28px}
+  .row{display:flex;flex-direction:column;gap:12px}
+  a{display:block;padding:16px 28px;border-radius:10px;background:#2563eb;color:#fff;text-decoration:none;font-size:15px}
+  a small{display:block;font-size:12px;opacity:.8;margin-top:4px;font-weight:400}
+  a.alt{background:#334155}
+  a.alt2{background:#0f766e}
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>快递驿站智汇系统</h1>
+  <p>请选择访问端（已接入真实后端）</p>
+  <div class="row">
+    <a href="/pc.html">网页端<small>PC 管理端 · 仅管理员账号可登录</small></a>
+    <a class="alt" href="/mobile.html?as=station">驿站助手<small>员工端 H5 · 员工 / 站长 / 管理员</small></a>
+    <a class="alt2" href="/mobile.html?as=boss">驿站精灵<small>管理端 H5 · 管理员 / 站长</small></a>
+  </div>
+</div>
+</body>
+</html>
