@@ -1,22 +1,23 @@
 # 会话状态 · 当前状态摘要（每次会话先读这里，≤40 行）
 
-> 最后更新: 2026-09-24（新增「服务端 145 接口实现」工作流：算法/架构/数据库/P0 已交付）
+> 最后更新: 2026-09-25（**ADR 结构迁移 B0–B8 全部落地；三端已上线生产主域名**）
 > **读法**：新会话**只读本块**即可恢复上下文；需要细节再按下方小节标题跳读，**不要通读全文**（历史分节累计近千行）。
 > **写法（追加纪律）**：新工作流在下方「历史分节」**追加**小节；**禁止重写全文件**。本摘要块允许重写，但必须保持 ≤40 行。
 
 | 项 | 值 |
 | --- | --- |
-| 当前阶段 | 一期（员工管理）**代码完成、未验收**；二期采集端、三期企微均为**设计完成、未开工** |
-| 工作区分支 | `feature/前端演示项目拆分与精细化` ⚠️ **多会话共用，提交前必须核对** |
+| 当前阶段 | 一期（员工管理）代码完成、未验收；**ADR 结构迁移 B0–B8 已落地**；二期采集端、三期企微未开工 |
+| 工作区分支 | `feature/前端演示项目拆分与精细化` |
 | 本机环境 | Node 可用；**无 JDK / MySQL / Redis / Android SDK** |
-| 主要阻塞 | 一期 D/E 阶段验收（需服务器）；二期 P0 前提未闭环；三期 Q7–Q12 待拍板；安卓壳未编译 |
+| 三端线上入口 | `https://kongzhen1.com/{web,staff,boss}/`（B7 已上线；**只增不改**，备份 `nginx.conf.20260925121157`） |
+| 主要阻塞 | 无硬阻塞；**B8 退役判定期进行中**（起点 2026-09-25，须 ≥1 个发布周期） |
 
-### 活跃工作流（均含未提交改动）
+### 活跃工作流
 
-1. **三端 Demo 拆分与精细化** — 员工端 B0/B1a/B1b 已提交，**B2 工单域待开工**；PC 端已提交；老板端模块已完成
-2. **服务器存储与登录收敛** — 宿主 MySQL(3307) 已切换；Demo 登录已收紧为站内单层
-3. **智能体团队规范层** — 项目规则 v2.2 + 调度规则常驻 + 9 角色已在本机 TRAE 界面建成
-4. **服务端 145 接口实现（方案 B·未提交）** — P0 地基 / P1 运行日志(3) / P2 通知(6) / **P3 考勤排班(22)+算法 S3/S4** 已交付
+1. **ADR 结构迁移（已完成）** — 提交链 `ccfa529`(B2) → `b1b8bfa`(B3-B4) → `388649b`(B5) → `da231ac`(B6) → `04975fd`(门户) → `30bf07b`(docs) → `267ae31`(B8)；方案 `docs/adr-structure-migration.md`，手册 `docs/deploy-b7-release-switch.md`
+2. **三端审核** — 审核账号凭据落服务器 `/data/hrm-tmp/review-accounts-20260925121508.txt`（600）；后端 `profile=dev` → 库 `kdyzgl_test`
+3. **规则层待提交** — `.trae/rules/*`、`AGENTS.md`、`SESSION-STATE.md`、`全局规则.md`、`智能体配置.md`、`.github/CONTRIBUTING.md`、`.trae/agents|skills`
+4. **服务端 145 接口实现（方案 B·未提交）** — P0 地基 / P1 运行日志 / P2 通知 / P3 考勤排班 + 算法 S3/S4 已交付
 
 ### 权威指针（**不要在本文件重复这些内容**）
 
@@ -209,6 +210,193 @@ Q1 **3 天到期路径**（强制重登 vs 短信续期，建议续期）；Q2 �
     3-5. `TrustedDeviceRegistryTest` × 3 → **测试 bug**：`LambdaUpdateWrapper.set(...)` 是**即时**解析列名，纯单测无 MyBatis-Plus 上下文必抛 `can not find lambda cache`（query 类因惰性解析而通过）→ 测试 `@BeforeAll` 注册 `TableInfoHelper.initTableInfo`。
   - 修复过程中修掉 2 处 M4 编译错误：`AuthRequestContext` record 访问器名（`incomingDeviceToken()` 而非 `deviceToken()`）、`SmsCodeStore` 的 `counter()` 返回 `long` 而 `SmsThrottlePolicy.dailyLimitExceeded(int,int)` 要 `int`（**注意：是首个参数需转型，不是第二个**）。
   - **M4 已实现内容**：端点 A1 `/auth/sms/send`（含 `twoFactorTicket`）、A2 `/auth/sms/login`、B2 `/auth/device/verify`、C1/C2 `/auth/devices`、D1 `/auth/captcha`；`/auth/login` 改造（可选 `clientType`/`as`/`device`，新增可选出参）；**B3 renew 未实现**（3 天到期强制重登 → 服务端返 **1108**）；`jwt.expire` 86400→**259200**；新增 `hrm.auth.expiry-grace-seconds`(300)；设备信任服务端签发（库中只存 SHA-256 摘要 + HttpOnly/Secure Cookie + 改密/禁用即失效 + 设备数上限 5）；错误码补齐 1101–1109；`HrFlow` 已移除 `exist=false`。
+
+### 联调打通（2026-09-24，C 档授权后执行）
+
+- 后端经公网可达：`courier-nginx` **新增** `location /hrm-api/` 反代 `172.19.0.1:8081/api/`（**不改动现网 `/api/`、`/admin/`、`/photos/`**），并**显式 403 拒绝** `/hrm-api/v1/work-orders/auto-dispatch`（安全评估 R1 硬要求）。
+- 配套：`hrm-server` 监听地址 `127.0.0.1` → `0.0.0.0`；UFW 定向放行 `8081` ← `172.19.0.0/16`。
+- 验证：现网 `/` 200、现网 `/api/v1/app/version`（courier-app）200 **未受影响**、`/hrm-api/v1/auth/me` **401**（反代通 + 鉴权生效）、`auto-dispatch` **403**、`sms/send` 返回业务码 400（链路通）。
+- 备份：`nginx.conf.bak-20260924151534`。
+- **踩坑（重要，与既有 bind mount 先例同源）**：`mv` 替换 `nginx.conf` 会**更换 inode**，容器挂载的是旧 inode → `docker exec nginx -t` 读的仍是**旧配置**却"通过"，新 location **静默不生效**。**必须用 `cat > 文件` 原地写入（保持 inode），或重启/重建容器**。
+- **待办（前端接真实后端）**：`.env.production` 的 `VITE_API_BASE=/api/v1` 当前指向**现网 courier-app**，接 `hrm-server` 须改为 `/hrm-api/v1`。
+
+### B 方案落地：演示站接通真实后端（2026-09-24）
+
+**三库隔离**（用户要求「测试数据独立建库，与生产库隔离」）：
+
+| 库 | 用途 | 状态 |
+| --- | --- | --- |
+| `courier_station` | 现网快递系统（**绝不可碰**） | 未动 |
+| `kdyzgl` | **结构库**（39 表，v15），**保持干净不加测试数据** | 未动（employee=1） |
+| **`kdyzgl_test`** | **测试库**（39 表，v15），承载联调/演示数据 | 新建 + 已灌种子 |
+
+- **种子数据**：`hrm-dev/sql/seed/kdyzgl_test_seed.sql`（2691 行 / 32 表，**独立脚本不走 Flyway**）。实灌结果：部门 6 / 驿站 8 / **员工 56**（ADMIN 4、STATION_ADMIN 7、STAFF 45）/ 包裹 210 / 考勤记录 386 / 通知 99 / 工单 40 / KPI 指标 7 / 工资单 67 / 请假 12。账号口令对应项目公开约定 `demo1234`（脚本只存 BCrypt 哈希，不含明文），全员 `pwd_changed=1` 免首登改密。
+- **后端**：`hrm-server` dev 配置数据源切至 `kdyzgl_test`（专用账号 `hrm_app_test`），含 `hrm.sms.dev-fixed-code=000000`。
+- **前端**：`.env.production` 的 `VITE_API_BASE` 由 `/api/v1`（**那是现网 courier-app 的路径**）改为 **`/hrm-api/v1`**；用 `build:prod` 构建（**已剥离 Mock**）并部署，tag **`20260924-real`**。
+- **注意**：`build:prod` **不产出 `index.html`**（门户页）→ 部署时补了一个轻量门户页（选择「网页端 / 移动端（驿站助手）」），否则根路径会 404。
+
+**端到端实测（全部通过）**：密码登录 `admin/demo1234` → 200 + `expiresIn=259200`（3 天）；**短信登录用 000000 → 200**；错误验证码 → 1102；`STAFF`/`STATION_ADMIN` 登录 PC 端 → **1110**；`ADMIN` 登录 PC 端、`STAFF` 登录员工端 → 200；`/employees`=56、`/stations`=8、`/parcels`=210、`/dashboard/summary` 有值。
+
+**注意**：密码登录**未触发**新设备短信二次验证（curl 未上报 `device` 信息 → 服务端视为「不采集设备」故不校验）；前端登录页会传 `device`，其真实行为待浏览器实测确认。
+
+### 登录体验修正（2026-09-25）
+
+1. **测试环境万能验证码**：`hrm.sms.dev-fixed-code` 的语义是「降级通道生成的码固定为 000000」，**必须先用「获取验证码」**才生效；用户不点发码直接输 000000 → 1102。故新增 **`hrm.sms.dev-universal-code`**（默认空=关闭）：非生产 + 非空 + code 恒等时**直接放行**（不查 Redis、不耗计数），**仍完整走设备信任/会话/角色与端准入**；**prod profile 下非空即启动失败**（fail-fast）；启动打 WARN。
+   - 实测：不点发码直接输 `000000` → **200 + token**；`123456` → **1102**；启动 WARN 正常。
+2. **输入框密文化**：PC 与移动端登录页的**验证码输入框**由明文改为 `type="password"`（密码框原本已是密文 + 显示切换）；移动端保留 `inputmode="numeric"` 数字键盘。
+3. **前端部署**：tag `20260924-pw`；`root`/`pc`/`mobile` 均 200。
+
+**待澄清（用户反馈「网页登陆没有驿站精灵登陆」）**：可能是 ①网页端登录页需增加「驿站精灵」品牌/入口；或 ②站长（`STATION_ADMIN`，即「驿站精灵」用户）需能在网页端登录（当前 `clientType=WEB` 仅允许 `ADMIN`，站长登录返回 **1110**）——②与用户先前「站长无权限登录 PC 端」的裁定冲突，须用户明确后再动。
+> **已按 ① 处理**：门户页改为**三端入口**（网页端 / 驿站助手 `?as=station` / 驿站精灵 `?as=boss`），源文件落 `hrm-dev/deploy/docker-demo/portal.html`（`build:prod` 不产 index.html，部署时须拷为 `dist/index.html`）。
+
+### 缺陷修复：`leave_log` 保留字列名导致 500（2026-09-25）
+
+- **现象**：员工端/管理端工作台**每次刷新**弹出「系统繁忙，请稍后重试」（页面主体数据正常）。
+- **根因**：`leave_log` 表列 **`before`**（MySQL 8 **保留字**，`init.sql` 第 571 行）在实体 `LeaveLog` 中**未做列名转义** → MyBatis-Plus 生成裸列名 → `BadSqlGrammarException: ... near 'before,after,remark FROM leave_log ...'` → `/leave/my`、`/leave/list`、`/leave/{id}` 全部 500。
+- **修复**：`LeaveLog.before/after` 加 `@TableField(value = "`before`")`（`after` 属非保留，防御性一并转义）；**未改 HTTP 契约、未动 DDL**。
+- **同类排查**：全库 38 表 + 全实体按 MySQL 关键字表扫描，**除上表外无其它命中**（`client_log.count` 在 Mapper 原生 SQL 已手动转义，保留不动）。
+- **验证**：新增 2 个单测类 **8 个用例全过**；部署后 `/leave/my`、`/leave/list`、`/leave/13`–`/leave/16`（原报错触发点 `leave_id IN (13,14)`）**全部 200**，日志 `BadSqlGrammar` 计数 **0**。
+- **顺带发现的种子数据缺陷（待修，不阻塞）**：`leave_log.leave_id` 取值范围为 1–12，而 `leave_request.id` 为 **13–24**，**逻辑外键不匹配** → 请假详情的「审批日志」会查不到记录（不报错但数据错）。须由数据库工程师修种子脚本。
+
+### 需求实现：移动端津贴明细可编辑（2026-09-25）
+
+- **背景**：用户反馈移动端「调薪调整」的**津贴合计改不了**。定位为**原设计的只读展示**（`van-cell` + 注释「津贴项不在移动端编辑（项名/金额多列，PC 更合适）」），后端与 PC 端本就支持编辑。用户裁定「移动端也改动」。
+- **链路**：UI/UX 先出规范 [`design-mobile-allowance-edit.md`](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/docs/design-mobile-allowance-edit.md)（22 条验收、**零新增 Token**）→ 前端实现 [`hrDetail.vue`](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/hrm-demo/src/mobile/modules/boss/views/hrDetail.vue)（+199/−4）：3 列网格（名称 `3fr`/金额 `2fr`/删除 `var(--touch-min)`）+ 添加津贴 + 空态 + 实时合计联动 + 有内容行删除二次确认（空行豁免）+ 离职只读。
+- **关键纠正（UI/UX 发现）**：① 移动端 `updateHrSalary` **原未传 `allowances`** → 后端缺省保留原值（**静默失败**），已补传；② 合计原取 `salary.current.allowancesTotal`（编辑态不联动）→ 改为由 `form.allowances` 求和派生；③ 校验口径对齐 PC 更严者（名称非空且 ≤20 字；金额非负整数、整数部分 ≤6 位）。
+- **门禁实跑**：`lint` 0 error（41 warn，本文件 3 条）｜`test` **429 通过 / 1 失败**（失败项为**时间依赖的既有用例** `useAttendanceStatus.spec.js`「今日待审批槽位」，**复现于改动前**，未改断言）｜`build`/`build:prod` 均成功｜`verify:mock` **919/919**｜`verify:mobile` **48/48**｜`verify:tokens` 通过。
+- **部署验证**：tag `20260925-allowance`；`root`/`pc`/`mobile` 全 200；产物含「添加津贴」、**无 Mock**、含 `/hrm-api/v1`；`PUT /hr/salary-structures/13` 带 `allowances` → **200** 且库中津贴已更新。
+
+**注意**：测试基线实为 **430 用例（429 通过 / 1 失败）**，此前记的「509 全绿」与当前工作区不符，以实测为准。
+
+### 安全整改：生产 source map 公网可下载（D 档红线，2026-09-25）
+
+- **发现**：部署移动端津贴功能后核查产物，`hrm-demo-static` 容器内有 **192 个 `.map`**，且 `https://kongzhen1.com/assets/<name>.js.map` **返回 200** → 生产源码映射可被公网下载。命中项目规则 **§10.4 D 档「把生产 `*.map` 部署为可公开访问」——绝对禁止，不接受任何授权**。
+- **根因**：`hrm-dev/deploy/docker-demo/nginx.conf` 的通用扩展名规则（`location ~* \.[A-Za-z0-9]+$`）会把 `.map` 一并放行；JS 内未写 `sourceMappingURL`（已核实 0 处）**不能阻止**直接按文件名下载。
+- **整改**：在**通用规则之前**插入 `location ~* \.map$ { return 404; }`（nginx 正则 location 按出现顺序匹配，顺序颠倒则失效）。**保留 map 文件供内网排障**，仅切断公网访问。
+- **验证**：`.map` 与猜测名均 **404**；`/`、`/mobile.html`、`/pc.html`、`/assets/*.js`、`/assets/*.css` 仍 **200**（未误伤）。
+- **回滚**：删除该 location 块并重建容器（不建议——回滚即重新违规）。
+- **待办**：`hrm-demo` 的 `build:prod` 仍产出 hidden 源映射，属既有配置；若要求"产物内根本不含 map"，须改 `vite.config.js` 的 sourcemap 设置（**未做**，需用户裁定，因会影响内网排障能力）。
+
+### 算薪班次制改造 + 三端互斥准入（2026-09-25）
+
+#### 一、算薪口径（用户已裁定，不得再改）
+
+| 项 | 口径 |
+| --- | --- |
+| 班次制 | 每天 **2 班次**（早班 08:00–16:00 / 晚班 16:00–24:00），**1 班次=半天**，**2 班次=1 天**；**删除中班** |
+| 基本工资 | **按班次折算**：`basicSalary × 实出班次 ÷ 应出班次`（**只折算基本工资**，岗位/津贴不折算） |
+| 已批请假 | **只折算、不罚款** |
+| 旷工 | 折算 + **罚款 100 元/班次** |
+| 全勤奖 | **请假算缺勤** → 请假者不发全勤奖 |
+| 罚款封顶 | **实发不低于 0**（`allowNegativeNet=false`），避免 v1.0 出现的 −6000 |
+| 迟到 | 保持**按次**（`PER_CARD`，= 现状源码口径） |
+| 验收基准 | 全勤 **1500** / 请半天假 **1475** / 旷工半天 **1375** / 请全天假 **1450** / 旷工全天 **1250** |
+
+#### 二、算法方案状态
+
+- `hrm-dev/docs/algo-payroll-shift.md` **v2.0**；评审报告 `tech-review-payroll-shift.md`（含「重评(v2.0)」章节）结论 = **有条件通过**，**准入报审**。
+- **1 条必改 B8**（表述类，修订后按条核对、**无须再重评**）：§2.4.2 写「取**实测库**开关值=1」与 §0.1 C3 写「实测播种值=0」**互斥**，须取值一致（或改写为假设场景并并列 =0 列）。
+- 原型：`hrm-dev/docs/algo-scripts/s2b-payroll-shift.mjs`（Node，固定种子，5 数字逐位一致，实跑通过）。
+
+#### 三、算薪实现待办（**均未开工，须先过报审**）
+
+1. **数据库**（C 档）：删 8 条「中班」；`ABSENT_FINE.params.amount` 150→100；**修 `payroll_rule_item.rule_id` 错配**（现为 1/2，而启用规则是 `payroll_rule.id=3`，导致规则 3 无任何计薪项）；修 `leave_log.leave_id`（1–12）与 `leave_request.id`（13–24）错配。
+2. **后端**：新增 `PRORATED` 源（`PayrollSource` 枚举/`PayrollRuleValidator` 白名单/`sourceLabel`/`AttendanceStat` 与 `PayrollContextProvider` 字段与查询/演示端字典与 `PayrollRuleEditor`）；`PayrollContextProvider` 由「按天去重」改为**按班次**统计；`period_name` 空的三态优先级。
+3. **测试**：按 5 个验收数字回归 + 边界（空排班/无打卡/整月全假/跨日单/历史单班数据不突变）。
+
+#### 四、新需求：三端互斥准入（**用户 2026-09-25 提出，未开工**）
+
+> 账号**不能混登**：**员工 + 站长** 只能在**驿站助手**登录；**管理员** 只能在**驿站精灵**与 **PC 端**登录。
+
+| 端 | 允许角色（目标） | 现状 |
+| --- | --- | --- |
+| 驿站助手（员工端） | **仅 `STAFF` + `STATION_ADMIN`** | `H5` **不限角色**（管理员也能进）→ **需收紧** |
+| 驿站精灵（管理端） | **仅 `ADMIN`** | 未约束 |
+| PC 端 | **仅 `ADMIN`** | ✅ 已实现（`hrm.auth.pc-allowed-roles=ADMIN`，其他角色 1110） |
+
+**已查证的实现事实**：
+- `ClientType` 枚举**已有** `ADMIN / BOSS / STAFF / WEB` 四值（`enums/ClientType.java`），但 `ClientRolePolicy.isRoleConstrainedClient()` **只认 `ADMIN`**（源码 `TODO(扩展)` 已注明扩展点）。
+- 端类型来自 **`X-Client-Type` 请求头、客户端自称、不参与鉴权**（只有审计/会话维度用途）；真正安全边界恒为「角色 + 数据范围」。
+- 因此本需求属**产品/审计约束**，不是安全边界；伪造端类型绕过它**不会获得额外权限**。
+- **未查完**：前端 `mobile.html?as=station|boss` 是否已转成 `X-Client-Type: STAFF|BOSS`（需核 `hrm-demo` 的 `as` 参数处理与 axios 头注入）。
+- 风险提示：若站长只能在驿站助手，**站长的审批功能必须在驿站助手内有入口**（否则功能不可达），需 UI/UX 与前端确认。
+
+### 三端互斥准入（已完成并验证，2026-09-25）
+
+**需求**：员工/站长只能登录**驿站助手**；管理员只能登录**驿站精灵**与 **PC 端**。
+
+**实现（后端 + 演示 Mock + 生产 PC 端）**：
+- **后端**：新建唯一策略 `ClientAdmissionPolicy`（唯一归一入口 `resolveEnd`）；**删除** `ClientRolePolicy` 与 `EndAdmissionPolicy`（消除三套口径并存）；`ClientType.parse()` 严格归一、**未知不再回落 WEB**；配置 `pc-allowed-roles=ADMIN`（兼管 `ADMIN` 端与缺省/`WEB` 端）、`boss-allowed-roles=ADMIN`、`staff-allowed-roles=STAFF,STATION_ADMIN`；**4 个调用点共用同一策略**（密码/短信/设备复判/发码复判）。
+- **演示 Mock**：`shared/mock/routes/auth.js` 重写为 `resolveEnd` + `END_ALLOWED_ROLES` 表驱动，三条路径共用，票据复判以票据存值为准。
+- **生产 PC 端 `hrm-admin`**：登录补 `clientType:'WEB'`（**复验发现的交付阻断项**：原实现不上报端类型，fail-closed 后会把自己的管理员拒之门外）。
+- **契约**：`api.md` 新增 4.1.5 端准入契约（含头优先语义与缺省 fail-closed）、首次登记 1101–1110 错误码段。
+
+**验证（服务器实测）**：单测 **17/17 全过**；**16 条准入断言全部符合预期**——端 `ADMIN`/`BOSS` 仅 `ADMIN`；端 `STAFF` 仅 `STAFF`+`STATION_ADMIN`；`STAFF` 端拒 `ADMIN`；**不传端类型与未知端均 1110**（fail-closed）；`hrm-admin` 构建通过；Mock `verify:mock` **942/942**。
+
+**安全复验（L7）**：结论 **有条件放行**，残余风险由「中」降为**低**；7 条必改 **7/7 已落实**；阻断项已修，**可进入部署**。
+
+**遗留（低风险，已登记）**：
+1. 端准入**仅约束新登录**，存量会话在 3 天 TTL 内不失效（无越权面；如需即刻全量生效须 C 档清会话）。
+2. `docs/multi-client-architecture.md` 第 93 行「缺失默认 web」表述未同步（文档债）。
+3. 会话/票据内 `clientType` 记录值由旧 `WEB`/`H5` 改为规范端名（`ADMIN`/`BOSS`/`STAFF`/`WEB`），跨端互踢粒度细化，旧新会话字符串不同（受并发上限与 TTL 兜底）。
+4. `hrm-admin` 本次仅本地构建验证，**尚未部署**（一期 PC 端本就未上线）。
+
+### 班次制算薪：实现 + 数据修正 + 端到端验证（2026-09-25）
+
+**方案**：`algo-payroll-shift.md` v2.0（技术评审「有条件通过」→ 必改 B8 已闭环 → 主智能体批准）。**口径全部经用户裁定**（见上节）。
+
+**后端实现**（`hrm-server`）：新增 `ShiftPayrollPolicy`（班次单元 `epochDay×2+序号`、三态优先级、折算、封顶链）+ `ProratedItemResolver`（新 `PRORATED` 源）；`PayrollContextProvider` 按账期开关分流班次/旧按天路径；`AttendanceStat` 扩展班次维度字段；`PayrollSource`/`PayrollRuleValidator` 登记新源；12 个新配置键（`hrm.algo.payroll.*`，全 ASCII）+ `allowNegativeNet` 默认改 `false`；`ApprovedLeaveDaysPort` 增班次单元查询。
+**验证**：定向单测 **44/44**（含 5 个验收数字 `1500/1475/1375/1450/1250` 逐位断言）；**全量回归 541/541**；编译打包重启成功。
+
+**数据修正**（C 档，采用**重灌种子**）：备份 `/data/backup/kdyzgl_test-pre-reload-20260925034655.sql.gz` → 重灌。结果：班次仅**早班/晚班**（16 行，无中班、0 悬空引用）；`ABSENT_FINE.amount` **150→100**；**规则 id 错配修复**（`payroll_rule` 现 id=1 启用/id=2 停用，8 项挂在启用规则上）；`leave_log.leave_id` 与 `leave_request.id` **对齐 1–12**；employee **64**。
+**另补**：`payroll_rule_item` 中 `BASIC` 的 `source` 由 `FIXED` 改为 **`PRORATED`**（方案候选 A 的落地点，原数据修正脚本遗漏）—— 已同步进长期种子。
+
+**端到端验证**：`POST /finance/payrolls/generate`（2026-10，班次制生效）→ **63 张单**、`ruleId=1` 正确、`ABSENT_FINE` 明细「缺勤 0 次 × 100 元」、`FULL_ATTEND` 走新指标、**`BASIC` 折算生效**（示例 `基本工资 4700 × 0/1 = 0 元`）；`2026-09`（旧账期）→ **9405 拒绝重复生成**（幂等保护生效）。
+
+**本轮发现并处置的问题**：
+1. **幂等缺陷（待修）**：同一账期**重复生成 DRAFT** 会**新增**而非覆盖（实测 126 张 = 63×2），与方案 §8.2 声称的"覆盖重建"不符 → 已手工清理重复单；**须派后端工程师修 `PayrollServiceImpl` 的 DRAFT 覆盖逻辑**。
+2. **孤儿明细**：清理重复单时产生 **1040 条孤儿 `payroll_item`**（多表 DELETE 需 `-D db` 选库）→ 已清空（现孤儿 0，每单正好 8 项）。
+3. 种子历史明细文案仍为「缺勤 N 次 × **150** 元」（演示快照），与新口径不一致（**未改**，会连锁改金额，待裁定）。
+4. `detail` 单位「次→班次」未实施（解析器不感知账期，统一改会误标历史账期）→ 已留 `TODO(扩展)`。
+
+**遗留**：① 幂等缺陷待修；② `PERIOD_NAME_MISSING` 告警无落库载体；③ 10 月排班仅 7 行（数据稀疏，故多数员工 `应出=0` 走 `FULL_BASIC` 兜底）。
+
+### ⚠️ 事故与教训：删运行目录导致全站 500（2026-09-25）
+
+**现象**：`kongzhen1.com/mobile.html?as=boss` 工作台及所有工作台接口（`/notifications/unread-count`、`/work-orders`、`/parcels/summary`、`/leave/my`、`/payrolls/my`、`/attendance/makeup/my`）**全部 500**，前端显示「系统繁忙，请稍后重试」。
+
+**根因（主智能体操作失误）**：跑单测时为拿新源码，执行了 `rm -rf /data/www/hrm-server` —— 该目录**同时是运行目录**，`hrm-server.jar` 被一并删除；随后解压的源码包**不含 jar**。JVM 已加载的类仍在内存（进程不退出），但任何需要读 jar 文件的操作（Filter / `ClassPathResource`）抛
+`java.nio.file.NoSuchFileException: /data/www/hrm-server/hrm-server.jar` → **所有请求 500**。
+
+**修复**：在源码目录 `mvn package` 重建 jar → `cp` 回 `hrm-server.jar` → 重启 → **6 个工作台接口全部 200**、公网 `401`（未带 token 正常）、日志无 `NoSuchFileException`。
+
+**必须记住的操作纪律（反模式新增）**：
+> **禁止 `rm -rf` 运行目录**。服务器上编译/测试必须用**独立构建目录**（如 `/data/www/hrm-build/`），或**先停服再动目录**。
+> 判断信号：进程仍在监听、但**所有**接口同时 500 且日志出现 `NoSuchFileException: .../hrm-server.jar` → 即为此类（jar 被删/被替换）。
+
+**遗留提醒**：`/data/www/hrm-server` 现同时承载「源码 + 构建产物 + 运行 jar」，职责混用是本次事故的结构性诱因；建议后续拆分为 `hrm-server-src/`（构建）与 `hrm-server/`（运行），属部署目录结构优化（待用户裁定）。
+
+### 幂等缺陷修复 + 前后端联动现状 + 组件库选型（2026-09-25）
+
+**① 幂等缺陷已修并验证**（派后端工程师）：
+- **根因**：`PayrollServiceImpl.deleteExisting` 用 `payrollMapper.delete(wrapper)` 删旧草稿，但 `Payroll`/`PayrollItem` 均带 `@TableLogic` → 该删除实为 `UPDATE is_deleted=1`（**软删**），覆盖重建退化成「软删 + 新增」，物理行只增不减（实测 63→126）；因 `payroll_no` 索引非唯一，重复插入不报错，缺陷被掩盖。
+- **修复**：新增 `PayrollMapper.selectRebuildTargetIds`（自定义 `@Select`，绕过逻辑删除取可覆盖 id）+ `deletePhysicallyByIds`/`deletePhysicallyByPayrollIds`（自定义单表物理删），删除范围收口在 `DRAFT`/`REJECTED`。
+- **实测**：`2026-11` 连续两次生成 → `rows 63 = emps 63`、**软删 0**、**孤儿 0**、每单 8 项；`2026-10` 未受影响；非草稿账期（`2026-09`）仍返回 `9405`（不回归）。
+- **测试修复**：新增测试类报 `can not find lambda cache for this entity`（纯单测无 Spring 上下文）→ 按 `TrustedDeviceRegistryTest` 先例加 `@BeforeAll TableInfoHelper.initTableInfo` 注册 `Payroll`/`PayrollItem`/`Employee`/`Station`/`PayrollRule`/`PayrollRuleItem`。**全量 546/546 全过**。
+
+**② 前后端联动：早已完成，无需改动**。演示站自 `20260924-real` 起即为 `build:prod`（**Mock 已剥离**）产物，`VITE_API_BASE=/hrm-api/v1` 走真实后端；实测线上产物 `createMockAdapter` 匹配数 **0**、`/hrm-api/v1` 存在。本轮又实测真实链路：登录 → `/employees`=56、`/stations`=8、`/parcels`=210、算薪生成 63 张单。
+
+**③ 前端组件库现状（用户要求"选一个最适合的"）**：
+- `hrm-admin`：**Element Plus 2.9.3**；`hrm-demo`：**Element Plus 2.9.3**（PC）+ **Vant 4.10.2**（移动端）。
+- **两者均为 GitHub 顶流开源 Vue 3 组件库**（Element Plus ~30k★、Vant ~23k★），且本项目**设计系统 Tokens 与 `verify:tokens` 门禁均建立在其上**。
+- **结论待用户裁定**：换库属**重写级工程**（`hrm-demo` 约 400 文件 + 重建设计系统），按「精简优先」原则**不建议换**；「优化用户体验」更高效路径是**在现有库上做体验专项**（骨架屏/加载态/空态/错误态、动效、表单校验提示、无障碍对比度、移动端适配）。
+
+### 三端独立拆分方案（已出方案，待裁定后实施）
+
+- 交付 `hrm-dev/docs/multi-client-split-plan.md`（架构师）：**推荐 Workspace 单仓库多工程**（`hrm-dev/hrm-clients/`：`packages/{shared,api-client,mock}` + `apps/{web,staff-h5,boss-h5}`），`hrm-demo` **冻结保留**作演示站与回滚锚点；单一 lockfile 从根上消除 `resolve.dedupe` 所补的「双副本 → 白屏」事故。
+- 迁移 **7 阶段 S1–S7**（抽共享包 → 拆网页端 → 拆员工端 → 拆管理端 → 安卓壳接入 → 发布切换 → 演示站处置）；**迁移期线上零中断**（复制式迁移 + 新路径发布，唯一切换点 S6，逐端灰度）。
+- **待用户裁定 D1–D10**，其中 **D3（仓库粒度）/D4（发布路径）/D8（API 基址）/D9（与后端 M1 先后）阻塞 S1/S6**；D2（网页端与 `hrm-admin` 关系）、S6（改现网 Nginx）**须先取网络安全工程师结论**（C 档 + 外部暴露面）。
+- 架构师事实性纠正 6 处：①「148 个前端文件」实为 `src/pc` 148 / `src` 全量 **400**；② **`VITE_API_BASE=/api/v1` 指向现网 courier-app 而非 hrm-server**（重要）；③ 网页端无自有 `utils/request`（只读复用 `@admin`）；④ 安卓壳为 `BuildConfig.H5_URL` **远程加载**而非离线 `assets/h5`；⑤ 共享层实际清单大于任务列举（另有 `clientLog.js`/`useNow.js`/`domain/{csv,mask,permission,sla,text,time,workOrderText}.js`）；⑥ `?as` 实为 `boss`/`station`。
 
 ### 本轮修复的 3 类真实缺陷（均为「未编译验证」暴露）
 
