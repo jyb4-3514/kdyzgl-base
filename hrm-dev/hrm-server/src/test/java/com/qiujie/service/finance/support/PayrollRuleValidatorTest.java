@@ -9,6 +9,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 计薪规则入参校验纯逻辑单测（文案对齐 Mock {@code validateRuleBody / validateItems}）。
@@ -73,7 +74,7 @@ class PayrollRuleValidatorTest {
 
         PayrollRuleItemRequest badSource = itemWithKey("BASIC");
         badSource.setSource("X");
-        assertEquals("规则项来源仅支持 FIXED / ATTENDANCE / KPI / MANUAL",
+        assertEquals("规则项来源仅支持 FIXED / ATTENDANCE / KPI / MANUAL / PRORATED",
                 PayrollRuleValidator.validateItems(List.of(badSource)));
 
         PayrollRuleItemRequest badEnabled = itemWithKey("BASIC");
@@ -94,6 +95,16 @@ class PayrollRuleValidatorTest {
         PayrollRuleRequest update = new PayrollRuleRequest();
         update.setStatus(0);
         assertNull(PayrollRuleValidator.validate(update, false));
+    }
+
+    @Test
+    @DisplayName("S2b：PRORATED 为合法来源（不改则保存该来源规则项会 400）")
+    void proratedSourceAccepted() {
+        PayrollRuleItemRequest item = itemWithKey("BASIC");
+        item.setSource("PRORATED");
+        assertNull(PayrollRuleValidator.validateItems(List.of(item)));
+        assertTrue(PayrollSource.isValid("PRORATED"));
+        assertEquals("出勤折算", PayrollSource.labelOf("PRORATED"));
     }
 
     @Test

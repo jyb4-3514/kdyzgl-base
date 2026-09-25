@@ -17,7 +17,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 已批请假天数端口实现（请假域 → 财务域只读，架构 §2.2；口语名 {@code approvedLeaveDays}）。
@@ -46,16 +48,7 @@ public class ApprovedLeaveDaysPortImpl implements ApprovedLeaveDaysPort {
         if (employeeId == null) {
             return BigDecimal.ZERO;
         }
-        LambdaQueryWrapper<LeaveRequest> wrapper = new LambdaQueryWrapper<>();
-        wrapper.select(LeaveRequest::getId, LeaveRequest::getLeaveType, LeaveRequest::getStartDate,
-                        LeaveRequest::getStartPeriod, LeaveRequest::getEndDate, LeaveRequest::getEndPeriod)
-                .eq(LeaveRequest::getEmployeeId, employeeId)
-                .eq(LeaveRequest::getStatus, LeaveConstants.STATUS_APPROVED)
-                // 与调用方区间相交者必有 end_date ≥ 起、start_date ≤ 止（走 idx_leave_request_date）
-                .ge(startDate != null, LeaveRequest::getEndDate, startDate)
-                .le(endDate != null, LeaveRequest::getStartDate, endDate)
-                .orderByAsc(LeaveRequest::getId);
-        List<LeaveRequest> rows = leaveRequestMapper.selectList(wrapper);
+        List<LeaveRequest> rows = approvedRows(employeeId, startDate, endDate);
         if (rows.isEmpty()) {
             return BigDecimal.ZERO;
         }
@@ -92,6 +85,53 @@ public class ApprovedLeaveDaysPortImpl implements ApprovedLeaveDaysPort {
             }
         }
         return BigDecimal.valueOf(sum).setScale(1, RoundingMode.HALF_UP);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Set<Long> approvedLeaveShiftUnits(Long employeeId, LocalDate startDate, LocalDate endDate) {
+        if (employeeId == null) {
+            return Set.of();
+        }
+        List<LeaveRequest> rows = approvedRows(employeeId, startDate, endDate);
+        if (rows.isEmpty()) {
+            return Set.of();
+        }
+        long lowUnit = startDate == null ? Long.MIN_VALUE : LeaveIntervalPolicy.unitOf(startDate, LeaveConstants.PERIOD_AM);
+        long highUnit = endDate == null ? Long.MAX_VALUE : LeaveIntervalPolicy.unitOf(endDate, LeaveConstants.PERIOD_PM);
+
+        // 只做单元展开与区间裁剪，不查排班矩阵：调用方（PayrollContextProvider）会与应出班次取交（L ∩ R），
+        // 故 NATURAL / SCHEDULED 差异在本用途下等价（方案 §2.1 问题 3）
+        Set<Long> units = new LinkedHashSet<>();
+        for (LeaveRequest row : rows) {
+            LeaveUnitRange range = LeaveIntervalPolicy.unitRange(row.getStartDate(), row.getStartPeriod(),
+                    row.getEndDate(), row.getEndPeriod());
+            if (!range.valid()) {
+                // 非法区间（同日 PM→AM）→ 0 班次（对齐 S5 降级 DATE_INVALID），不抛异常
+                continue;
+            }
+            long from = Math.max(range.startUnit(), lowUnit);
+            long to = Math.min(range.endUnit(), highUnit);
+            // 区间已被账期裁剪，单月最多 62 个单元；上限由 leave.maxLeaveDays(30 天) 进一步约束
+            for (long unit = from; unit <= to; unit++) {
+                units.add(unit);
+            }
+        }
+        return units;
+    }
+
+    /** 候选单据：同员工 + 已通过 + 与调用区间日级相交（走 idx_leave_request_date） */
+    private List<LeaveRequest> approvedRows(Long employeeId, LocalDate startDate, LocalDate endDate) {
+        LambdaQueryWrapper<LeaveRequest> wrapper = new LambdaQueryWrapper<>();
+        wrapper.select(LeaveRequest::getId, LeaveRequest::getLeaveType, LeaveRequest::getStartDate,
+                        LeaveRequest::getStartPeriod, LeaveRequest::getEndDate, LeaveRequest::getEndPeriod)
+                .eq(LeaveRequest::getEmployeeId, employeeId)
+                .eq(LeaveRequest::getStatus, LeaveConstants.STATUS_APPROVED)
+                // 与调用方区间相交者必有 end_date ≥ 起、start_date ≤ 止（走 idx_leave_request_date）
+                .ge(startDate != null, LeaveRequest::getEndDate, startDate)
+                .le(endDate != null, LeaveRequest::getStartDate, endDate)
+                .orderByAsc(LeaveRequest::getId);
+        return leaveRequestMapper.selectList(wrapper);
     }
 
     @Override

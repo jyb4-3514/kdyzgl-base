@@ -31,6 +31,7 @@ class PayrollItemResolverTest {
     private final AttendanceItemResolver attendance = new AttendanceItemResolver(algo);
     private final KpiItemResolver kpi = new KpiItemResolver(algo);
     private final ManualItemResolver manual = new ManualItemResolver();
+    private final ProratedItemResolver prorated = new ProratedItemResolver(algo);
 
     // ==================== FIXED ====================
 
@@ -191,11 +192,11 @@ class PayrollItemResolverTest {
     // ==================== 注册表 ====================
 
     @Test
-    @DisplayName("注册表：四来源可分发；未知来源按 0 计且不中断")
+    @DisplayName("注册表：五来源可分发；未知来源按 0 计且不中断")
     void registryDispatchAndUnknown() {
         PayrollResolverRegistry registry = new PayrollResolverRegistry(
-                List.of(fixed, attendance, kpi, manual), algo);
-        assertEquals(4, registry.registeredSources().size());
+                List.of(fixed, attendance, kpi, manual, prorated), algo);
+        assertEquals(5, registry.registeredSources().size());
 
         PayrollItemAmount unknown = registry.resolve("GHOST", Map.of(), PayrollCalcContext.empty());
         assertEquals(0, unknown.amount().compareTo(BigDecimal.ZERO));
@@ -203,6 +204,61 @@ class PayrollItemResolverTest {
 
         PayrollItemAmount known = registry.resolve("MANUAL", Map.of("defaultValue", 88), PayrollCalcContext.empty());
         assertEquals(0, known.amount().compareTo(new BigDecimal("88")));
+    }
+
+    @Test
+    @DisplayName("PRORATED：基本工资按出勤班次折算（59/60 → 1475）")
+    void proratedBasic() {
+        PayrollCalcContext ctx = ctx(salary(new BigDecimal("1500"), ZERO(), ZERO(), List.of(), ZERO()),
+                shiftStat(60, 59, 0, 0), null);
+        PayrollItemAmount r = prorated.resolve(Map.of("field", "basicSalary"), ctx);
+        assertEquals(0, r.amount().compareTo(new BigDecimal("1475.00")));
+        assertEquals("基本工资 1500 × 59/60 = 1475 元", r.detail());
+    }
+
+    @Test
+    @DisplayName("PRORATED：应出班次为 0 → FULL_BASIC 兜底（不克扣）")
+    void proratedZeroSchedule() {
+        PayrollCalcContext ctx = ctx(salary(new BigDecimal("1500"), ZERO(), ZERO(), List.of(), ZERO()),
+                shiftStat(0, 0, 0, 0), null);
+        PayrollItemAmount r = prorated.resolve(Map.of("field", "basicSalary"), ctx);
+        assertEquals(0, r.amount().compareTo(new BigDecimal("1500.00")));
+        assertTrue(r.detail().contains("应出班次为 0，按全额计"));
+    }
+
+    @Test
+    @DisplayName("PRORATED：未在折算字段清单内的字段 → 按原值（不擅自折算）")
+    void proratedFieldGuard() {
+        PayrollCalcContext ctx = ctx(salary(ZERO(), new BigDecimal("2500"), ZERO(), List.of(), ZERO()),
+                shiftStat(60, 59, 0, 0), null);
+        PayrollItemAmount r = prorated.resolve(Map.of("field", "postSalary"), ctx);
+        assertEquals(0, r.amount().compareTo(new BigDecimal("2500")));
+        assertTrue(r.detail().contains("未在折算字段清单内"));
+    }
+
+    @Test
+    @DisplayName("ATTENDANCE：T1 全勤奖按 ABSENT_OR_LEAVE（请假也破全勤）")
+    void attendanceFullAttendBreaksOnLeave() {
+        Map<String, Object> params = Map.of("metric", "ABSENT", "mode", "BONUS_IF_ZERO", "amount", 200);
+        // 无旷工但请假 1 班次 → 不发
+        PayrollItemAmount withLeave = attendance.resolve(params, ctx(null, shiftStat(60, 59, 1, 0), null));
+        assertEquals(0, withLeave.amount().compareTo(BigDecimal.ZERO));
+        // 无旷工且无请假 → 发
+        PayrollItemAmount clean = attendance.resolve(params, ctx(null, shiftStat(60, 60, 0, 0), null));
+        assertEquals(0, clean.amount().compareTo(new BigDecimal("200")));
+    }
+
+    @Test
+    @DisplayName("ATTENDANCE：封顶链级 2（比例封顶 = 折算基本工资 × 系数）")
+    void attendanceConfigRatioCap() {
+        AlgoProperties cfg = new AlgoProperties();
+        cfg.getPayroll().setAbsentFineCapRatio(new BigDecimal("0.5"));
+        AttendanceItemResolver resolver = new AttendanceItemResolver(cfg);
+        // 折算基本 = 1500 × 60/60 = 1500；比例封顶 = 750；缺勤 10 班次 × 100 = 1000 → 取更严 750
+        PayrollItemAmount r = resolver.resolve(Map.of("metric", "ABSENT", "mode", "PER_COUNT", "amount", 100, "cap", 0),
+                ctx(salary(new BigDecimal("1500"), ZERO(), ZERO(), List.of(), ZERO()), shiftStat(60, 60, 0, 10), null));
+        assertEquals(0, r.amount().compareTo(new BigDecimal("750.00")));
+        assertTrue(r.detail().contains("比例封顶 750 元"));
     }
 
     @Test
@@ -238,8 +294,19 @@ class PayrollItemResolverTest {
     }
 
     private static AttendanceStat stat(int late, int earlyLeave, int absent) {
-        // absentCount / leaveCount 为 BigDecimal（P7 请假按半天粒度减除缺勤）；此处仅做夹具类型适配，断言不变
-        return new AttendanceStat(late, earlyLeave, BigDecimal.valueOf(absent), 0, BigDecimal.ZERO);
+        // absentCount / leaveCount 为 BigDecimal（P7 请假按半天粒度减除缺勤）；S2b 起同步填充班次维度字段，
+        // 使 T1 组合指标 absentOrLeaveCount = 旷工 + 请假 与旧断言（按 absentCount 判全勤）语义一致
+        BigDecimal absentCount = BigDecimal.valueOf(absent);
+        return new AttendanceStat(late, earlyLeave, absentCount, 0, BigDecimal.ZERO,
+                0, 0, 0, absent, absentCount);
+    }
+
+    /** 班次制统计夹具（S2b）：应出/实出/请假/旷工班次；absentOrLeaveCount = 旷工 + 请假 */
+    private static AttendanceStat shiftStat(int required, int attended, int leave, int absent) {
+        BigDecimal absentCount = BigDecimal.valueOf(absent);
+        BigDecimal leaveCount = BigDecimal.valueOf(leave);
+        return new AttendanceStat(0, 0, absentCount, 0, leaveCount,
+                required, attended, leave, absent, absentCount.add(leaveCount));
     }
 
     private static PayrollCalcContext ctx(HrSalary salary, AttendanceStat attendance, BigDecimal kpiScore) {

@@ -169,7 +169,7 @@ public class PayrollServiceImpl implements PayrollService {
 
         List<Long> payrollIds = new ArrayList<>();
         for (Employee employee : employees) {
-            // 覆盖重建：删除同员工同月同类型旧单（含明细）后再生成
+            // 覆盖重建：物理删除同员工同月同类型旧单（含明细）后再生成，保证重复调用幂等
             deleteExisting(employee.getId(), month, PayrollBillType.MONTHLY.name());
             Payroll created = createPayroll(employee, month, PayrollBillType.MONTHLY.name(), rule,
                     enabledItems, snapshot, null, null, PayrollStatus.DRAFT.name());
@@ -598,22 +598,26 @@ public class PayrollServiceImpl implements PayrollService {
         return employeeMapper.selectList(wrapper);
     }
 
-    /** 删除同员工同月同类型旧单（含明细），用于「覆盖重建」 */
+    /**
+     * 覆盖重建：<b>物理</b>删除同员工同月同类型旧单及其明细，供重复生成幂等。
+     * <p>
+     * 为什么不用 {@code payrollMapper.delete(wrapper)}：{@link Payroll} 标注 {@code @TableLogic}
+     * 且 application.yml 全局开启逻辑删除，该调用只把旧行 {@code is_deleted} 置 1，物理行仍在，
+     * 重复生成只增不减（本缺陷根因：同账期连跑两次 → 物理行 63 → 126）。故改走自定义物理删除。
+     * <p>
+     * 范围收口：只清「可覆盖」状态（DRAFT/REJECTED，口径见 {@link PayrollGenerateGuard}），
+     * 已提交/已发布单据不取不删（9405 语义不变）；同范围的历史逻辑删除残留行一并清除，
+     * 使重跑后 {@code COUNT(*) == COUNT(DISTINCT employee_id)}。删除顺序：先明细后主单，杜绝孤儿。
+     */
     private void deleteExisting(Long employeeId, String month, String billType) {
-        List<Payroll> existing = payrollMapper.selectList(new LambdaQueryWrapper<Payroll>()
-                .select(Payroll::getId)
-                .eq(Payroll::getEmployeeId, employeeId)
-                .eq(Payroll::getMonth, month)
-                .eq(Payroll::getBillType, billType));
-        if (existing.isEmpty()) {
+        List<Long> ids = payrollMapper.selectRebuildTargetIds(employeeId, month, billType,
+                PayrollGenerateGuard.editableStatuses());
+        if (ids == null || ids.isEmpty()) {
             return;
         }
-        List<Long> ids = new ArrayList<>(existing.size());
-        for (Payroll payroll : existing) {
-            ids.add(payroll.getId());
-        }
-        payrollItemMapper.delete(new LambdaQueryWrapper<PayrollItem>().in(PayrollItem::getPayrollId, ids));
-        payrollMapper.delete(new LambdaQueryWrapper<Payroll>().in(Payroll::getId, ids));
+        // 先删明细再删主单：payroll_item 无物理外键，靠顺序与范围保证不留孤儿
+        payrollItemMapper.deletePhysicallyByPayrollIds(ids);
+        payrollMapper.deletePhysicallyByIds(ids);
     }
 
     // ==================== 私有：状态守卫 / 操作人 ====================

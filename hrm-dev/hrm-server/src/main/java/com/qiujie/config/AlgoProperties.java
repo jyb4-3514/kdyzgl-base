@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -85,24 +86,55 @@ public class AlgoProperties {
 
     @Data
     public static class Payroll {
-        /** 考勤指标 → 统计字段映射 */
+        /** 考勤指标 → 统计字段映射（{@code ABSENT_OR_LEAVE} 为 T1 组合指标：旷工 + 请假班次） */
         private Map<String, String> attendanceFieldMap = new LinkedHashMap<>(Map.of(
                 "LATE", "lateCount", "EARLY_LEAVE", "earlyLeaveCount", "ABSENT", "absentCount",
-                "ABNORMAL", "abnormalCount", "LEAVE", "leaveCount"));
+                "ABNORMAL", "abnormalCount", "LEAVE", "leaveCount",
+                "ABSENT_OR_LEAVE", "absentOrLeaveCount"));
         /** 未显式配 capRatio 时的默认上限 */
         private double defaultCapRatio = 1.0;
         /** 未知 source 处理：ZERO / THROW */
         private String unknownSourcePolicy = "ZERO";
         /**
-         * 是否允许负净额（Q3 口径未裁定）。
+         * 是否允许负净额（Q3 口径已由 T3 裁定：<b>实发不低于 0</b>）。
          * <p>
-         * 默认 {@code true}：与 Mock 现状（{@code netAmount = 加项 − 扣项}，实测最小 −360 元）逐位等价，
-         * 落实 P6 验收「默认与 Mock 一致（允许）、不得自行钳制」。Q3 若裁定「净额下限置 0」，改此值为 false 即切换，
-         * 无需改算薪代码。
+         * 默认 {@code false}：净额下限置 0（{@link com.qiujie.service.finance.support.PayrollTotalsPolicy}），
+         * 封顶链级 3（方案 §7.1）。T3 前默认 true 与 Mock 等价（允许负净额，实测最小 −360 元），
+         * T3 裁定后改为 false，使「整月无打卡」由原型 −6000 钳到 0。
          */
-        private boolean allowNegativeNet = true;
+        private boolean allowNegativeNet = false;
         /** cap<=0 语义：ZERO_MEANS_NO_CAP / ZERO_MEANS_ZERO */
         private String itemCapSemantics = "ZERO_MEANS_NO_CAP";
+
+        // ==================== S2b 班次制算薪（方案 algo-payroll-shift.md v2.0 §7，键名与默认值逐键照抄） ====================
+
+        /**
+         * 班次制生效账期（{@code yyyy-MM}）：{@code month < 该值} 走旧「按天」统计路径，
+         * 保证已出账/历史账期零语义突变（方案 §6 主保险）。上线月份由发布计划确定。
+         */
+        private String shiftModelFromMonth = "2026-10";
+        /**
+         * 班次序号判定界值（分钟）：{@code start_time} 分钟数 &lt; 该值 = 早班(0)，否则晚班(1)。
+         * <p>
+         * 注：恰为 12:00 起始的班次会被判为晚班（与晚班键冲突）；删中班后须校验无此类数据（方案 §7 建议项 S6）。
+         */
+        private int middayBoundaryMinute = 720;
+        /** 单班制历史记录哨兵：{@code period_name} 命中则覆盖当日全部排班班次（方案 §6 次保险） */
+        private String legacyPeriodSentinel = "全天班";
+        /** 需按出勤班次折算的定薪字段（T2 已裁定仅 basicSalary；扩充须用户再裁定） */
+        private List<String> proratedFields = new ArrayList<>(List.of("basicSalary"));
+        /** 旷工罚款单价（元/班次）默认值；实际以规则项 {@code params.amount} 为准 */
+        private BigDecimal absentFinePerShift = new BigDecimal("100");
+        /** 规则项级绝对额封顶默认值（对应 {@code ABSENT_FINE.params.cap}）；&lt;=0 按 itemCapSemantics 解读 */
+        private BigDecimal absentFineCap = BigDecimal.ZERO;
+        /** 配置级比例封顶：罚款上限 = 折算后基本工资 × 该系数；&lt;=0 = 本级不封顶（默认关闭） */
+        private BigDecimal absentFineCapRatio = BigDecimal.ZERO;
+        /** 应出班次为 0 时兜底：FULL_BASIC（默认，不因数据缺失克扣）/ ZERO */
+        private String zeroSchedulePolicy = "FULL_BASIC";
+        /** 全勤奖指标（T1 已裁定）：ABSENT_OR_LEAVE（旷工+请假，请假算缺勤）/ ABSENT（仅旷工，旧口径） */
+        private String fullAttendMetric = "ABSENT_OR_LEAVE";
+        /** 迟到计数粒度（T5 已裁定保持按次）：PER_CARD（每张有效 ON 迟到卡计 1 次，= 现状）/ PER_DAY（按日去重，口径变更） */
+        private String lateGranularity = "PER_CARD";
     }
 
     // ==================== §11.3 排班 ====================

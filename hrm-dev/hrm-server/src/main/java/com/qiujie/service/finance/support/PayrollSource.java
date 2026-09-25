@@ -18,7 +18,15 @@ public enum PayrollSource {
     /** KPI 考核（绩效基数 × KPI 系数） */
     KPI("KPI 考核"),
     /** 人工填写（草稿 / 驳回状态下可改） */
-    MANUAL("人工填写");
+    MANUAL("人工填写"),
+    /**
+     * 出勤折算（S2b 班次制：定薪字段 × 实出班次 ÷ 应出班次）。
+     * <p>
+     * 为什么单独成源而非复用 FIXED：折算语义是「计薪方式」而非「取数」——FIXED 只取定薪原值，
+     * 无法表达按出勤比例的金额；单列一个 source 才能把「折算」与「罚款」在明细上分开，避免可解释性混淆（方案 §4 候选 A）。
+     * 命名受 {@code payroll_rule_item.source VARCHAR(16)} 列宽约束，故取 {@code PRORATED}（8 字符），不用 ATTENDANCE_PRORATED。
+     */
+    PRORATED("出勤折算");
 
     private final String label;
 

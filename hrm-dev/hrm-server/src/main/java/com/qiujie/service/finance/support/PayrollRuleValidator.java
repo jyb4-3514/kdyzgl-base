@@ -20,7 +20,8 @@ public final class PayrollRuleValidator {
     /** 规则项 key：大写字母开头，仅大写字母/数字/下划线 */
     private static final Pattern KEY_PATTERN = Pattern.compile("^[A-Z][A-Z0-9_]*$");
     private static final String ITEM_TYPES = "ADDITION / DEDUCTION";
-    private static final String ITEM_SOURCES = "FIXED / ATTENDANCE / KPI / MANUAL";
+    /** 与 {@link PayrollSource} 取值集合逐字对齐（新增来源须同步，否则保存该来源的规则项会被判非法返回 400） */
+    private static final String ITEM_SOURCES = "FIXED / ATTENDANCE / KPI / MANUAL / PRORATED";
 
     private PayrollRuleValidator() {
     }

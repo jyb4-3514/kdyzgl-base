@@ -2,6 +2,7 @@ package com.qiujie.service.finance.port;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Set;
 
 /**
  * 跨域只读端口：已批请假天数与扣款开关（财务域 ← 请假域，架构 §2.2「只读接口」）。
@@ -34,10 +35,27 @@ public interface ApprovedLeaveDaysPort {
     BigDecimal approvedLeaveDays(Long employeeId, LocalDate startDate, LocalDate endDate);
 
     /**
+     * 某员工在 {@code [startDate, endDate]} 内「已批请假（APPROVED）」覆盖的<b>班次单元</b>集合（S2b 班次制）。
+     * <p>
+     * 为什么需要：折算与旷工罚款都以「班次」为计量单位，必须把请假落到具体班次再与应出集合取交
+     * （{@code L ∩ R}），仅天数无法参与集合差 {@code R \ (A ∪ L)}（方案 §2.1、§9.3）。
+     * <p>
+     * 单元编码与 {@code LeaveIntervalPolicy} 同构：{@code unit = epochDay × 2 + (AM ? 0 : 1)}，即 AM=早班、PM=晚班；
+     * 恰好落在应出排班的单元才抵扣缺勤，故 NATURAL / SCHEDULED 两种计薪口径在本用途下等价。
+     * 非法区间（同日 PM→AM）不产生任何单元（对齐 S5 降级 {@code DATE_INVALID}）。
+     *
+     * @return 与调用区间取交后的班次单元集合（0 表示无）
+     */
+    Set<Long> approvedLeaveShiftUnits(Long employeeId, LocalDate startDate, LocalDate endDate);
+
+    /**
      * 请假扣款开关（{@code leave_setting} 单行；无行时按配置默认，Q6 未裁定前为 false）。
      * <p>
      * true = 请假按缺勤计（扣款，{@code absentCount} 不减除请假天数）；
      * false = 默认，请假不计缺勤（{@code absentCount} 减除已批请假天数）。
+     * <p>
+     * 注意：班次制新路径（{@code month >= hrm.algo.payroll.shiftModelFromMonth}）下本开关 <b>不读取（no-op）</b>——
+     * 新口径已把请假排除在罚款外（{@code 旷工 = |R \ (A ∪ L)|}），开关语义无法表达；旧按天路径继续沿用（方案 §7.2）。
      */
     boolean leaveDeductEnabled();
 }

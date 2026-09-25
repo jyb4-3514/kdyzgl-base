@@ -4,6 +4,7 @@ import com.qiujie.service.finance.port.ApprovedLeaveDaysPort;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Set;
 
 /**
  * 已批请假天数端口降级实现（请假域未装配时的兜底）。
@@ -16,6 +17,12 @@ public class UnavailableApprovedLeaveDaysPort implements ApprovedLeaveDaysPort {
     @Override
     public BigDecimal approvedLeaveDays(Long employeeId, LocalDate startDate, LocalDate endDate) {
         return BigDecimal.ZERO;
+    }
+
+    @Override
+    public Set<Long> approvedLeaveShiftUnits(Long employeeId, LocalDate startDate, LocalDate endDate) {
+        // 请假域缺席：无请假班次可抵扣，缺勤按「应到未到」全额计（不臆造请假，不阻塞整批）
+        return Set.of();
     }
 
     @Override
