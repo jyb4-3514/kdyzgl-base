@@ -1,5 +1,111 @@
 # 变更日志
 
+## 2026-09-25 · B7 发布切换执行（C 档，主智能体执行；三端上线生产主域名 + 预置审核账号）
+
+**授权链**：用户指令「执行 B7，并预留登录账号」；P0.5 安全结论已得（`security-release-switch-review.md`：**有条件放行**，M1 `.map` 为高风险项）；运维手册已出（`deploy-b7-release-switch.md`）；主智能体三步授权表单已出（影响范围 / 可逆性 / 回滚与验证）。
+
+**产物与落点**：三端 `build:prod`（`apps/{web,staff-h5,boss-h5}`）本地重建 → 剔除 `*.map` → 打包 1.02MB → 上传解包至 **宿主 `/data/www/download/hrm-clients/{web,staff,boss}`**（文件数 **167 / 80 / 97**，`map=0`）。**执行期偏差（重要）**：原计划落 `/data/www/hrm-clients`，但实测该路径**在 `courier-nginx` 容器内不可见**（容器仅挂载 `/data/photos`、`/data/www/apk`、`/data/www/download`，**不是** `/data/www` 整树）→ 按手册 V4 预案**不新建挂载**（新建挂载须重建容器、会中断 80/443），改用**已挂载且路径一致**的 `/data/www/download/hrm-clients`；该挂载为 `ro`，只读服务静态资源无影响，且仅 `location = /download` 精确匹配会触达该目录，**不新增暴露面**。
+
+**Nginx 变更（只增不改，载体 = 必改项 6 答案）**：宿主 `/data/www/kdyzzhxt/courier-server/nginx/nginx.conf`（`ro` 挂载进容器）**追加 98 行**（server 级 `location ~* \.map$ { return 404; }` + 三端 `location ^~ /web|/staff|/boss/` 各含 `.map` 局部正则、`^/…/assets/` 长缓存、`\.html$` `no-store`、通用扩展名 `=404` 不回退 HTML、SPA 回退 `/<prefix>/index.html`）；插入锚点 = `location = /hrm-api/v1/work-orders/auto-dispatch` 之前；**未改动任何既有行**。备份 `nginx.conf.20260925121157`。**关键技术点**：单文件 bind mount **必须原地改写（`cat >`）保 inode**，用 `mv` 换文件容器看不到。
+
+**首发缺陷与修正（自捕获）**：首次应用片段时 `.map` 在新前缀内**返回 200**（M1 失效）——根因是嵌套 `location ^~ /<prefix>/assets/` 为**前缀匹配**，命中后**跳过嵌套正则**，`.map` 正则不生效。已按备份还原后用修正版重插（`^/…/assets/` 改为**正则** location，并把 `.map` 正则置于其**之前**）→ 复验三前缀 `.map` 与 `/admin/*.map` **全 404**。
+
+**上线后验证（主智能体实测，双视角）**：服务器侧与**公网侧**均 `/web/` `/staff/` `/boss/` = **200**；`/web/index.html` = 200 且 `Cache-Control: no-store`；`/web/assets/*.js` 真产物 = 200 且 `public, max-age=31536000, immutable`；history 深链 `/web/employee/1`、`/boss/hr/1` = 200；缺失资源 `/web/assets/__nope__.js` = **404（不回退 HTML）**；**.map 一律 404**（含 dummy 文件实测，证明规则对真实存在的 `.map` 亦拦）；80 → **301** HTTPS；**既有 location 逐条不变**（`/` 200 演示站、`/health` 200、`/apk/` 200、`/.well-known/acme-challenge/` 200）；路径穿越实测 `..` 与 `%2e%2e` 均被规范化后由既有 `location /` 接手，**未越界读取站点根外文件**。公网 API 链路 `POST https://kongzhen1.com/hrm-api/v1/auth/login` = 200 且返回业务码 1001（路由与白名单通）。
+
+**预置审核账号（用户要求「预留登录账号」；口令服务端生成，不落仓库/文档/对话）**：写入服务器 **`/data/hrm-tmp/review-accounts-20260925121508.txt`（`chmod 600`, `root:root`）**，请用户自行 SSH/宝塔查看。账号：`16626369983`（ADMIN → `/web/` 与 `/boss/`）、`st001_staff`（STAFF → `/staff/`）；两者口令已重置为服务端随机值，`pwd_changed=1`（免首登强制改密）。**登录实测**：ADMIN×WEB / ADMIN×BOSS / STAFF×STAFF 均 **200 + token**；**STAFF×WEB = 1110「该账号无权登录此端」**（端准入 fail-closed 生效）。
+
+**既有缺陷登记（非本次引入）**：① `/admin/` = **500**，根因 `alias /usr/share/nginx/html/admin/` + `try_files` 形成内部重定向环，且容器内 `/usr/share/nginx/html/admin` **目录不存在**（`docker logs courier-nginx` 报 `rewrite or internal redirection cycle`）；② `/download` = 404（`/data/www/download/index.html` 不存在）；③ 全站 `.map` **原本无任何拦截**（本次已补）。**变更载体与 V4 处置已闭环，可供 ADR §11 回填。**
+
+**回滚（一键，已验证备份可用）**：`cat /data/www/kdyzzhxt/courier-server/nginx/nginx.conf.20260925121157 > /data/www/kdyzzhxt/courier-server/nginx/nginx.conf && docker exec courier-nginx nginx -t && docker exec courier-nginx nginx -s reload`，随后删除 `/data/www/download/hrm-clients` 即回到变更前状态（无数据变更、无镜像/容器重建）。
+
+**遗留**：① **B2–B6 源码仍未提交**（`apps/*`、`hrm-android-shell`、docs 等），**上线产物当前无源码锚点**，回滚缺 git 依据——待用户授权即分组提交；② `deploy.md` 中 `/` → `/www/wwwroot/hrm-admin` 的记载与现网（`/` → 演示容器）矛盾，且未记 B7 新入口，待同步；③ ADR §3.7 B3/B4/B5/B6 的「回滚点」四处均不完整（漏 `hrm-clients/package.json`、`package-lock.json`、`hrm-demo` 5 文件、`e2e-utils`、flavor 源集、`local.properties.example` 等），待架构师回填；④ `/admin/` 与 `/download` 两处既有死链待修（未变更载体）；⑤ **B8 演示站处置**未开工（当前域名根 `/` 仍为演示站）。
+
+## 2026-09-25 · B6 安卓壳「两个 APK」改造（前端，静态审查，未编译未运行）
+
+**产出（仅改 `hrm-dev/hrm-android-shell/`，7 文件）**：`app/build.gradle`（48→99 行）新增 `flavorDimensions 'brand'` + `productFlavors{staff,boss}`，**移除 `buildTypes` 内硬编码 `H5_URL`**，改由 `androidComponents.onVariants` 单点注入（避免 flavor/buildType 同名 `buildConfigField` 的覆盖语义不确定性）；**新增** `app/src/staff/res/values/strings.xml`（应用名「驿站助手」）与 `app/src/boss/res/values/strings.xml`（「驿站精灵」）；`local.properties.example` 增 4 个 `h5Url*` 占位样例；`README.md`/`BUILD.md` 同步两 APK 形态与四值表。**取「同一 app module + 双 flavor」**（非两 module）：两壳共用同一份 Java（`MainActivity`/`HrmJsBridge`），桥接契约天然一致；`2 flavor × 2 buildType` → **4 个可区分 APK**（`app-{staff,boss}-{debug,release}.apk`），`applicationId` 分别为 `com.example.hrmwebview.staff` / `.boss`（**占位**，同机可并存）。
+
+**主智能体独立静态复核**：`hrm-android-shell` 改动集仅上述 7 文件（`git status` 实测，**Java 侧 `HrmJsBridge.java`/`MainActivity.java`/`AndroidManifest.xml`/`themes.xml` 均未改动** → 桥接方法名逐字未变）；`applicationId` 覆盖行与 `app_name` 分端取值已复现；全壳检索 `kongzhen1` = **0 命中**（真实域名/IP 零入库）；`local.properties` **不存在于仓库**（仅 `local.properties.example`，且值全为占位）。
+
+**`H5_URL` 四取值表（B-5 统一子路径）**：`staffDebug` = `http://10.0.2.2:5189/staff/`、`staffRelease` = `https://example.invalid/staff/`、`bossDebug` = `http://10.0.2.2:5190/boss/`、`bossRelease` = `https://example.invalid/boss/`；优先级 `-P 构建参数 > local.properties（不入库）> 占位默认`；键名 `h5Url{Staff,Boss}{Debug,Release}`。
+
+**B6 验收（静态，逐条达标）**：① `H5_URL` 无硬编码真实域名（14 处 URL 命中全为 `example.invalid` 占位 / `10.0.2.2` 模拟器约定地址 / `maven.google.com` 官方源引用 / `schemas.android.com` XML 命名空间，**真实域名=0**）；② 应用名与包名区分为**占位**（`build.gradle:59/63`、两端 `strings.xml:4`）；③ 桥接方法名未变（对照清单：`HrmBridge` 注入名 + `getDeviceInfo`/`setStatusBarStyle`/`toast`/`close` + `window.HrmShell.onBackPressed`/`onResume`/`setStatusBarHeight`，**无新增/无删除/无改名**）。
+
+**运行期验收声明**：壳加载 / 桥接通 / HTTPS / 混合内容 / WebView 缩放缓存 / 4 变体是否真出 4 APK —— **全部未运行**（本机无 JDK / Android SDK / Gradle），**收敛到具备 Android SDK 的构建环境**；**本批次不声称可交付**。
+
+**回滚点（ADR §3.7 B6 原写「还原 `build.gradle` 与壳配置（反向 diff）」，实测不完整——已补全，与 B3/B4 同源缺陷）**：还原 `app/build.gradle`（恢复 `buildTypes` 内两处 `H5_URL`）→ **删除 `app/src/staff/`、`app/src/boss/`** → 还原 `app/src/main/res/values/strings.xml`、`local.properties.example`、`README.md`、`BUILD.md`。完全可逆、未发布、无线上影响。
+
+**遗留与登记**：① **桥接契约缺 `getWifiInfo`**——三端 `bridge.js:52` 均 `call('getWifiInfo')`，但 `HrmJsBridge.java` 仅暴露 4 个方法（`:55/70/86/92`）**无此方法** → 壳内 WiFi 读取亦恒走 `mock:true`，与 ADR §3.4 隐含语义不符；本批按「桥接零改动」**未补**，登记遗留；② **待用户裁定**：真实包名（Q13）、两壳图标（Q14，当前用系统默认，U-A 未裁定 → 禁视觉分叉）、`setStatusBarStyle` 的 `dark` 语义（Q11）；③ **AGP `onVariants` 注入语法未编译验证**（Q15）；④ **U-3 未闭环**（`MainActivity` 未显式配置 WebView 缩放/缓存，保持系统默认）。
+
+## 2026-09-25 · B5 拆出 `apps/web`（网页端/PC 端）落地（前端，未触生产）
+
+**产出**：新建独立工程 `hrm-dev/hrm-clients/apps/web/`（**191 文件 / 26861 行**；dev 端口 **5191**，`base:'/web/'` + `createWebHistory(import.meta.env.BASE_URL)`；`src/{api(16),components(12),config/menu,constants,brand,layout,router(仅 PC 路由),stores(auth 端固定 WEB + org),styles(tokens.scss + element-overrides),utils(csv/department/format/payrollPreview),views(15 域)}`）。**请求层统一**：自有 `src/api/**` 全部经 `@/utils/http.js` → `@kdyzgl/api-client` 的 `createHttp`（消解「两套请求实现」）；`@admin` 引用仅 5 类只读（`styles/index.scss`、`utils/request`（仅 Mock 装配）、`utils/download`、`views/**` 9 张一期页面路由、单测 mock），**零修改 `hrm-admin`**（29 文件 mtime 早于本批开工）。**改动（apps 外）**：`hrm-clients/package.json`（`verify:tokens` +web 目标、新增 `e2e:web`）+ `package-lock.json`（+44 包，element-plus 等）。
+
+**主智能体独立复跑（非采信回报）**：`apps/web` **191 文件**、`build:prod` ✓ 且 `dist/assets` 内 `install|db-|mock` 命中 **0**（**无 Mock chunk**）；workspace `verify:tokens` **6 目标全绿**、`verify:mock` **942/942**；**跨端源码复制 = 0**（`apps/web/src` 检索 `views/staff|modules/boss|apps/staff-h5|apps/boss-h5` 的 import → **0 命中**）。子智能体另报：`build` ✓ / `lint` 0 error/69 warn / `lint:style` 0 / `test` 105/105 / **`e2e` 20 passed**（含 `02-pc-nav` 全量、`01-load` A1-2/A1-3/A1-7、`04-forms` A4-4、`05-render` A5-1~4、`07-network` B2-1/B2-2、`00-dev-server`、`06-viewport` B1-1）—— **未由主智能体亲跑**。ADR §3.7 B5 五条验收断言逐条达标；现有工程回归未破（`hrm-demo` 942/48、staff 36、boss 20）。
+
+**回滚点（ADR §3.7 B5 原写「删除 `apps/web`」，实测不完整——已纠正）**：① 删除 `apps/web/`；② **还原 `hrm-clients/package.json`**（去 web 目标与 `e2e:web`）；③ **还原 `hrm-clients/package-lock.json`**（+44 包）；④ 可选 `npm ci` 清理 workspace 依赖。无需还原 `hrm-demo`/`hrm-admin`/Nginx（零改动、线上零影响）。
+
+**遗留与登记**：① `apps/web` 与 `hrm-demo/src/pc/**` 形成**「源-新」同构双份**（R10 漂移风险）——迁移期须**只改 `apps/web`**，`hrm-demo` 仅 P0 修复，待 **B8** 退役；② `@admin/views/**` 9 张一期页面为**只读引用**，其落点收敛须**另立 ADR**（D2 长期方案）；③ `src/utils/authStorage.js` 键名切 `hrm:web:*` 顺延至 D2 收敛（**§3.5 #2「键名规范化」与 D2「保只读引用」存在冲突**，登记为需架构裁定项）；④ `TODO(扩展)`：`vite.config.js` 的 `optimizeDeps.include` 增量维护、存量「组件直连 api」由 warn 升 error、`src/api/*` 二期契约对齐；⑤ **事实性纠正**：`07-network` B2-1 被测对象原属**演示站端选择页**，`apps/web` 无此页，已按「被测端归位」改为网页端官方入口 `/web/`（断言口径不变）；`verify:tokens` 目标数由文档所记 2 已增至 **6**（基线未随 B3/B4/B5 更新，非弱化）；`split-plan §5.1 S2` 记 `base '/'` 与 ADR `B-5` 子路径裁定**冲突**，本批按 ADR 取 `/web/`，split-plan S2 措辞应作废。
+
+## 2026-09-25 · B4 拆出 `apps/boss-h5`（驿站精灵 · 管理端 H5）落地 + `/boss/kpi` 跨域直引消解（前端，未触生产）
+
+**产出**：新建独立工程 `hrm-dev/hrm-clients/apps/boss-h5/`（**134 文件 / 19047 行**；dev 端口 **5190**，`base:'/boss/'`；`src/{api(13 端点壳),components(29),composables,constants,demo,layout,modules/boss(28 页),router,stores(端固定 BOSS),styles,utils,views}`；`index.html` 独立入口 + `<title>驿站精灵</title>` + 独立 favicon）。**真消费共享包**：`@kdyzgl/shared`（47 处 import）、`@kdyzgl/api-client`（`createHttp({clientType:'BOSS'})`）、`@kdyzgl/mock`（动态 install）、`@kdyzgl/tokens`（`tokens.scss` 相对 `@use` 真源）；**无 `src/shared/**` 副本**。**B-3 核心落地**：`/boss/kpi/:employeeId` → `views/kpi/index.vue` 薄容器 → `@kdyzgl/shared/ui/KpiDetail.vue` + **props 注入**（`detail/month/loading/error/title/is-boss-view`），中立页不 import `stores/`/`api`/`mock`。**改动（apps 外）**：`hrm-clients/package.json`（`verify:tokens` 目标 +`apps/boss-h5/src/styles/tokens.scss`；新增 `e2e:boss`）+ `package-lock.json`。
+
+**主智能体独立复跑（非采信回报）**：`apps/boss-h5` `verify:mobile` **20/20**（= 裁定下限 20）、`build:prod` ✓ 且 `dist/assets` 内 `install|db-|mock` 命中 **0**（**无 Mock chunk**）；workspace `verify:tokens` **扫描 5 个目标全部通过**；**跨域直引残留 = 0**（`apps/boss-h5/src` 检索 `from '...views/staff|modules/staff|src/shared|@admin|hrm-demo'` → **0 命中**）；`hrm-demo` **未被改坏**（`verify:mobile` **48/48**）。子智能体另报：boss `lint` 0 error/27 warn、`lint:style` 0、`test` 107/107、`e2e` **12 passed**、`build` ✓、端语义矩阵 `BOSS+as=boss→200` / `H5+as=boss→200`（兼容读）/ 缺省→`1110` / 异端→`1110` —— **未由主智能体亲跑**。**两端合计 36 + 20 = 56 ≥ 48**（冻结基线满足）。三条验收断言（ADR §3.7 B4 ①②③）逐条达标。
+
+**回滚点（ADR §3.7 B4 仅写「删除 `apps/boss-h5`」，实测不完整——已纠正，与 B3 同源缺陷）**：① 删除 `apps/boss-h5/`；② **还原 `hrm-clients/package.json`**（去掉 verify:tokens 的 boss 目标与 `e2e:boss`）+ `package-lock.json`。本批**未改** `hrm-demo` / `apps/staff-h5` / `e2e-utils`（与 B3 不同，无 hrm-demo 反向 diff）。**线上零影响**。
+
+**遗留与登记**：① `hrm-demo/src/mobile/modules/boss/**`（28 文件）与 `mobile.html#/login?as=boss` 旧入口**原样保留**，待 **B8** 与 `hrm-demo` 一并退役；② 新增 3 个 boss 自有页（`workorderDetail` / `parcelDetail` / `password`），为消除 `/staff/*` 路由串而各持一份，`TODO(扩展)` 是否上移中立包待 UI/UX + 架构裁定；③ **共享 UI 清单双向漂移仍未冻结**（ADR §3.5 #16，须 UI/UX 先行）；④ `tokens.scss` 仍相对路径 `@use`（同 staff 遗留）；⑤ **U-A 未裁定 → 未做视觉分叉**（两端共用同源 Token，仅品牌常量/应用名/favicon/`<title>` 独立）；⑥ `dist/*.map` 为 `sourcemap:'hidden'` 产物（51 个），**B7 上线须在 Nginx 侧拒绝公开下载**；⑦ **B1 验收② 仍未闭环**（`hrm-demo` 不消费 `@kdyzgl/*`）；⑧ 对照表 `A3-5` 在管理端语义退化，已等价改写为「管理端只列管理员」并注明原因（**非弱化**）。
+
+## 2026-09-25 · 用户授权推进 ADR 全量 + 三项裁定补登（主智能体）
+
+**用户指令（2026-09-25）**：确认**无其它并发会话**在本工作区写入（5189 残留 dev server 与既有 B3 主体均判为历史遗留，非并发写者）；授权**继续推进并完成 ADR 全部批次**，**完成后部署到生产主域名供用户审核**。
+
+**据此补登三项裁定（采 ADR §7.1「本 ADR 建议」口径，用户「按你的建议」授权）**：**D5 安卓壳产物形态 = 两个 APK**（`com.example.hrmwebview.boss` / `.staff` 占位包名；解锁 **B6**）；**D2 `apps/web` 与一期 `hrm-admin` 关系 = 短期保留 `@admin` 只读引用、长期收敛另立 ADR**（解锁 **B5**）；**D1 `hrm-demo` 迁移后处置 = 退役归档、演示能力由构建模式承接**（解锁 **B8**）。
+
+**仍待用户裁定（未裁定前对应影响面不得实施）**：**U-A**（两端品牌视觉是否分叉，含 `hrm-admin` 生产端主色变更——本批上线**不含**该换色，保持现状）、**U-B**（`hrm-admin` 是否补最小门禁）。
+
+**B7 上线路径（C 档，用户已授权目标但未授权执行）**：按 §3.7 B7 与 P0.5/L7 —— ① **网络安全工程师先出结论**（必改项 6 的现网 Nginx 变更载体须由**运维核实并写明**）；② 主智能体 **三步授权表单**（影响范围与是否涉生产数据 / 是否可逆 / 回滚步骤与验证方法）；③ 运维工程师执行，策略**只增不改**（新增 `location /web/` `/staff/` `/boss/`，不动 `location = /` 与 `location /` 及既有全部 location）；④ 切换期观测判据任一命中即回滚；⑤ 上线后交**用户审核**。**禁**在服务器改业务源码、**禁** `push --force`/`reset --hard`/`clean -f`。
+
+## 2026-09-25 · B3 拆出 `apps/staff-h5`（驿站助手 · 员工端）落地 + 中立共享页提升（前端，未触生产）
+
+**产出**：新建独立工程 `hrm-dev/hrm-clients/apps/staff-h5/`（**交付源文件 155 个**，含 `package.json` / `index.html` / `vite.config.js` / `vitest.config.mjs` / `eslint.config.js` / `stylelint.config.cjs` / `.env.demo` / `.env.production` / `scripts/verify-mobile.mjs` / `e2e/{00-dev-server,01-load,03-mobile-nav,04-forms,05-render,06-viewport,07-network}` + `src/{api(13 端点壳),components,composables,constants,demo,layout,router(仅员工域),stores(auth 端固定 STAFF),styles,utils,views(21 页)}`）；dev 端口 **5189**。**中立共享页提升（B-3，本批落地）**：`packages/shared/src/ui/`（13 文件，含 `MessagePage.vue` / `NoticeReader.vue` / `KpiDetail.vue`，数据一律 props 注入、不 import `stores/`/`api/`/mock）；`hrm-demo` 侧**最小改动** 5 文件 + `vite.config.js` 别名改引中立页（`src/mobile/views/staff/kpi.vue` 已删除并改为 `src/mobile/views/kpi/`）。**e2e 单点**：新建 `hrm-clients/e2e-utils/harness.js`（workspace 根单点，D10 口径）。
+
+**主智能体独立复跑（非采信回报）**：`apps/staff-h5` `verify:mobile` **36/36**（= 裁定下限 36）、`build:prod` ✓ 且 `dist/assets` 内 `install|db-|mock` 命中 **0**（**无 Mock chunk**）；`hrm-demo` **未被改坏** —— `verify:mock` **942/942**、`verify:mobile` **48/48**。子智能体另报：staff `lint` 0 error/15 warn、`lint:style` 0、`test` 232/232、`e2e` **18 passed**（修复前 3 passed/15 failed）、`build` ✓、workspace `verify:mock` 942、全仓 `tokens.base.scss` 计数 = 1 —— 上述**未由主智能体亲跑**（标注为子智能体实跑证据）。五条验收断言（ADR §3.7 B3 ①–⑤）逐条达标，其中 ③ 端语义矩阵实跑（`STAFF→200`、`H5+as=station→200`、缺省→1110、`ADMIN` 登员工端→1110）、④ 静态检索（`apps/staff-h5` 无 `/boss` 路由分支、无 `src/shared` 副本、`packages/**` 不依赖任何端且无 element-plus/vant）、⑤ 并存不互踢（`hrm:staff:*` 与 `hrm_demo_mobile_*` **token/user 键零交集**，双向重载均未被踢）。
+
+**回滚点（ADR §3.7 仅写「删除 `apps/staff-h5`」，实测不完整——已纠正）**：① 删除 `apps/staff-h5/`；② **还原 `hrm-demo` 5 个文件**（`src/mobile/views/message/{MessagePage,NoticeReader}.vue`、`src/mobile/router/index.js`、`vite.config.js`、`vitest.config.mjs`）+ 复原 `src/mobile/views/staff/kpi.vue`；③ 还原 `hrm-clients/e2e-utils/harness.js`。**线上零影响**（Nginx 未改、`mobile.html` 旧入口未动、无发布动作）；禁 `reset --hard`/`clean -f`/`push --force`。
+
+**遗留与登记**：① **并发写入风险（M04 / A18 / A21）**——接手时工作区**已存在 B3 主体**（含 `dist/` 与一轮 `3 passed / 15 failed` 的 e2e 证据），且 **5189 端口存在 18:08 起的遗留 dev server（PID 5200）**，研判为**另一并发会话在同一工作区写入**；按 M04 单一写者纪律，主智能体已**停手回报用户**确认，**未提交任何内容**；② 因同一原因 **`SESSION-STATE.md` 检查点未追加**（该文件在并发会话在途改动中，避免互相覆盖）；③ `hrm-demo` 侧 e2e 登录系用例（A1-4/A1-5 等）**同因「新设备二次验证」改造而失败**，属**跨端既有缺陷**（非 B3 引入），本批按禁令未动其 spec，建议单独立项或随 B8 退役处置；④ 共享 UI 清单双向漂移（`TodoGroup`/`TodoList` 已在共享包而 split-plan §216 列为端专属；`Badge`/`Chip`/`MiniChip`/`ListItemCard`/`StatCard` 列为候选共享却仍在端内）→ **须 UI/UX 先冻结清单**（ADR §3.5 #16），本批未动；⑤ `apps/staff-h5/src/styles/tokens.scss` 仍用**相对路径** `@use` 真源（未改包名消费，未验证 Vite+Sass 解析行为）；⑥ `apps/staff-h5/e2e/_debug-login.mjs` 为排障残留（删文件属 C 档，**未删**，待裁定）；⑦ `hrm-demo` 仍**未消费 `@kdyzgl/*`**（B1 验收② 未闭环，B3 经 `vite.config.js` 只读别名消费真源），不阻塞门禁但属契约性缺口。
+
+## 2026-09-25 · B2 R-0 真源上移落地 + 断言清单对照表 + 三项裁定（前端 / 测试 / 主智能体）
+
+**B2 执行（只改 `hrm-clients` + `hrm-demo` + `hrm-admin`，未触生产）**：①**真源唯一化**——`tokens.base.scss` 全仓计数 **= 1**（仅 `hrm-clients/packages/tokens/src/`），删 `hrm-demo/src/shared/styles/tokens.base.scss` 副本（删除前与真源 SHA256 逐字一致）；②**脚本提升**——`hrm-demo/scripts/gen-element-tokens.mjs` 删除、收敛为 `packages/tokens/scripts/gen-element-tokens.mjs`（单目标 → `--targets` **多目标数组**，新增「Token 真源 / 扫描目标[N] 绝对路径」表头以满足 A6），`hrm-clients` 与 `hrm-demo` 的 `verify:tokens` 分别改三目标 / 双目标；③**`hrm-admin` 接入（A-2 取 ①）**——**新建** `hrm-admin/src/styles/tokens.scss`（`@use` 相对路径消费真源 + `:root` 登记 18 个现状字面量白名单），`src/styles/index.scss` 加 `@use './tokens.scss'`，**未改 `package.json`、未引 npm 依赖、未改任何现有视觉取值**（A5：字面量 35 处 / 白名单 18 值 / **未登记 = 0**）；④**A1 = 0 / A2 = 0**（A2 原 5 处命中系 `packages/*` 内注释含 `hrm-demo`/`@admin` 字样，已改注释、语义不变）。
+
+**A4 删除演练（四步，主智能体授权窗口内）**：`hrm-demo` 移出工作区 → `hrm-clients` / `hrm-admin` 清 `node_modules` + 清 `dist` 后重装并 `build` / `build:prod` → **产物级断言**：`hrm-admin/dist` 内 `hrm-demo` 命中 **0**、Mock 命名产物 **0**，真源消费证据（admin CSS 含 `--c-blue-700`）成立 → **目录恢复**（文件数 **34225 = 演练前**，`package.json` / `pc/tokens.scss` / `mobile/tokens.scss` 关键哈希逐位一致）。`apps/*` 尚未存在，A4(b)(c) 的 apps 部分与「admin 无 build:prod/无 Mock」**收敛到 B3/B4/B5**；演练期间未提交任何中间态。**遗留（非仓库内）**：演练副本残留 `D:\kdyzgl-b2-drill\hrm-demo`（34225 文件），工具沙箱**禁止对工作区外路径执行删除**，须由用户手工 `Remove-Item 'D:\kdyzgl-b2-drill' -Recurse -Force`；此处不清理存在被误当工作区打开、致 TRAE 记忆分桶漂移的风险。
+
+**门禁实跑（Node 可用，均已真跑）**：`hrm-demo` — `verify:mock` **942/942**、`verify:mobile` **48/48**、`verify:tokens` 绿（2 目标）、`build` ✓、`build:prod` ✓、`lint` 0 error/41 warn（既有）、`test` 430/430；`lint:style` **2 error 为既有问题**（`mobile/views/login/index.vue:475`、`pc/views/login/index.vue:425`，规则 `comment-empty-line-before`），按 A06 **归因登记、未改断言**。`hrm-clients` — `verify:mock` 942/942、`verify:tokens` 绿（3 目标）；该工程本无 build/lint/test/verify:mobile 脚本（既有）。`hrm-admin` — `build` ✓（该工程无 build:prod）。
+
+**对照表（B3/B4 开工硬门禁，已解除）**：`test-cases.md` **追加 130 行**新增「拆分前后断言清单对照表」，**48 条逐条**列归属端 + 新计数 + 脚本行号定位。结论：`apps/staff-h5`（员工端）自有 28 + 共用 8；`apps/boss-h5`（管理端）自有 12 + 共用 8；**合计 56 ≥ 48**。
+
+**主智能体裁定（补 U-2 / U-4 / U-6 书面载体）**：`verify:mock` 冻结基线 **= 942**（split-plan 所记 919 为**过时值**，以实测为准）；`verify:mobile` 冻结基线 **= 48**；**分端下限：`apps/staff-h5` ≥ 36、`apps/boss-h5` ≥ 20，两端合计 ≥ 48**（实测 56，**只增不减**）；8 条端无关断言（Mock 数据层类）按「**两端各持一份**」计；PC 用例（`01-load` A1-2/A1-3/A1-7、`04-forms` A4-4、`05-render` A5-1~A5-4、`07-network` B2-1/B2-2）**归 `apps/web`（B5）**、不计入 staff/boss 下限；`e2e/utils` 落点取 **workspace 根单点**（符合 D10「跨端门禁单点」）；**U-4 端口实测 5189（staff）/ 5190（boss）均空闲**，沿用 ADR 建议。另观察：本机 `8081` / `3307` 当前**无监听**（后端与宿主 MySQL 未在跑）。
+
+**事实性纠正（重要）**：**B1 验收②未闭环**——`hrm-demo/package.json` **无任何 `@kdyzgl/*` 依赖**、`hrm-demo/src` 零 `@kdyzgl` 引用，且 `hrm-demo/src/shared/{mock,domain,constants}` 副本仍在，即 **B1 只建包、未接线**（B1 的门禁全绿是在「hrm-demo 未消费共享包」前提下取得的）。B2 已用与 A-2 同构的**相对路径 `@use`** 完成 Token 侧接线；**`packages/{shared,api-client,mock}` 的真正消费须在 B3/B4 建端时落实**，否则共享包形同虚设。B2 另纠正两处任务描述与实测不符：`hrm-admin/src` 十六进制字面量为 **35 处 / 18 个唯一值**（非任务所列 10 处）；`hrm-clients` 无 build/lint/test 脚本、`hrm-admin` 无 `build:prod`。**环境事实**：存在僵尸 `vite --mode demo`（起于 2026-09-23）占用 `hrm-demo`，已停止（**如需本地预览须重跑 `npm run dev`**）。
+
+## 2026-09-25 · B0 裁定冻结登记（主智能体）——结构迁移批次开工前置
+
+按 `adr-structure-migration.md` §3.7 **B0** 与 §7.2 要求登记裁定结论，**B0 冻结即日生效**；未裁定项对应批次**不得开工**。
+
+**已裁定（主智能体，依据 §7.2）**：D3 仓库粒度＝方案 A（workspace 单仓多工程）；D6 共享包边界＝`tokens`+`shared`+`api-client`+`mock` 四包；**A-2** `hrm-admin` 消费真源取 **① 相对路径 `@use`**（不改 `package.json`、不引 npm 依赖）；**A-4** ③（admin 局部覆盖）→② 收敛期限**不得晚于 B2 完成**；**B-3** `MessagePage` / `NoticeReader` / `views/staff/kpi.vue` **提升为 `packages/shared/ui` 中立页**（**B3 落地**；`/boss/kpi` 改引中立页 + **props 注入**，**B4 验收「跨域直引残留 = 0」**）；**B-4** `as` 参数**保留 ≥1 个发布周期**，按 §3.3 三项触发条件于 **B8** 判定退役（不得无限期保留）；**B-5** 迁移期与终态**统一子路径** `/web/` `/staff/` `/boss/`。**已闭环**：D8（生产 API 基址 `/hrm-api/v1`，仅需运维核实现网 Nginx 前缀一致）、D9（后端多端会话已实现，**B3 硬前置撤除**，B3 仍须回归「两端并存不互踢」）、D10（e2e/verify 按端各持一份 + 跨端门禁单点）。
+
+**仍待用户（非主智能体）裁定 —— 未裁定前对应影响面不得实施**：**D5**（两 APK vs 单壳双入口 → 阻塞 **B6**）、**D1**（`hrm-demo` 处置 → 阻塞 **B8**）、**D2**（`apps/web` 与一期 `hrm-admin` 关系 → 阻塞 **B5** 终态收敛）、**U-A**（两端品牌视觉是否分叉，含 `hrm-admin` 生产端主色变更 → 阻塞**批次 A 的 admin 换色**）、**U-B**（`hrm-admin` 是否补最小门禁 → 工程投入决策）。
+
+**冻结后的开工顺序**（§3.7）：B2（R-0 真源上移）→ B3（拆 `apps/staff-h5` 驿站助手）→ B4（拆 `apps/boss-h5` 驿站精灵）→ B5/B6/B7/B8。**B3/B4 另受 ADR §3.6 硬门禁约束：「拆分前后断言清单对照表」未出表不得开工**（必改项 11）。
+
+## 2026-09-25 · 结构迁移 ADR v2 复评「通过」与真实域名形式核对（评估类，无业务代码改动）
+
+对 `adr-structure-migration.md` **v2** 执行 P0.6 / L8 复评（技术评审工程师，与产出方分离），**只追加**一节至 `tech-review-structure-migration.md`（+53 行，L317–366），既有内容零改动。**复评范围冻结**：上一轮报告 §7 所列必改项 **2 / 3 / 4 / 5 / 7 / 8 / 9 / 11 逐条核对**，每条给出「验收标准要点 → ADR v2 行号 + 原文摘录 → 独立重跑静态检索」三段证据，**8/8 已闭环**，未命中打回红线（A4 已升级为四步可复核断言、真实域名已处置并转交、B7 变更载体已三分、版本绑定声明齐备）→ **结论等级：通过，具备报主智能体审批资格**。必改项 **1 / 6 / 10** 已改为**可判定表述**，仍为 **B2 / B7 / B6 批次开工前置**（执行阶段动作，不纳入本次报审判定）。**本轮自我更正 1 处**：上一轮报告称「`hrm-admin/src` 无 `#409EFF`」**实测不符**——实有 `#409eff` 4 处、`#909399` 6 处；ADR v2 L34 计数正确，已以本轮实测为准。
+
+同批按必改项 2 第二半**转交网络安全工程师**形式核对，**新建** `security-structure-migration-review.md`（183 行）：ADR v2 全文 `kongzhen1` / `.com` / `http://` / IPv4 / `password|secret` **命中 = 0**，`https://` 唯一命中为 `example.invalid` 占位；**结论：文档层出现生产域名不构成新增暴露面（域名公开可得、不与凭据组合、无攻击链），风险低，安全维度不阻塞报审**；报告内不落任何真实值。**登记上游一致性问题 3 项（不挂本 ADR 报审闸门，另立任务）**：① 技术评审报告自身（L20/L129/L269）含真实域名；② `multi-client-split-plan.md` §2.4 称「域名/IP 不落本文」而同文件 L80/L91/L103 却落；③ 必改项 2 所引 v1 行号已漂移（v2 为 L264/L439）。全仓另有 9 份文档含真实域名、2 份含生产 IP（既有状态，非本 ADR 引入）。**本批仅 3 个文档文件变动**（评审报告追加、安全核对报告新建、`ui-experience-optimization.md` v1.1），**未改任何源码 / 契约 / 规则 / 迁移脚本**，未执行 git 操作。
+
 ## 2026-09-25 · 修复「同账期重复生成工资单不幂等」缺陷（后端，只改 hrm-server + 本行）
 
 **缺陷**：同账期连调两次 `POST /api/v1/finance/payrolls/generate`，`payroll` 物理行翻倍（2026-10 两次 → 126 行 = 63 × 2，`COUNT(DISTINCT employee_id)=63`），即「DRAFT 覆盖重建」未生效；非草稿路径 9405 正常。

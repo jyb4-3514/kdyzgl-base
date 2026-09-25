@@ -1247,3 +1247,133 @@ curl -s -X PUT "$BASE_URL/stations/$STATION_ID_OK/status" \
 | E05 | 10 | 0 | 0 | 0 | 0 |  |
 | E06 | 15 | 0 | 0 | 0 | 0 |  |
 | 总计 | 167 | 0 | 0 | 0 | 0 |  |
+
+***
+
+## 拆分前后断言清单对照表（B3/B4 开工门禁 · 2026-09-25）
+
+> **依据：** [adr-structure-migration.md](file:///d:/Users/16626/Desktop/kdyzgl-base/hrm-dev/docs/adr-structure-migration.md) §3.6 末行——「**`verify:mobile` 分端下限对照表：** 先出「拆分前后断言清单对照表」（逐条列出原 48 条 → 归属端 + 新计数），据表确定每端下限；**未出表不得开工 B3 / B4**。」本节即该硬门禁交付物。
+> **来源脚本：** `hrm-dev/hrm-demo/scripts/verify-mobile-t13-t16.mjs`（先读后逐条落表，未改一字）。
+> **归属口径（ADR §3.6）：** 员工路径 → `apps/staff-h5`；管理端路径 → `apps/boss-h5`；登录/分流等共用项**两端各持一份**。
+> **计数口径：** 脚本含 **49 处 `check(` 调用点 → 48 条逻辑断言**（`:311` 与 `:313` 是同一断言 `STAFF·非本人处理人工单流转 8002` 的 if/else 两分支，运行时只执行其一；`grep -c '^\s*check('` = 49，实跑「通过 48」印证）。
+> **定位格式：** 定位列 = 脚本相对路径 `scripts/verify-mobile-t13-t16.mjs` 的行号，行号指该 `check(` 语句起始行。
+
+### 一、逐条断言对照表（原 48 条 → 归属端 + 新计数）
+
+| 序号 | 断言名称/编号 | 断言对象（页面/组件/行为） | 断言内容摘要 | 归属端 | 新计数 | 可复核定位 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 剧本·失败同步任务 ≥1 | Mock 种子数据层（`db.syncTasks`） | 失败同步任务 ≥ 1 条 | 跨端共用（两端各持一份） | 2 | scripts/verify-mobile-t13-t16.mjs:78 |
+| 2 | 剧本·城东驿站存在失败批次（S5 演示点） | Mock 种子数据层 | 城东驿站（id=1）存在失败批次 | 跨端共用（两端各持一份） | 2 | scripts/verify-mobile-t13-t16.mjs:79 |
+| 3 | 剧本·超 SLA 工单 6 条 | Mock 种子数据层（`db.workOrders`） | 超 SLA 开放工单恰为 6 条 | 跨端共用（两端各持一份） | 2 | scripts/verify-mobile-t13-t16.mjs:83 |
+| 4 | 剧本·超 48h 未取件 ≥10 | Mock 种子数据层（`parcelStore`） | 超 48h 未取件 ≥ 10 件 | 跨端共用（两端各持一份） | 2 | scripts/verify-mobile-t13-t16.mjs:84 |
+| 5 | 剧本·指定演示运单号（城东驿站 + 在库待取） | Mock 种子数据层 | 演示运单号命中：stationId=1 且 status=1 | 跨端共用（两端各持一份） | 2 | scripts/verify-mobile-t13-t16.mjs:85 |
+| 6 | 管理端·登录 | boss-h5 登录链路 | admin 登录成功返回 token | apps/boss-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:93 |
+| 7 | 管理端·全局包裹指标 | boss-h5 经营总览 | `/parcels/summary` 全局 parcelTotal > 100000 | apps/boss-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:96 |
+| 8 | 趋势·7 天返回 7 个点 | boss-h5 趋势图 | `/parcels/trend?days=7` 返回 7 个点 | apps/boss-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:104 |
+| 9 | 趋势·30 天返回 30 个点 | boss-h5 趋势图 | `days=30` 返回 30 个点 | apps/boss-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:105 |
+| 10 | 趋势·点位含入库与取件字段 | boss-h5 趋势图 | 每点含 `date`/`inbound`/`pickup` | apps/boss-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:106 |
+| 11 | 排行·默认按包裹量降序（8 个驿站） | boss-h5 驿站排行 | 8 个驿站且 parcelTotal 降序 | apps/boss-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:116 |
+| 12 | 排行·按取件率重排生效 | boss-h5 驿站排行 | pickupRate 降序且首名与默认不同 | apps/boss-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:120 |
+| 13 | 排行·按异常率重排生效 | boss-h5 驿站排行 | abnormalRate 降序 | apps/boss-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:127 |
+| 14 | 预警·超 SLA 工单总数 6 | boss-h5 预警 | `/work-orders?overSla=1` total == 6 | apps/boss-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:133 |
+| 15 | 预警·同步失败批次可查且带驿站名 | boss-h5 预警 | status=3 批次 ≥1 且含 stationName | apps/boss-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:142 |
+| 16 | 预警·超 48h 未取件接口可下钻（有 id 可跳详情） | boss-h5 预警 | 列表 100 条且首项含 id | apps/boss-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:151 |
+| 17 | 员工端·站长登录且归属城东驿站 | staff-h5 登录链路 | st001_admin 登录成功 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:158 |
+| 18 | 员工端·指标收敛为本站（小于全局） | staff-h5 工作台指标 | 本站 parcelTotal ∈ (0, 全局) | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:161 |
+| 19 | 员工端·包裹列表限定本站 | staff-h5 包裹列表 | 20 条全部 stationId=1 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:175 |
+| 20 | 员工端·传其它驿站 stationId 被强制覆盖 | staff-h5 数据范围防护 | 传 stationId=5 仍返回本站 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:185 |
+| 21 | 员工端·运单号精确搜索命中 1 条 | staff-h5 搜索 | waybillNo 精确命中 total=1 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:193 |
+| 22 | 员工端·不存在的运单号返回 0 条（页面提示） | staff-h5 搜索 | 不存在单号 total=0 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:202 |
+| 23 | 员工端·排行收敛为 1 个驿站 | staff-h5 排行 | 仅 1 站且 stationId=1 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:205 |
+| 24 | 员工端·工单限定本站 | staff-h5 工单列表 | 全部 stationId=1 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:210 |
+| 25 | 员工端·同步批次限定本站 | staff-h5 同步任务 | 全部 stationId=1 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:216 |
+| 26 | 员工端·批次日志可查（只读弹层） | staff-h5 同步日志 | logs ≥ 3 条 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:222 |
+| 27 | 取件核销·成功并返回已取件包裹 | staff-h5 取件核销 | status=2 且有 pickupTime | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:232 |
+| 28 | 取件核销·取件员工留痕（st001_admin id=3） | staff-h5 取件核销 | pickupEmployeeId=3 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:237 |
+| 29 | 取件核销·今日取件 +1 | staff-h5 工作台指标 | todayPickup 增 1 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:243 |
+| 30 | 取件核销·重复取件返回 7002 | staff-h5 取件核销 | 二次取件 code=7002 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:249 |
+| 31 | 工单·存在待处理工单可接单 | staff-h5 工单 | 存在 status=0 且未指派工单 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:253 |
+| 32 | 工单流转·待处理 → 处理中 | staff-h5 工单流转 | 接单后 status=1 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:258 |
+| 33 | 工单流转·处理中 → 已解决（含处理记录） | staff-h5 工单流转 | status=2 + resolvedTime + handleLog | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:267 |
+| 34 | 工单流转·已解决 → 已关闭 | staff-h5 工单流转 | status=3 + closedTime | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:279 |
+| 35 | 工单流转·已关闭再流转返回 8001 | staff-h5 工单流转 | 非法流转 code=8001 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:288 |
+| 36 | 工单指派·ADMIN 指派给 st001_staff | boss-h5 工单指派（跨端联动，见 §七） | 指派后 assigneeId=4 | apps/boss-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:290 |
+| 37 | STAFF·同步状态接口 403（看不到同步页） | staff-h5 权限 | STAFF 访问 `/sync-tasks` → 403 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:299 |
+| 38 | STAFF·包裹列表可读且限本站 | staff-h5 权限 | 全部 stationId=1 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:301 |
+| 39 | STAFF·工单列表可读 | staff-h5 权限 | total > 0 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:303 |
+| 40 | STAFF·非本人处理人工单流转 8002 | staff-h5 权限 | 非本人单流转 code=8002 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:311（else 兜底分支 :313） |
+| 41 | 通知·指派联动生成通知且未读 | staff-h5 通知 | 指派生成未读通知 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:322 |
+| 42 | 通知·未读数与列表一致 | staff-h5 通知 | 未读数 == 列表未读条数 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:327 |
+| 43 | 通知·标记已读后未读 -1 | staff-h5 通知 | 未读数 -1 且 isRead=true | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:334 |
+| 44 | 通知·未读 Tab 过滤生效 | staff-h5 通知 | `isRead=0` 过滤后全部未读 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:343 |
+| 45 | 通知·全部已读后角标为 0 | staff-h5 通知 | read-all 后 count=0 | apps/staff-h5 | 1 | scripts/verify-mobile-t13-t16.mjs:346 |
+| 46 | 重置·覆盖层已清空 | Mock 重置设施（`overlay`） | overlay.get(id) === null | 跨端共用（两端各持一份） | 2 | scripts/verify-mobile-t13-t16.mjs:351 |
+| 47 | 重置·包裹回到种子状态（在库待取） | Mock 重置设施（`parcelStore`） | 重置后该单回到 status=1 且可查 1 条 | 跨端共用（两端各持一份） | 2 | scripts/verify-mobile-t13-t16.mjs:352 |
+| 48 | 重置·旧 token 失效（强制重新登录） | Mock 重置设施 + 鉴权 | 重置后旧 token → 401 | 跨端共用（两端各持一份） | 2 | scripts/verify-mobile-t13-t16.mjs:357 |
+
+### 二、每端下限与合计校验
+
+| 端 | 自有断言（不与其他端重叠） | 共用项各持一份 | **分端下限** | 说明 |
+| --- | --- | --- | --- | --- |
+| `apps/staff-h5` | 28 条（原 #17–#35、#37–#45） | +8 条（原 #1–#5、#46–#48） | **36** | 员工路径 + STAFF 权限 + 取件核销 + 工单流转 + 通知 |
+| `apps/boss-h5` | 12 条（原 #6–#16、#36） | +8 条（原 #1–#5、#46–#48） | **20** | 管理端路径：登录 / 全局指标 / 趋势 / 排行 / 预警 / 指派 |
+| `apps/web` | 0 条 | — | 0 | `verify:mobile` 本不含 PC 断言；PC 门禁见 e2e `02-pc-nav`（归属 B5） |
+
+**校验：**
+- 唯一性：28（staff）+ 12（boss）+ 8（共用，各持一份）= **48** ✔（与实跑「通过 48」一致，无遗漏无重复）。
+- 合计下限：36（staff）+ 20（boss）+ 0（web）= **56 ≥ 48** ✔（满足 ADR §3.6「两端合计 ≥ 48」、「只许增加不许丢失」）。
+- 拆一份变两份：共用 8 条按两端各持一份 → 8 → 16，合计由 48 增至 56，属**只增不减**。
+
+### 三、e2e 资产归属（`hrm-dev/hrm-demo/e2e/`）
+
+> 用例数为**静态计数**（`grep -n '^\s*test('`），e2e **未实跑**（需 dev server 5188 + Playwright 浏览器，见 §六）。
+
+| spec 文件 | 实测用例数 | 归属 | 拆分方式 | 是否新增 |
+| --- | --- | --- | --- | --- |
+| `00-dev-server.spec.js`（P0-1a/1b） | 2 | 跨端契约 → 各端各持一份 | 按端各持一份同源断言（ADR §3.6） | 是（拆分后各端各持一份） |
+| `01-load.spec.js`（A1-1…A1-7） | 7 | 混合 | A1-1 端选择页 → `hrm-demo`（演示站保留）；A1-2/A1-3/A1-7（PC）→ `apps/web`；A1-4（移动端员工端）→ staff；A1-5（移动端管理端）→ boss；A1-6（三入口首屏）→ 按端各持一份 | 是（按被测端拆分子集） |
+| `02-pc-nav.spec.js`（A2-1…A2-5） | 5 | `apps/web` | 整体平移（history 路由端） | 否（平移） |
+| `03-mobile-nav.spec.js`（A3-1…A3-8） | 8 | staff / boss | A3-1/A3-3/A3-6/A3-8 → staff；A3-2/A3-7 → boss；A3-4（404）/A3-5（身份切换）→ 两端各持一份 | 是（拆为两份） |
+| `04-forms.spec.js`（A4-1…A4-4） | 4 | staff / `apps/web` | A4-1/A4-2/A4-3（`/staff/*`）→ staff；**A4-4 为 PC 发布通知抽屉 → `apps/web`**（见 §七 事实纠正） | 是 |
+| `05-render.spec.js`（A5-1…A5-7） | 7 | `apps/web` / staff / boss | A5-1…A5-4（PC）→ `apps/web`；A5-5（`/boss/trend`）→ boss；A5-6/A5-7（`/staff/*`）→ staff | 是 |
+| `06-viewport.spec.js`（B1-1…B1-3） | 3 | `apps/web` / staff+boss | B1-1（PC 六档视口）→ `apps/web`；B1-2/B1-3（移动端六档/窄屏）→ 两端各持一份 | 是 |
+| `07-network.spec.js`（B2-1…B2-3） | 3 | 跨端契约 → 各端各持一份 | 按端各持一份（B2-1 端选择页、B2-2 PC 登录页须先按被测端归位，见 §七） | 是 |
+| `playwright.config.js` | — | 各端一份 | `baseURL` 改各自 dev 端口；`--config` 唯一入口纪律保留 | 是 |
+| `utils/{harness,measure-ops,summarize}.mjs` | — | workspace 根 `e2e-utils/`（或各端复制） | 断言工具不弱化 | 视选型（ADR/ split-plan 未定稿） |
+
+### 四、门禁基线实跑冻结（2026-09-25 · 本机 Node）
+
+工作目录 `hrm-dev/hrm-demo`，三条均 **exit code 0**，真实输出计数如下：
+
+| 门禁 | 命令原文 | 真实输出（计数行） | 期望 | 结论 |
+| --- | --- | --- | --- | --- |
+| `verify:mock` | `npm run verify:mock`（= `node scripts/verify-mock.mjs`） | `共 942 项：通过 942 项 / 失败 0 项` | ≥ 942 | ✔ 达标 |
+| `verify:mobile` | `npm run verify:mobile`（= `node scripts/verify-mobile-t13-t16.mjs`） | `T13–T16 数据链路实测：通过 48 / 失败 0` | = 48 | ✔ 达标 |
+| `verify:tokens` | `npm run verify:tokens`（= `node ../hrm-clients/packages/tokens/scripts/gen-element-tokens.mjs --check --targets src/pc/styles/tokens.scss,src/mobile/styles/tokens.scss`） | 目标 1（pc/tokens.scss）`通过`（A 类 6 复现 + B 类 24 手写基线）；目标 2（mobile/tokens.scss）`通过（无命中项）`；`汇总：扫描 2 个目标，全部通过` | 绿 | ✔ 达标 |
+
+**冻结值（唯一基线，供 B1–B8 引用）：**
+- `verify:mock` 冻结基线 = **942**（≥ 942）。
+- `verify:mobile` 冻结基线 = **48**；分端下限：`apps/staff-h5` ≥ **36**、`apps/boss-h5` ≥ **20**、两端合计 ≥ **48**（本表实测合计 56）。
+- `verify:tokens` 冻结值 = **绿（2 目标全通过）**。
+- 三条与期望**全部相符，无差异**（详见 §七）。
+
+### 五、纪律声明
+
+1. 新端（`apps/staff-h5` / `apps/boss-h5`）门禁**只可平移或增强**，禁止为通过而修改断言（**反模式 A06**）；本节基线为实跑冻结值，任何改动须归因并登记，不得静默改基线。
+2. 本节**未修改** `verify-mobile-t13-t16.mjs`、任何 e2e spec、`hrm-demo/scripts/**`、`hrm-demo`/`hrm-admin`/`hrm-clients` 源码与配置，也未新建脚本；仅追加本文档。
+3. 新端 e2e 一律「**只新增、不改既有断言**」（ADR §3.6）。
+
+### 六、未运行项声明
+
+- **e2e（Playwright）未运行**：需 `npm run dev`（5188）+ 浏览器依赖；§三 用例数为静态计数（grep），非运行结论。
+- **`build` / `build:prod` / `lint` / `lint:style` / `test` 未运行**：本任务仅要求三条 verify 门禁；构建「无 Mock chunk」「规则集不减」等结论**未验证**。
+- **Java / Android 相关未运行**：本机无 JDK / Maven / MySQL / Redis / Android SDK，相关验收标注「未运行」，收敛到具备相应环境的构建环境。
+
+### 七、事实性纠正与待确认口径（遗留）
+
+1. **[事实] `verify:mobile` 实测 = 48**，与 ADR §3.6 / split-plan §5.3 所述「48」**一致**。
+2. **[事实] `verify:mock` 实测 = 942**，与 ADR §1.3-3「用户口径 942」**一致**；与 split-plan §1.2 C9 / §5.3 所述「919/919」**不一致** —— 以**实测 942 为冻结基线**，919 为过时值。
+3. **[事实纠偏] 任务/文档口径中「`04-forms` / `05-render` 拆为 staff/boss 两份」需修正**：实测 `04-forms` 含 1 条 PC 用例（A4-4 发布通知抽屉）、`05-render` 含 4 条 PC 用例（A5-1…A5-4），二者须归 `apps/web`；`01-load` 亦含 hrm-demo 专有「端选择页」用例（A1-1）与 3 条 PC 用例（A1-2/A1-3/A1-7），非纯按移动端拆分。`07-network` 的 B2-1（端选择页）/B2-2（PC 登录页）同理须先按被测端归位，「按端各持一份」方可成立。
+4. **[待确认] 8 条「跨端共用」项（原 #1–#5 剧本数据、#46–#48 重置设施）为端无关断言**（断言对象为 Mock 数据层 / 重置设施，不区分端）。本表按「两端各持一份」计（合计 56）。若主智能体裁定按「演示下游消费者」单端归属（#2/#5 → staff，#1/#3/#4 → boss，重置视归属），两端合计仍 ≥ 48；**开工 B3/B4 前需主智能体确认此口径**（ADR §10.2 U-2）。
+5. **[待闭环] 原 #36（工单指派·ADMIN）为跨端联动断言**：动作发起端 = 管理端（归 boss-h5），其效果断言（原 #41 通知·指派联动）在员工端（归 staff-h5）。拆端后单端 e2e 无法闭环该联动，须登记为**跨端联调用例**（建议随 B4 或 B7 执行）。
+6. **[待闭环] `e2e/utils/*` 落点**（workspace 根 `e2e-utils/` vs 各端复制）在 ADR / split-plan 中为二选一未定稿，须在 B3 前定稿。
