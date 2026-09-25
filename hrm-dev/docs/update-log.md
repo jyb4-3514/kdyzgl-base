@@ -12,7 +12,7 @@
 
 **五、`/web/` 重新部署（C 档）**：因 `hrm-admin/src/styles/**` 变更（`apps/web` 只读引用 `@admin` 样式），按「服务器产物须与工作区一致」重新构建 `apps/web` 并替换线上 `/web/`（剔除 `*.map`，含备份与逐条 curl 验证）。
 
-**遗留**：① 技术评审建议对 ADR v3 新增的**服务器绝对路径 / bind mount 机制**由**网络安全工程师形式核对暴露面**（§9 SP7 口径）——**未派发**，已登记待办（判断依据：均为内网路径、无凭据/域名/IP，且早前形式核对结论为「公开可得信息不构成新增暴露面」，可随时按需执行）；② ADR §7.1 **D5 仍标「待定」**（`update-log` 已登记 D5 = 两 APK），属状态滞后，待下次 ADR 修订一并回填；③ `hrm-admin` 未纳入 CI；`verify:a5` 未接入 workspace 根脚本（结构变更待裁定）；④ 必做-5.2 焦点环（`layout/index.vue:229` 仍 `outline: none`）与四态接入**未在本轮授权范围**，`TODO(扩展)`；⑤ 体验优化批次 A–D 未开工。
+**遗留**：① 技术评审建议对 ADR v3 新增的**服务器绝对路径 / bind mount 机制**由**网络安全工程师形式核对暴露面**（§9 SP7 口径）——**未派发**，已登记待办（判断依据：均为内网路径、无凭据/域名/IP，且早前形式核对结论为「公开可得信息不构成新增暴露面」，可随时按需执行）；② ADR §7.1 **D5 仍标「待定」**（`update-log` 已登记 D5 = 两 APK），属状态滞后，待下次 ADR 修订一并回填；③ `hrm-admin` 未纳入 CI；`verify:a5` 未接入 workspace 根脚本（结构变更待裁定）；④ 必做-5.2 焦点环（`layout/index.vue:229` 仍 `outline: none`）与四态接入**未在本轮授权范围**，`TODO(扩展)`；⑤ 体验优化批次 A–D 未开工；⑥ **配置与现状缺口（本轮实测登记）**：`/data/www/hrm-config/application-prod.yml` 指向库 **`kdyzgl`**，但宿主 MySQL（`127.0.0.1:3307`，datadir `/data/mysql-host`）**该库不存在**——`show databases` 仅 `information_schema` / `kdyzgl_test` / `performance_schema`；且当前进程以 `--spring.profiles.active=dev` 运行（连 `kdyzgl_test`）。**结论：切 prod profile 前必须先建 `kdyzgl` 库并执行迁移与灌数，否则连接失败**。另：3306 无监听（该机 MySQL 实例唯一，端口 3307）；`/data/mysql`（属主 `lxd`）为**未在运行的旧数据目录**；Redis 为 `courier-redis` 容器（`127.0.0.1:6379`）。
 
 ## 2026-09-25 · B8 演示站处置（门户收敛 + 冻结发布纪律 + 文档回填；**旧入口按条件保留**）
 
