@@ -15,28 +15,32 @@ document.getElementById('portal-env').innerHTML = `
   <div>· 统一演示密码：<code>demo1234</code>（仅存于 Mock 数据，非任何环境真实凭据）</div>
 `
 
-/** 三张卡片：移动端两张带 ?as=，登录页据此预填演示身份，省掉演示现场手输账号 */
+/**
+ * 三张卡片：门户链接已指向三端独立工程的绝对子路径（/web/ /staff/ /boss/），与 deploy/docker-demo/portal.html 保持一致。
+ * 注意：本地 `npm run dev`（5188）下这些绝对路径不可达属预期——它们指向生产子路径，非本演示站点内页面。
+ * 迁移期演示站自身页面（pc.html / mobile.html）仍保留可用，旧 `?as=` 入口未退役（ADR §3.3 退役三项条件未满足）。
+ */
 const cards = [
   {
     tag: 'PC / Desktop',
     name: '网页端（管理后台）',
     role: 'ADMIN 全量功能 · STATION_ADMIN 本站包裹与工单 · STAFF 仅个人中心',
-    link: 'pc.html',
+    link: '/web/',
     note: '→ 进入网页端'
   },
   {
     tag: 'Mobile / WebView',
     name: '驿站精灵（经营视角）',
     role: 'ADMIN 身份的移动视图：经营总览、趋势、驿站排行、异常预警',
-    link: 'mobile.html#/login?as=boss',
-    note: '→ 进入移动端（已预填「管理员」账号）'
+    link: '/boss/',
+    note: '→ 进入驿站精灵（管理员 / 站长）'
   },
   {
     tag: 'Mobile / WebView',
     name: '员工端 · 驿站助手（作业视角）',
     role: 'STATION_ADMIN / STAFF：取件核销、工单处理、本站包裹与同步状态',
-    link: 'mobile.html#/login?as=station',
-    note: '→ 进入移动端（已预填「站长」账号）'
+    link: '/staff/',
+    note: '→ 进入驿站助手（员工 / 站长）'
   }
 ]
 

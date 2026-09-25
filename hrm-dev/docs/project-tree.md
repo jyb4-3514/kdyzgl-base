@@ -95,6 +95,37 @@ hrm-dev/
 └── .dockerignore
 ```
 
+### 2.1 多端 workspace：`hrm-clients/`（2026-09-25 回填，追加）
+
+> 阶段：ADR-结构迁移 **B1–B5 已落地**（三端独立工程 + 共享包）。本小节为**追加**，不改动上文既有结构描述。
+> §0 的 `TODO(扩展)` 三端独立代码**已由本节与 `hrm-dev/docs/adr-structure-migration.md` 承接**。
+
+```
+hrm-clients/                         # 多端 workspace（npm workspaces，根包 @kdyzgl/clients）
+├── apps/
+│   ├── web/                         # 网页端（PC 管理后台），dev :5191，base:'/web/'（history 路由）
+│   ├── staff-h5/                    # 员工端「驿站助手」，dev :5189，base:'/staff/'（hash 路由）
+│   └── boss-h5/                     # 管理端「驿站精灵」，dev :5190，base:'/boss/'（hash 路由）
+├── packages/
+│   ├── tokens/                      # Design Token 真源（tokens.base.scss + scripts/gen-element-tokens.mjs）
+│   ├── shared/                      # 纯逻辑 + 中立共享 UI（constants / domain / ui / composables）
+│   ├── api-client/                  # 请求层工厂 createHttp + 接口契约 contracts
+│   └── mock/                        # Mock 引擎（routes / stores / engine / install；唯一行为规格）
+├── e2e-utils/                       # 跨端 e2e 公共 harness（harness.js）
+├── scripts/                         # 根级跨端门禁（verify-mock.mjs）
+├── package.json                     # workspaces + 根脚本（verify:mock / verify:tokens / e2e:{staff,boss,web}）
+├── README.md
+└── .gitignore
+```
+
+| 端（工程） | dev 端口 | `vite.base` | 路由模式 | 现网入口 |
+| --- | --- | --- | --- | --- |
+| `apps/web` | 5191 | `/web/` | history（需 SPA 回退） | `/web/` |
+| `apps/staff-h5` | 5189 | `/staff/` | hash | `/staff/` |
+| `apps/boss-h5` | 5190 | `/boss/` | hash | `/boss/` |
+
+> **边界与纪律：** `packages/*` 禁依赖任何端（含 `@admin`）与 Element Plus / Vant；根提供 `verify:mock` / `verify:tokens` 两个**跨端**门禁，各端自持 `build` / `build:prod` / `lint` / `test` / `e2e`。三端 `vite.base`、`createWebHashHistory`/`createWebHistory` 的 base、Nginx `location` 前缀**三者必须一致**（否则资源 404）。现网落点与回滚见 `hrm-dev/docs/deploy.md` §11。
+
 ---
 
 ## 3. `hrm-dev/docs/` 文档索引
@@ -185,3 +216,4 @@ src/main/
 | 日期 | 变更 |
 | --- | --- |
 | 2026-09-24 | 首次生成；补入三端定位、短信验证码与高德定位待办 |
+| 2026-09-25 | 追加 §2.1 多端 workspace `hrm-clients/`（B1–B5 落地：`apps/{web,staff-h5,boss-h5}` + `packages/{tokens,shared,api-client,mock}` + `e2e-utils/`；dev 端口 5191/5189/5190，base `/web/` `/staff/` `/boss/`） |

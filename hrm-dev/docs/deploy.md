@@ -36,6 +36,8 @@
                   └───────────────────────────────────────────────────────────────────┘
 ```
 
+> **矛盾标注（2026-09-25，不改写上文历史结论）：** 本图 `0.1` 所述 `/` → `/www/wwwroot/hrm-admin`（宝塔站点根）与**现网实况不符**——现网 `/` 由容器 `hrm-demo-static`（演示静态站）提供端选择页门户，非 `hrm-admin` 站点根。**以现网为准**，详见本手册新增的 §11「现网实况与 B7 三端入口」。
+
 ### 0.2 服务器目录规划
 
 | 路径 | 用途 | 说明 |
@@ -1014,6 +1016,95 @@ ls /www/wwwroot/hrm-server/backup/                        # jar 备份超过 5 �
 - deploy.sh 在 Windows 环境无法执行 `bash -n` 动态语法检查，已逐行静态审查（引用/转义/管道/异常分支）；
 - 所有 IP、域名、密码均为占位符（`<...>` / `change_me_*`），无真实敏感信息；
 - 遗留风险：无实际服务器环境，D01-D05 全部命令需在真实部署时按手册逐项执行验证（尤其宝塔面板字段名、宝塔 JDK 实际路径、curl 预期返回码三处与实际可能有细微出入，已标注「以实际为准」）。
+
+***
+
+## 11. 现网实况与 B7 三端入口（2026-09-25 回填）
+
+> **本节为新增，不覆盖前文历史结论。** 回填来源：B7 发布切换执行记录（`update-log.md` 2026-09-25 条目）+ 主智能体 SSH 只读核实，作为事实基线。
+> **与前文冲突处以本节为准**（尤其 §0.1 的 `/` → `/www/wwwroot/hrm-admin` 已在上文加「矛盾标注」）。
+> **凭据纪律：** 本节不含任何真实凭据 / 口令 / 私钥；域名一律以「**生产主域名**」表述，不对本手册写入实际值。
+
+### 11.1 三端入口与站点根（现网）
+
+| 入口（带尾斜杠） | 端 | 站点根（宿主，容器内同路径） | 上线文件数 |
+| ---- | ---- | ---- | ---- |
+| `/web/` | 网页端（PC 管理后台） | `/data/www/download/hrm-clients/web` | 167 |
+| `/staff/` | 员工端「驿站助手」 | `/data/www/download/hrm-clients/staff` | 80 |
+| `/boss/` | 管理端「驿站精灵」 | `/data/www/download/hrm-clients/boss` | 97 |
+
+- **域名根 `/`**：仍由容器 `hrm-demo-static`（演示静态站）提供**端选择页门户**；门户链接已指向 `/web/` `/staff/` `/boss/`（`deploy/docker-demo/portal.html` 与线上容器内 `index.html` 均已更新）。
+- **为何站点根是 `/data/www/download/hrm-clients/`（而非 `/data/www/hrm-clients/`）**：`courier-nginx` 容器**只挂载** `/data/photos`、`/data/www/apk`、`/data/www/download`，原计划路径 `/data/www/hrm-clients` **在容器内不可见**；为**不新建挂载、不重建容器**（重建会中断 80/443），改用**已挂载且宿主/容器路径一致**的 `/data/www/download/hrm-clients`。该挂载为 `ro`，仅只读服务静态资源、无新增暴露面。
+- 三端产物由 `build:prod`（剥离 Mock）构建后**本地剔除 `*.map`** 再上传（`map=0`）；生产不启用演示态 `build`。
+
+### 11.2 变更载体（改 Nginx 前必读；核实方法）
+
+| 项 | 值 |
+| ---- | ---- |
+| 容器 | `courier-nginx`（`nginx:1.25-alpine`，`0.0.0.0:80/443`） |
+| 宿主配置文件 | `/data/www/kdyzzhxt/courier-server/nginx/nginx.conf`（`ro` 挂载进容器 → 改宿主即改容器所见） |
+| 生效方式 | 改宿主文件 → 容器内 `nginx -t` → 容器内 `nginx -s reload`（热重载，**不重启容器**） |
+| 配置真源 | **不在本仓库**（仓库内 `deploy/nginx.conf.example` 与 `deploy/docker-demo/nginx.conf` 均非现网真源）→ **以运维记录为准** |
+
+**载体核实方法（先核实再动手）：**
+
+```bash
+# ① 看容器挂载关系（确认宿主文件 → /etc/nginx/nginx.conf 的绑定）
+docker inspect courier-nginx --format '{{range .Mounts}}{{.Source}} -> {{.Destination}} ro={{not .RW}}{{"\n"}}{{end}}'
+
+# ② 看容器内【生效中】的完整配置（含 include，便于核对插入点与既有 location）
+docker exec courier-nginx nginx -T
+```
+
+**单文件 bind mount 必须「原地改写」保 inode（重要坑）：** 宿主 `nginx.conf` 是**单文件**绑定挂载，容器绑定的是**该文件的 inode**。用 `mv`/`cp` 换成新文件会**换掉 inode**，容器侧仍指向旧 inode → **改动看不到**。因此编辑必须**原地写回同一 inode**，例如：
+
+```bash
+cp -a nginx.conf "nginx.conf.$(date +%Y%m%d%H%M%S)"   # 先备份
+cat > nginx.conf <<'EOF'
+...（含新增行的完整内容）
+EOF
+# 不要用： mv 新文件 nginx.conf  /  cp 新文件 nginx.conf（可能换 inode）
+```
+
+### 11.3 全站 `.map` 拒绝（D 档红线）与三端缓存头纪律
+
+- **全站 `.map` 一律 404**（项目规则 §10.4 D 档红线：生产 `*.map` 不得公开）。三重防线：本地剔除 + 上传排除 + Nginx 拒绝；**新前缀 `^~` 的 `.map` 拦截必须写在各自 location 内部的局部正则**（server 级正则对 `^~` 前缀不生效）。
+- **缓存头纪律：** `index.html` → `Cache-Control: no-store`（引用带 hash 的 chunk，缓存住会「新页面引旧 chunk」）；`assets/*`（带 hash）→ `public, max-age=31536000, immutable`。
+- **缺失资源必须 404，不得回退 HTML**（否则 HTML 被当 ES 模块解析 → 整页白屏）；仅**无扩展名**的 history 深链才回退到 `/<prefix>/index.html`。
+
+### 11.4 回滚（一键）
+
+> B7 变更前的备份为 `nginx.conf.20260925121157`（同目录）。回滚即还原备份 + 校验 + 热重载 + 删除新增站点根。
+
+```bash
+# ① 还原备份（原地改写保 inode，故用 cat 覆盖而非 mv）
+cat /data/www/kdyzzhxt/courier-server/nginx/nginx.conf.20260925121157 \
+  > /data/www/kdyzzhxt/courier-server/nginx/nginx.conf
+# ② 语法校验（必须过再 reload）
+docker exec courier-nginx nginx -t
+# ③ 热重载（不要 docker restart）
+docker exec courier-nginx nginx -s reload
+# ④ 删除新增站点根（属 C 档，仅在确认不再需要新入口时执行）
+rm -rf /data/www/download/hrm-clients/web /data/www/download/hrm-clients/staff /data/www/download/hrm-clients/boss
+```
+
+- 回滚**不涉数据变更、不重建镜像/容器**；仅新入口消失，既有 location 未受影响。
+- 回滚动作与原因须登记 `update-log.md` / `SESSION-STATE.md`（由主智能体执行）。
+
+### 11.5 既有缺陷登记（**非本次引入，待修**）
+
+| 路径 | 现象 | 根因（已定位） | 状态 |
+| ---- | ---- | ---- | ---- |
+| `/admin/` | **500** | `alias` + `try_files` 形成内部重定向环（`rewrite or internal redirection cycle`），且容器内 `/usr/share/nginx/html/admin` 目录不存在 | 待修（未变更载体） |
+| `/download` | **404** | `/data/www/download/index.html` 不存在 | 待修 |
+
+> 另：B7 之前**全站 `.map` 原本无任何拦截**，本次已在 Nginx 侧补齐（见 §11.3）。
+
+### 11.6 B8 退役判定期（与本节相关）
+
+- **起点** = B7 上线日 **2026-09-25**；依 ADR §3.3，退役须**三项触发条件全部满足**（① 新子路径入口连续 1 个发布周期无 P0 回滚；② 旧入口在此周期末访问量归零或低于阈值；③ 旧壳 APK 完成一个发布周期升级提示）。
+- 当前**不满足**（①③ 需 1 个发布周期）→ **旧入口 `mobile.html?as=` 与 `as` 兼容读保留、不得下线**。
+- 迁移期**冻结演示站发布**（仅 P0 修复，且发布后须回归旧入口）——详见 `deploy/docker-demo/deploy-demo.sh` 头部横幅与 ADR §6.1 R新-1。
 
 
 

@@ -1,5 +1,21 @@
 # 变更日志
 
+## 2026-09-25 · B8 演示站处置（门户收敛 + 冻结发布纪律 + 文档回填；**旧入口按条件保留**）
+
+**范围裁定**：依 **D1（`hrm-demo` 退役归档）** 与 ADR §3.3 **三项退役触发条件**——① B7 上线后新子路径入口连续 **1 个发布周期**无 P0 回滚；② 旧入口访问量归零或低于运维阈值；③ 旧壳 APK 完成一个发布周期（**任一不满足即顺延，不得静默下线**）。**起点 = B7 上线日 2026-09-25**，当前 **①③ 均未满足** → 本批**不下线**旧入口与 `as` 兼容读，只做：**门户收敛 + 冻结发布 + 文档回填 + 判定期登记**。
+
+**一、门户收敛（用户报障驱动）**：域名根 `/` 由演示容器 `hrm-demo-static` 提供**端选择页**，其按钮原硬编码指向演示站旧入口（`/pc.html`、`/mobile.html?as=station|boss`），致「点驿站精灵却进演示站员工端」。已改两处并保持一致：① 仓库 `hrm-dev/deploy/docker-demo/portal.html`（提交 `04975fd`）→ `/web/` `/staff/` `/boss/`；② `hrm-dev/hrm-demo/src/portal/main.js` **L28/L35/L42** → 同上，同步剔除「已预填账号」的失效 note 文案（`name` 字段逐字未变，e2e 断言对象不受影响）。**线上同步**：宿主 `/data/www/hrm-demo/dist/index.html` 原地覆盖（备份 `index.html.bak.20260925121819`）→ `docker cp` 进演示容器；公网根 `/` 三个 `href` 实测已改，三入口 curl 均 **200**。**持久性提醒**：演示容器**无任何挂载**、门户为**镜像内置**，容器重建会回退，宿主 `dist` 已同步更新（重建即生效）。
+
+**二、冻结发布纪律**：`hrm-dev/deploy/docker-demo/deploy-demo.sh` **头部追加 20 行注释 banner**（`git diff` 实测**仅新增 `+#` 行、未改任何既有逻辑、未加交互确认**）：迁移期冻结演示站发布；根因 = ADR §6.1 **R新-1**（B7「只增不改→零中断」依赖旧入口由演示容器旧产物继续提供，覆盖旧 `dist` 即失效）；例外 = 仅 **P0 修复**且发布后**必须回归** `/mobile.html?as=boss`、`?as=station`；产物快照 = 宿主 `/data/www/hrm-demo/dist`（含 `dist.bak.*`），未重建镜像前不得删。
+
+**三、文档回填**：`hrm-dev/docs/deploy.md` **新增 §11「现网实况与 B7 三端入口」**（约 90 行：三端入口与站点根、**为何是 `/data/www/download/hrm-clients`**、变更载体 + **载体核实方法**（`docker inspect` / `nginx -T`）、**单文件 bind mount 必须原地改写保 inode**、全站 `.map` 404（D 档红线）与缓存头纪律、一键回滚、既有缺陷、B8 判定期），并在 §0.1 加**矛盾标注**（不改写历史结论）；`hrm-dev/docs/project-tree.md` 新增 **§2.1 `hrm-clients/` 多端 workspace 树**与端口/base 表（5191`/web/`、5189`/staff/`、5190`/boss/`）。**均只追加/补表，未重写既有内容。**
+
+**验证（子智能体实跑，主智能体复核关键项）**：`hrm-demo` `verify:mock` **942/942**、`verify:mobile` **48/48**、`build` ✓；三端公网可用（B7 已验）；**Mock 能力由构建模式承接**已确认（三端 `.env.demo` `VITE_MOCK_ENABLED=true` → `build` 含 Mock；`build:prod` 产物无 Mock chunk，B3–B5 逐端验证）。**`npm run test` = 429/430**：1 项失败系**既有墙钟相关 flaky**（`src/mobile/views/staff/attendance/composables/useAttendanceStatus.spec.js:212` 未固定 `att.now`，默认 `windowEnd: '19:00'`，实跑时刻 20:22 已过窗口 → 判 `missed`），**与本次 `portal/main.js` 改动无调用关系**；登记为待测试工程师修（`TODO(扩展)`）。
+
+**事实性纠正（本轮）**：① ADR §5.2 关于 `portal.html` 的记载（「内含硬编码 `/pc.html`、`/mobile.html?as=*`（L30–32）」）**已滞后**，现状已为新入口，行号亦需回填；② ADR §5.4 站点根示例 `/www/wwwroot/hrm-*` 与实落 `/data/www/download/hrm-clients/*` 不符；③ `deploy.md:26`（`/` → `/www/wwwroot/hrm-admin`）与 §0.2/§5.2 同源记载与现网（`/` 由演示容器提供门户）矛盾，已加矛盾标注。
+
+**遗留**：① **规则层 6 文件仍未提交**（`.trae/rules/{项目规则1,智能体调度规则}.md`、`AGENTS.md`、`SESSION-STATE.md`、`全局规则.md`、`智能体配置.md`、`.github/CONTRIBUTING.md`）与 **`.trae/agents/express-station-tech-reviewer/`、`.trae/skills/tech-evaluation/` 未入库**——非本批改动，待用户裁定；② `/admin/` 500 与 `/download` 404 两处**既有死链**未修（载体为 `courier-nginx`，修复属 C 档需授权）；③ ADR §3.7 **B3/B4/B5/B6 四处回滚点均不完整**（漏 `hrm-clients/package.json`、`package-lock.json`、`hrm-demo` 5 文件、`e2e-utils`、flavor 源集、`local.properties.example`），待架构师回填；④ `apps/web` 与 `hrm-demo/src/pc/**` 存在「源-新」同构双份漂移风险，迁移期只改 `apps/web`；⑤ `hrm-demo/src/mobile/**` 员工端与 boss 侧代码仍在，随 `hrm-demo` 终态退役处置。
+
 ## 2026-09-25 · B7 发布切换执行（C 档，主智能体执行；三端上线生产主域名 + 预置审核账号）
 
 **授权链**：用户指令「执行 B7，并预留登录账号」；P0.5 安全结论已得（`security-release-switch-review.md`：**有条件放行**，M1 `.map` 为高风险项）；运维手册已出（`deploy-b7-release-switch.md`）；主智能体三步授权表单已出（影响范围 / 可逆性 / 回滚与验证）。
