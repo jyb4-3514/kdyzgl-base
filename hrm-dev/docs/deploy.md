@@ -323,6 +323,53 @@ diff <(grep -v '^/\*\|^--\|^$' /tmp/schema_dump.sql) \
 | 凭据只存服务器配置文件（不入 Git） | 3.3 | `git -C /www/wwwroot/kdyzgl-base status` 确认无配置文件被跟踪 |
 | sql/schema 快照与库结构比对一致 | 3.4 | 3.4 的 diff 命令（Flyway 建表后再执行） |
 
+### 3.6 测试库 `kdyzgl_test` 与联调种子数据（独立脚本，非 Flyway）
+
+**定位**：前端演示站即将切换为直连真实后端，页面需要可见数据。为此提供独立种子脚本 `hrm-dev/sql/seed/kdyzgl_test_seed.sql`（约 2690 行），**只对测试库 `kdyzgl_test` 执行**，走人工执行、**不走 Flyway**，也不进 `sql/schema` 快照。
+
+**隔离边界（三库职责，务必分清）**：
+
+| 库 | 用途 | 本脚本是否触碰 |
+| ---- | ---- | ---- |
+| `courier_station` | 现网快递系统 | **绝对禁止**（脚本头部有醒目注释拦截） |
+| `kdyzgl` | 结构库（Flyway v1–v15，保持干净） | 禁止（脚本头部有醒目注释拦截） |
+| `kdyzgl_test` | 联调/演示（Flyway 已至 v15） | **仅此库** |
+
+**结构前置**：`kdyzgl_test` 须先由后端启动跑完 Flyway v1–v15（表结构与 `kdyzgl` 一致），本脚本只做 `DELETE` + `INSERT`，**不含任何 DDL**。
+
+**执行命令**（在服务器上，手工指定目标库；密码走本地配置，勿写入命令历史以外的明文）：
+
+```bash
+# 目标库显式写死在命令行，避免误连 kdyzgl / courier_station；--default-character-set 保证中文按 utf8mb4 读入
+mysql -uroot -p --default-character-set=utf8mb4 kdyzgl_test < /www/wwwroot/kdyzgl-base/hrm-dev/sql/seed/kdyzgl_test_seed.sql
+
+# 执行后一键核对各表行数（脚本末尾已内置同样查询，此处可复查）
+mysql -uroot -p kdyzgl_test -e "SELECT 'employee' AS t, COUNT(*) AS c FROM employee UNION ALL SELECT 'parcel', COUNT(*) FROM parcel;"
+```
+
+**幂等与回滚**：脚本先按「子表→父表」整表 `DELETE` 再 `INSERT`（本项目无物理外键，D6 逻辑外键；不 `DROP`／不 `TRUNCATE`），可重复执行，**执行两次结果一致**。
+
+- 重跑即「回滚到种子态」：再次执行同一脚本即可。
+- 彻底清空联调数据（保留结构）：`DELETE FROM` 脚本覆盖的 32 张表即可（表清单见脚本第 0 节）；**不要在 `kdyzgl` 上执行**。
+- 若只想恢复业务表而不动账号：可单独重跑对应分节的 `INSERT`（脚本按域分节，注释齐全）。
+
+**密码哈希的生成与校验**（演示统一口令 `demo1234`，**脚本中只写散列、不写明文**）：
+
+```bash
+# 本地生成（bcryptjs 为纯 JS 实现，任选临时目录安装，勿改本仓库依赖清单）
+mkdir -p /tmp/bcgen && cd /tmp/bcgen && npm init -y >/dev/null && npm i bcryptjs@2.4.3 --no-audit --no-fund
+node -e "const b=require('bcryptjs');const h=b.hashSync('demo1234',b.genSaltSync(10));console.log(h);console.log('verify',b.compareSync('demo1234',h))"
+
+# 校验已入库的散列（拿到某行 password 后）
+node -e "const b=require('bcryptjs');console.log(b.compareSync('demo1234',process.argv[1]))" '<库中password值>'
+```
+
+本脚本所用散列为 `$2a$10$TVkFYxOLLRGLQ47IMUPhVuLHJW3dDUhDqEx0PSa7bs0tq38jQhjl2`（cost=10、60 字符，`compareSync('demo1234', hash)` 回环校验通过，与 V2 的 `$2a$` 前缀、后端 `BCryptPasswordEncoder` 兼容）。
+
+**与后端自动播种的关系（避免冲突）**：`SyncConfigSeeder`（`ApplicationRunner`，幂等）在每次启动时补齐 5 个配置项 / 11 个选项 / 5 个全局默认值，并播种驿站采集配置与覆盖值。因此**本脚本不触碰** `sync_config_item`／`sync_config_option`／`sync_config_global`／`sync_config_station_override`／`sync_station_config` 五表，也不预置 `auth_trusted_device`（由登录流程写入）。
+
+**执行阶段与收敛**：脚本为静态产物，已做静态自检（列名存在性、类型匹配、枚举取值、非空约束、逻辑外键指向、JSON 合法性、单元格数 = 列数）。**SQL 实跑与行数核对收敛到服务器阶段**，由主智能体在 `kdyzgl_test` 执行并按脚本末尾校验查询核对（数据量与形态以实际执行为准）。
+
 ***
 
 ## 4. D03 · 后端部署

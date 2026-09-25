@@ -809,7 +809,8 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 #### 8.6.2 `payroll_rule_item`（V8）— 计薪规则项
 
 **用途**：规则项声明「来源 + 参数」，新增来源不改代码（算法 S2 注册表）。
-**字段**：`id` / `rule_id`(逻辑外键 payroll_rule.id) / `item_key` VARCHAR(40) / `item_name` VARCHAR(50) / `item_type` VARCHAR(16)（`ADDITION`=增项，`DEDUCTION`=扣项）/ `source` VARCHAR(16)（`FIXED` / `ATTENDANCE` / `KPI` / `MANUAL`）/ `params` JSON（结构随来源）/ `enabled` TINYINT(1) / `sort_order` INT(0) / `is_deleted` / `create_time` / `update_time`。
+**字段**：`id` / `rule_id`(逻辑外键 payroll_rule.id) / `item_key` VARCHAR(40) / `item_name` VARCHAR(50) / `item_type` VARCHAR(16)（`ADDITION`=增项，`DEDUCTION`=扣项）/ `source` VARCHAR(16)（`FIXED` / `ATTENDANCE` / `KPI` / `MANUAL` / `PRORATED`）/ `params` JSON（结构随来源）/ `enabled` TINYINT(1) / `sort_order` INT(0) / `is_deleted` / `create_time` / `update_time`。
+> `source` 取值集合为**文档枚举**（列 `VARCHAR(16)` + 列 COMMENT，无 CHECK/ENUM 约束），运行时唯一真源为 `PayrollSource` 枚举；`PRORATED`（出勤折算，S2b 班次制）列宽 8 字符不改列型。
 **索引**：`idx_payroll_rule_item_rule (rule_id, sort_order)`。
 **逻辑关系**：`rule_id` → `payroll_rule.id`。
 **查询走索引**：按 `(rule_id, sort_order)` 取规则项。
@@ -857,7 +858,8 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 #### 8.6.4 `payroll_item`（V8）— 工资单明细（子表）
 
 **用途**：逐项金额与取数解释（替代 Mock 内嵌 `items[]`），Service 组装回 `items[]`。
-**字段**：`id` / `payroll_id`(逻辑外键 payroll.id) / `item_key` VARCHAR(40) / `item_name` VARCHAR(50) / `item_type` VARCHAR(16)（`ADDITION`/`DEDUCTION`）/ `source` VARCHAR(16)（`FIXED`/`ATTENDANCE`/`KPI`/`MANUAL`）/ `amount` DECIMAL(12,2)(0，正数，增/扣由 item_type 承载) / `detail` VARCHAR(255) NULL / `sort_order` INT(0) / `is_deleted` / `create_time` / `update_time`。
+**字段**：`id` / `payroll_id`(逻辑外键 payroll.id) / `item_key` VARCHAR(40) / `item_name` VARCHAR(50) / `item_type` VARCHAR(16)（`ADDITION`/`DEDUCTION`）/ `source` VARCHAR(16)（`FIXED`/`ATTENDANCE`/`KPI`/`MANUAL`/`PRORATED`）/ `amount` DECIMAL(12,2)(0，正数，增/扣由 item_type 承载) / `detail` VARCHAR(255) NULL / `sort_order` INT(0) / `is_deleted` / `create_time` / `update_time`。
+> `source` 取值集合同 §8.6.2（真源 `PayrollSource` 枚举）；`PRORATED` 为 S2b 班次制新增。
 **索引**：`idx_payroll_item_payroll (payroll_id, sort_order)`。
 **逻辑关系**：`payroll_id` → `payroll.id`。
 **查询走索引**：按 `(payroll_id, sort_order)` 取明细。

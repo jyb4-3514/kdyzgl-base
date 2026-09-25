@@ -33,9 +33,9 @@ kdyzgl-base/
 │   ├── basic-auth-hash.txt
 │   └── hrm-demo-basic-auth.txt
 ├── .trae/
-│   ├── agents/                      # 9 个角色智能体配置（各自 SKILL.md）
+│   ├── agents/                      # 10 个角色智能体配置（各自 SKILL.md）
 │   ├── rules/                       # 项目规则1.md + 智能体调度规则.md（自动注入）
-│   └── skills/                      # 13 个技能（token-optimizer / engineering-discipline / ...）
+│   └── skills/                      # 14 个技能（token-optimizer / engineering-discipline / ...）
 ├── hrm-dev/                         # 全部工程与文档（见第 2 节）
 ├── .gitignore
 ├── AGENTS.md                        # 新会话入口（≤80 行，只放状态与指针）

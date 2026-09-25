@@ -1,5 +1,244 @@
 # 变更日志
 
+## 2026-09-25 · 修复「同账期重复生成工资单不幂等」缺陷（后端，只改 hrm-server + 本行）
+
+**缺陷**：同账期连调两次 `POST /api/v1/finance/payrolls/generate`，`payroll` 物理行翻倍（2026-10 两次 → 126 行 = 63 × 2，`COUNT(DISTINCT employee_id)=63`），即「DRAFT 覆盖重建」未生效；非草稿路径 9405 正常。
+
+**根因**：`PayrollServiceImpl.deleteExisting`（原 `:602-617`）用 `payrollMapper.delete(wrapper)` / `payrollItemMapper.delete(wrapper)` 删除旧单，而 `Payroll`/`PayrollItem` 均标注 `@TableLogic`（`Payroll.java:106`、`PayrollItem.java:51`）且 `application.yml:65-67` 全局开启 `logic-delete-field=is_deleted` → 该删除实为 `UPDATE ... SET is_deleted=1`，**旧行物理残留**，故重跑只增不减，与方案 §8.2 N2「覆盖重建同结果」不符。另 `idx_payroll_payroll_no` 为非唯一索引（`V8__payroll.sql:84`），故同号重复插入不报错、缺陷被掩盖。
+
+**修复**（不改 HTTP 契约、不动 9405 语义）：新增物理删除与覆盖范围查询的自定义 SQL（单表 DELETE 文法，规避 MySQL 多表 DELETE 的 `No database selected`）——`PayrollMapper.selectRebuildTargetIds`（含绕过逻辑删除的残留行，**仅取 DRAFT/REJECTED**）、`PayrollMapper.deletePhysicallyByIds`、`PayrollItemMapper.deletePhysicallyByPayrollIds`；`PayrollServiceImpl.deleteExisting` 改为「先物理删明细、再物理删主单」，范围与 `PayrollGenerateGuard.editableStatuses()` 一致（已提交/已发布单据不取不删），同范围历史逻辑删除残留一并清除，使重跑后 `COUNT(*) == COUNT(DISTINCT employee_id)`。**未触碰**已发布路径、`PayrollLockQueryService` 账期锁交互、旧按天路径（`shiftModelFromMonth` 之前账期走 `PayrollContextProvider` 旧分支，本改不涉）、迁移脚本/种子脚本、`hrm-admin`/`hrm-demo`/`deploy`/其它 `docs/` 正文/`.trae/rules/`/`SESSION-STATE.md`。
+
+**单测**（新增 `PayrollServiceImplGenerateIdempotencyTest`，Mockito + 带逻辑删除语义的内存仓库）：①连续两次生成 → 物理行数 == 员工数、(employee_id,month) 唯一、两次指纹（净额+明细 key/金额/文案）逐位一致、每单明细数==启用项数、无孤儿；②PENDING_APPROVAL/APPROVED/PUBLISHED/CONFIRMED → 9405 且零删除零新增（不回归）；③混合场景（部分员工有旧草稿、部分无）→ 旧草稿被物理替换、旧明细不残留；④逻辑删除残留被清理（复现缺陷现场）；⑤逻辑删除的 PUBLISHED 残留不被误删（范围仅 DRAFT/REJECTED）。
+
+**本机无 JDK/Maven，未编译未单测**，静态自审（导入/注解/构造器参数序/类型推断）通过，**收敛到服务器阶段**（验证命令见回报）。**事实性纠正**：方案 §8.2 N2 引用行号 `PayrollServiceImpl.java:171-176` 与 v2.0 重评核对的 `:154-163` 均随本次改行号漂移，正文未改（属既有正文，另需主智能体回填）。**建议（交数据库工程师，非本次）**：`payroll` 的「活跃唯一」仅靠 Service 查重，`idx_payroll_payroll_no` 非唯一；是否加「活跃唯一」约束属表结构变更（C 档），登记不实施。
+
+## 2026-09-25 · S2b 班次制算薪实现（后端，缺勤/请假粒度「天 → 班次」）
+
+按 `algo-payroll-shift.md` v2.0（技术评审「有条件通过」+ 主智能体批准）落地，**只改 `hrm-server`** + 本行 + `db.md` 取值集合同步。**新增 2 类**：`service/finance/support/ShiftPayrollPolicy`（纯逻辑：班次单元 `epochDay×2+序号`、`R/A/L` 集合运算、三态优先级、折算与逐级封顶链）、`service/finance/support/ProratedItemResolver`（新来源 `PRORATED`：`basicSalary × |A∩R| ÷ |R|`，`|R|=0` 走 `zeroSchedulePolicy=FULL_BASIC`）。**改动**：`PayrollSource`（+`PRORATED("出勤折算")`）、`PayrollRuleValidator`（白名单与错误文案 +PRORATED，不改则规则项保存 400）、`AttendanceStat`（+`requiredShifts/attendedShifts/leaveShifts/absentShifts/absentOrLeaveCount` + `ofShift` 工厂 + `byField` 表驱动扩展）、`PayrollContextProvider`（班次路径/旧按天路径按账期开关分流；取数补 `period_index/period_name/shift_id` 并 join `attendance_shift.start_time`；`leaveCount` 新路径=请假班次）、`AttendanceItemResolver`（T1 全勤奖取 `fullAttendMetric=ABSENT_OR_LEAVE`；封顶链级 1 `params.cap` → 级 2 `absentFineCapRatio×折算基本`；`absentFinePerShift/Cap` 为 params 缺省时兜底）、`AlgoProperties.Payroll`（+10 键）、`ApprovedLeaveDaysPort`（+`approvedLeaveShiftUnits`，含 `ApprovedLeaveDaysPortImpl` 实现与 `UnavailableApprovedLeaveDaysPort` 降级空集）、`application.yml`（payroll 段 + 键 + `ABSENT_OR_LEAVE` 映射 + `allowNegativeNet: false`）。**口径（用户已裁定，未改）**：2 班/天、只折算 basicSalary、已批请假只折算不罚款、旷工 100 元/班次、请假算缺勤破全勤、实发不低于 0、迟到按次。**历史兼容双保险**：账期开关 `shiftModelFromMonth=2026-10`（旧账期走旧按天路径，`requiredShifts=attendedShifts=应到天数` ⇒ 折算比例恒 1、`absentOrLeaveCount=absentCount` 沿用旧全勤口径）+ 记录级哨兵 `legacyPeriodSentinel=全天班`（覆盖当日全部排班班次）。**参数外置**（`hrm.algo.payroll.*`，全 ASCII 键，默认值照抄方案 §7）：`shiftModelFromMonth/middayBoundaryMinute/legacyPeriodSentinel/proratedFields/absentFinePerShift/absentFineCap/absentFineCapRatio/zeroSchedulePolicy/fullAttendMetric/lateGranularity`。**单测**：新增 `PayrollShiftModelTest`（5 验收数字 1500/1475/1375/1450/1250、空排班/无打卡封顶 0/整月全假/跨日单/非法区间/ABNORMAL/空 period_name 双班不克扣+告警 30/单班制哨兵 ratio=1/重叠不双扣、恒等式 500 人 0 违例、幂等）；`PayrollItemResolverTest` 适配（AttendanceStat 新签名夹具 + PRORATED/T1/封顶链级 2 用例 + 注册表 4→5）；`PayrollRuleValidatorTest` 适配文案 + PRORATED 合法用例。**离线对照**：`node hrm-dev/docs/algo-scripts/s2b-payroll-shift.mjs` 实跑 5 数字逐位一致。**文档登记**：`db.md` §8.6.2/§8.6.4 的 `source` 取值集合追加 `PRORATED`（文档枚举，非 DDL，真源 `PayrollSource`）。**未触碰**：HTTP 契约（URL/入参/出参/错误码）、`hrm-admin`/`hrm-demo`/`deploy`/迁移脚本/`.trae/rules/`/`SESSION-STATE.md`/其它 `docs/` 正文。**本机无 JDK/Maven，未编译未单测**，静态自审（导入/注解/配置键↔强类型类逐键对应）通过，**收敛到服务器阶段**（`mvn -q test`）；**偏差登记**：方案 §9.3 建议项 S2「`detail` 单位『次→班次』」**未实施**（解析器不感知账期，旧按天路径下会误标「班次」，故保留「次」并记 `TODO(扩展)`）；`api.md` 一期无工资单契约（方案 C9），故取值集合登记落 `db.md`。**事实性纠正**：`kdyzgl_test_seed.sql:1363` 的 `ABSENT_FINE.params.amount` 现为 **100**（方案 §0.1 C4 记 150 与现状不符，早前数据修正脚本已改）。
+
+## 2026-09-25 · 班次制算薪口径数据修正脚本 + 修复两处种子错配（数据库，仅数据无 DDL）
+
+按 `algo-payroll-shift.md` v2.0（§1 B5/T3、§7.1 封顶链、§6 数据侧处置）产出班次制算薪口径的**数据修正脚本**并同步长期种子。**新增** `hrm-dev/sql/seed/fix-shift-and-payroll-20260925.sql`（纯数据、幂等、带 `kdyzgl_test` 目标库断言与 §E 回滚；分节 A/B/C/D/E：**A** 删中班——先只读核对 `attendance_schedule.shift_id` 引用，改派到同驿站晚班后再删 8 条；**B** `ABSENT_FINE.params.amount` 150→100（`mode=PER_COUNT` 不变、`cap` 保持 `0`＝不封顶，与 §7.1 级1 `itemCapSemantics=ZERO_MEANS_NO_CAP` 一致，级2/级3 封顶不入库）；**C** 规则 id 错配——`payroll_rule.id` 3→1、4→2，对齐 `payroll_rule_item.rule_id=1/2`、`payroll.rule_id=1`、`rule_snapshot.ruleId=1` 三处引用点（选「重排规则 id」而非「搬规则项」，故不触碰任何历史单据/快照）；**D** `leave_log.leave_id` +12 对齐现有 `leave_request.id=13–24`）。**同步长期种子** `kdyzgl_test_seed.sql`：删 8 条中班、96 条中班排班改派晚班（`shift_id 2→3`，依据 §7 `middayBoundaryMinute=720`）、罚款 100、并把 `payroll_rule`/`leave_request` 改为**显式 id**（1/2 与 1–12；根因＝`DELETE` 不重置自增、子表硬编码父 id 致漂移）。**发现同类潜伏缺陷（未修，登记遗留）**：`payroll`↔`payroll_item.payroll_id`、`work_order`/`sync_task`↔`notification.biz_id` 同属「父表隐式 id 漂移」类，重灌会错配。**未触碰** `hrm-server`/`hrm-admin`/`hrm-demo` 源码、`docs/` 既有正文、`.trae/rules/`、`SESSION-STATE.md`、V1–V15 迁移脚本与 `sql/schema/mysql/init.sql` 快照；本机无 MySQL，脚本**未实跑**，静态自检（列名/JSON/幂等/引用完整性）**收敛到服务器阶段**；执行属 C 档，由主智能体授权。
+
+## 2026-09-25 · 端准入收紧实现 L7 安全复验（网络安全工程师，结论「有条件放行」/ 残余风险低）
+
+对 `security-client-admission-review.md` 7 条必改的实现做 L7 复验，追加「## 复验（实现完成后）」章节（保留上一轮内容）。逐条取证：**7/7 已落实**——单一真源 `ClientAdmissionPolicy`（唯一归一入口 `resolveEnd`）+ `ClientType.parse` 严格归一，旧类 `ClientRolePolicy`/`EndAdmissionPolicy` 及其测试已删除、全仓源码零残留（仅命中历史文档）；缺省/未知/非法端 fail-closed（`isLoginAllowed` 的 `end==null→false`）且不再回落 WEB；`WEB` 纳入 `hrm.auth.pc-allowed-roles`（默认 ADMIN）；管理端 `boss-allowed-roles` 仅 ADMIN；员工端 `staff-allowed-roles=STAFF,STATION_ADMIN`（拒 ADMIN）；三登录路径 + 票据复判（发码/验证）共用同一策略对象；`api.md` 新增 4.1.5 与 1110 明细。**残余风险由「中」降为「低」**（“缺省静默放行 / `WEB` 不受约束 / 双口径分流”绕过路径已在实现层消除；端类型“客户端自称、非鉴权边界”的固有属性仍存但不产生任何权限提升）。**新引入 1 项交付阻断级兼容回归**：`hrm-admin` 登录（`hrm-admin/src/views/login/index.vue:101-104` 仅提交 username/password、`hrm-admin/src/utils/request.js:23-32` 只加 Authorization）不上报任何端类型 → fail-closed 下 ADMIN 被 1110 拒登；该前端系 deploy 目标站点（`deploy.sh:68/74`、`nginx.conf.example:28`），且健康检查仅取 HTTP 码（1110 仍 HTTP 200，`deploy.sh:313`）不会自动拦下 → **部署门禁 = 有条件放行，放行前须闭环该项**（`hrm-admin` 登录补 `clientType:'WEB'` 或 `X-Client-Type:ADMIN`，或书面声明其不在本次部署范围），并给出只读复现命令与验收标准。另有 4 项低风险观察：互踢粒度细化与遗留 `H5` 会话不互相覆盖（受并发上限兜底、3 天 TTL 自然消解）、`multi-client-architecture.md:93`「缺失默认 web」未同步、`api.md:337`「前端须上报 X-Client-Type」与 Demo 实走请求体 `clientType` 不符、短信路径端准入先于验证码校验的既有信息面（改造前后一致，非本次引入）。**未触碰**任何被复验代码/配置/契约与 `hrm-admin`/`deploy`；本机无 JDK/Maven/Redis，未独立复跑服务器单测（结论基于源码逐条取证）；**未声称「端准入已全量生效/已合规」**（须先闭环 `hrm-admin` 项）。
+
+## 2026-09-25 · Mock 端准入同步后端 fail-closed 三端互斥矩阵（前端）
+
+将 `hrm-demo` Mock 端准入对齐后端 `ClientAdmissionPolicy`（`security-client-admission-review.md` 必改 1–7 的 Demo 侧同步）。**新矩阵（与后端逐格一致）**：PC 网页端（`WEB`/`ADMIN`）仅 `ADMIN`、管理端 H5（`as=boss`）仅 `ADMIN`、员工端 H5（`as=station|staff|缺省`）仅 `STAFF`+`STATION_ADMIN`、**端类型缺省/未知/非法一律 1110（fail-closed，删除「缺省即不校验」放行分支）**。**实现**：`src/shared/mock/routes/auth.js` 以 `resolveEnd`（唯一归一入口，镜像后端：`ADMIN/WEB→PC`、`BOSS`、`STAFF`、旧值 `H5` 按 `as` 派生、其余 `null`）+ `END_ALLOWED_ROLES` 表驱动替换旧 if 链；三条登录路径（密码 / 短信 / 设备二次验证）共用；`DEVICE_VERIFY` 发码补端准入复判（对齐后端 `sendDeviceVerifyCode`，防票据跨端复用，端取票据存值不回头信客户端）；设备平台归类改按端判定（`PC→网页端`，其余 `H5`）。**演示数据**：`src/demo/accounts.js` 每个身份新增 `end` 归属；`mobile/stores/auth.js#switchTo` 按目标身份带 `as`（否则员工端↔管理端切换必 1110）；`mobile/views/login/index.vue` 「一键体验」按当前入口端过滤，不列异端账号。**测试**：`verify-mock` 登录助手按角色补端（ADMIN→WEB、其余→H5+station），直连登录点补端，端准入段改为 4 端×3 角色逐格 + 缺省/未知/非法 12 项 + H5 派生 3 项并移至段末（避免顶掉 C1/C2 会话），**919 → 942 项全过**；`verify-mobile` 登录助手同步补端（48/48）；`e2e` harness `mobileLoginAs` 按账号选入口（管理员 `as=boss`）、`01-load` A1-5 改 `?as=boss`。**未触碰** `hrm-admin`/`hrm-server`/`deploy`、Mock 装配、`docs/` 既有正文、规则与 `SESSION-STATE.md`。门禁（`hrm-dev/hrm-demo` 实跑）：`lint` 0 error/41 warning（既有）、`test` 430/430（`useAttendanceStatus` 时间依赖用例本次通过）、`build`/`build:prod` 成功、`verify:mock` 942/942、`verify:mobile` 48/48、`verify:tokens` 通过。
+
+## 2026-09-25 · 三端互斥准入（fail-closed）实现（后端，落实安全评估 7 条必改）
+
+按 `security-client-admission-review.md` 必改 1–7 落地「账号不能混登」：员工+站长仅员工端、管理员仅管理端+PC、缺省/未知/非法端 fail-closed（1110）。**单一真源收敛**：端类型归一并入 `ClientType.parse`（严格归一，**删除未知回落 WEB**），端 → 角色策略收敛为新类 `ClientAdmissionPolicy`（唯一策略 + 唯一归一入口），**删除**旧类 `ClientRolePolicy`、`EndAdmissionPolicy`（三套口径 → 一套）。**配置外置**（全 ASCII 键，逗号分隔）：`hrm.auth.pc-allowed-roles`（端 ADMIN/WEB，默认 `ADMIN`）、`hrm.auth.boss-allowed-roles`（端 BOSS，默认 `ADMIN`）、`hrm.auth.staff-allowed-roles`（端 STAFF，默认 `STAFF,STATION_ADMIN`）。**入参优先级**：请求头 `X-Client-Type`（新契约 `ADMIN/BOSS/STAFF`）优先、请求体 `clientType` 回退（旧值 `H5` 按 `as` 派生 BOSS/STAFF）。**四条路径共用同一策略**：密码登录、短信登录、设备二次验证复判、DEVICE_VERIFY 复判（`AuthServiceImpl` 各调用点 + `smsLogin` 增 `headerClientType` 入参、`AuthController` 传入该头）。**未新增错误码**（复用 1110）；`api.md` 首次登记端准入契约（新增 4.1.5、11xx 段与 1101–1110 明细、4.1.1 入参与错误码）；`application.yml` 修正与新行为不符的旧注释。**单测**：新增 `ClientAdmissionPolicyTest`（12 组合矩阵 + 缺省/未知/非法 fail-closed + 旧端 H5 派生 + 头优先 + 三路径一致 + 空配置 fail-closed + 解析口径）；更新 `ClientTypeTest`（断言的「回落 WEB」显式改为「返回 null」，附变更理由）；删除 `ClientRolePolicyTest`/`EndAdmissionPolicyTest`；`AuthServiceImplUniversalCodeTest` 适配 `smsLogin` 新签名（旧端 H5→员工端，断言不变）。改动文件：`ClientType`、新增 `ClientAdmissionPolicy`、删除 `ClientRolePolicy`/`EndAdmissionPolicy`、`AuthProperties`、`AuthServiceImpl`、`AuthController`、`AuthService`、`ErrorCode`（注释）、`LoginRequest`/`SmsLoginRequest`/`SmsSendRequest`/`DeviceTicket`（注释）、`application.yml`、`api.md`、本行。**未触碰** `hrm-admin`/`hrm-demo`/其它 `docs/` 正文/规则/迁移脚本/评估报告。本机无 JDK/Maven，**未编译未单测**，收敛到服务器阶段（命令见回报）；**未声称端准入已合规**（须安全工程师 L7 复验）。
+
+## 2026-09-25 · 端准入规则收紧技术安全评估（网络安全工程师，**只出结论未改代码**）
+
+对 2026-09-25 用户需求「员工+站长仅员工端、管理员仅管理端+PC」出**静态安全评估**，**新增** `hrm-dev/docs/security-client-admission-review.md`。**风险分级：中**（产品/审计约束可被静默绕过、需求收敛目标不成立；**非数据越权**）。**核心事实（与任务描述 3 处出入）**：① 实际生效类为 `EndAdmissionPolicy`（口径 `WEB`/`H5`），非任务所述 `ClientRolePolicy`（口径 `ADMIN/BOSS/STAFF/WEB`）——**两套口径经 `isEndAllowed` 分流并存**（`AuthServiceImpl.java:563-569`），架构 §2.1.3 又为第三套取值域；② `api.md` **零记载** `X-Client-Type`/端类型/`1110`（任务假设有现行约定，不成立）；③ `RoleEnum` **无 `BOSS` 角色**（仅 `ADMIN/STATION_ADMIN/STAFF`），"BOSS"仅为端类型/入口视角。**七项结论**：绕过获额外权限=不能（权限恒由会话 role + `@RequireRoles` fail-closed + 数据范围）；收紧 fail-closed=否（缺省/未知端静默放行，`WEB` 在回退策略下不受约束 → 绕过口子）；存量会话 3 天窗口内不失效、端准入**仅约束登录**（`JwtAuthFilter` 不校验端）；管理端越权面=不能触达 ADMIN-only 接口（403，举例 dashboard/employees/stations/departments/kpi-metrics/hr-flows/payroll-rules/sync-config-center）、无数据越权；管理员禁登员工端 **安全无副作用**（无"仅员工端可用"接口），仅入口/UX 影响；不触 §7.2 红线；**必改 7 条**（统一端类型单一真源 / 缺省端 fail-closed / `WEB` 纳入受约束端 / 管理端收紧为仅 ADMIN / 员工端拒绝 ADMIN / 三路径共用策略 / `api.md` 登记 1110 契约），**C 档技术输入：暂不放行**。仅新增 1 报告 + 本行；**未改** `ClientType`/`ClientRolePolicy`/`EndAdmissionPolicy`/`AuthServiceImpl`/`JwtAuthFilter`/`application.yml`/`api.md` 等被评估对象与任何业务代码；本机无 JDK/Maven/Redis，**未编译未运行**（U1–U6 未验证项见报告 §五）。
+
+## 2026-09-25 · S2b 班次制算薪方案 v2.0 技术重评（技术评审，结论「有条件通过」，无业务代码改动）
+
+对 `algo-payroll-shift.md` **v2.0** + `algo-scripts/s2b-payroll-shift.mjs` 出**重评**，追加 `hrm-dev/docs/tech-review-payroll-shift.md`「## 重评（v2.0）」章节（保留上一轮内容）。**逐条取证核验（不看修订记录表放行）：上一轮 7 条必改项 B1–B7 全部「已落实」**——B1 迟到粒度事实已更正为「按有效 ON 卡计数」且新论证与源码自洽（`PayrollContextProvider.java:94-98`、`AttendanceConstants.java:75-76`）、默认改 `PER_CARD`、补双班算例；B2 `PRORATED` 改动面 6 项逐文件:行号核对准确（`PayrollSource`/`PayrollRuleValidator:23,77-79`/`AttendanceStat:15-19`/`PayrollContextProvider:76-79,106-110`/`sourceLabel`/演示端字典与编辑器）；B3 查证 `V8__payroll.sql:41,97` 确为 `VARCHAR(16)`+COMMENT、**无 CHECK/ENUM**（文档枚举），撤回「无冲突」并给同步位置；B4 三态优先级唯一化、原型新用例实跑「空 `period_name`+双班 → 实出 60/旷工 0/实得 1500/告警 30」；B5 新增假设 5 条 + 风险 5 类（含 −6000/−360 出处）；B6 逐级 min 封顶链与代码执行顺序一致、正面裁定 `leave_deduct_enabled` 新路径 no-op（终结悬空）；B7 新增幂等/试算 N1–N4（`PayrollController.java:61`、`PayrollServiceImpl.java:154-163/171-176`、`PayrollLockQueryService.java:27` 均核对成立）。建议项 S1–S6 亦逐项采纳。**原型实跑两次逐位一致**：5 个验收数字 1500/1475/1375/1450/1250、整月无打卡实得 0（钳制）、T1 请假态全勤奖 0（旧 200）、500 人恒等式 0 违例/负净额钳制 0。**结论：有条件通过**，必改项 **1 条（B8，v2.0 新引入内部矛盾）**：`§2.4.2`（L193）「取实测库开关值=1」与 `§0.1 C3`（L47）「实测播种值=0」互斥，须二者取值一致（按 =0 重算或显式标注为假设场景），属「表述/依据」类，作者修订后按条核对、无须再次重评；修正 `§9.5` 9606 行号 L683→`api.md:685`。**未改**方案、原型、评审报告正文、任何业务源码与迁移脚本；本批仅改 2 文件（评审报告追加 + 本行）。
+
+## 2026-09-25 · S2b 班次制算薪方案按评审必改项修订（算法，无业务代码改动）
+
+按技术评审报告（`tech-review-payroll-shift.md`，结论「打回」）逐条修订 **`hrm-dev/docs/algo-payroll-shift.md`（v1.0 → v2.0）** 与 **`hrm-dev/docs/algo-scripts/s2b-payroll-shift.mjs`**，并落实用户新裁定 4 项口径。**7 条必改项全部落地**：B1 更正「`LATE_FINE` 现状按天计一次」事实错误（实为按有效 ON 迟到卡计数，`PayrollContextProvider.java:94-98`、`attendanceStore.js:893`），默认改 `lateGranularity=PER_CARD`（按次=现状，行为不变），`PER_DAY` 才属口径变更（未采纳），并给出双班切换前后差异算例（单班 20/20 一致；双班现状 20 次 vs 按天 10 次，差 −200 元）；B2 补全 `PRORATED` 改动面 6 项（`PayrollSource` 枚举、`PayrollRuleValidator` 白名单、`AttendanceStat` 字段、`PayrollContextProvider` 取数、`sourceLabel`、演示端字典与 `PayrollRuleEditor` 分支）；B3 查证 `db.md:812/860` 的 `source` 取值集合为**文档枚举**（`VARCHAR(16)`+列 COMMENT，无 CHECK/ENUM 约束），登记 `db.md` §8.6.2/§8.6.4 同步与 DDL 注释属 C 档；B4 定死「记录→班次」唯一三态优先级（哨兵 / `period_name` 空→不克扣+告警 / `period_index`），补用例（空 `period_name`+双班 → 应出 60、实出 60、实得 1500、告警 30）；B5 新增「假设与风险登记」（假设 5 条 + 风险 5 类，含 −6000 与 −360 出处）；B6 给出罚款封顶优先级链（规则项 `params.cap` → 配置 `absentFineCapRatio` → 合计层 `allowNegativeNet`，逐级取 min）并正面裁定 `leave_deduct_enabled` **冻结保留、新路径 no-op**（终结 C3 悬空）；B7 新增幂等/试算 NFR 4 条断言（试算=`generate` 造草稿 / DRAFT 覆盖重建同结果 / 非 DRAFT·REJECTED → 9405 整批拒绝 / 与账期锁无交互）。**用户 4 项裁定**：T1 `fullAttendMetric=ABSENT_OR_LEAVE`（请假者不发全勤奖）、T2 `proratedFields=[basicSalary]`、T3 `allowNegativeNet=false`（实发不低于 0，原型 −6000 已消除为 0）、T5 `lateGranularity=PER_CARD`。**原型实跑**：5 个验收数字 1500/1475/1375/1450/1250 **逐位一致**；500 人基准恒等式 0 违例、单人 0.2585 ms；新用例「整月无打卡」实得 0（钳制）、「空 period_name 双班」不克扣、T1 全勤奖请假态 0（旧 200）。**未改** `hrm-server`/`hrm-admin`/`hrm-demo` 源码、评审报告、其它 `docs/` 正文、规则与迁移脚本；本批仅改 2 文件（方案+原型）+ 本行。**本版为待重评稿，未声称通过评审。**
+
+## 2026-09-25 · S2b 班次制算薪方案技术评审（技术评审，结论「打回」，无业务代码改动）
+
+对 `algo-payroll-shift.md` v1.0 + `algo-scripts/s2b-payroll-shift.mjs` 出六维独立评审报告 **新增** `hrm-dev/docs/tech-review-payroll-shift.md`。**实跑原型复核：5 个验收数字 1500/1475/1375/1450/1250 逐位一致、500 人基准与 9 个边界用例全部吻合**（耗时列环境相关，方案已预声明）；法规引用（人社部发〔2025〕2号 废止 劳社部发〔2008〕3号、20.67/21.75）经原文核对**无误**。**结论：打回**，7 条必改项：B1 `LATE_FINE`「现状按天计一次」与源码不符（实为按有效 ON 卡计数，双班制下即班次粒度）→「默认 DAY = 行为不变」不成立、属未经裁定的口径变更；B2 §9 漏登新增 `PRORATED` 的全部改动面（`PayrollSource` 枚举、`PayrollRuleValidator` 白名单、`AttendanceStat`/`PayrollContextProvider` 字段与查询、`sourceLabel`、演示端字典与 `PayrollRuleEditor` 分支）；B3 `db.md:812/860` 的 `source` 取值集合扩展未声明处置；B4 「一天两班 + `period_name` 为空」兜底歧义（可致克扣）；B5 缺假设与风险登记（−6000 负实发等 4 类）；B6 `absentFineCapRatio` 与既有 `params.cap`/`itemCapSemantics`/`allowNegativeNet` 优先级未定（含 `leave_deduct_enabled` 去留与 C3 悬空引用）；B7 幂等/试算路径未覆盖。另核 4 项待裁定口径（T1/T2/T3/T5）：**均不引发架构变更**，T1/T5 需局部统计实现扩展、T3 需定优先级，**本次打回与它们无关**。仅新增 1 报告 + 本行；未改方案、原型与任何业务源码。
+
+## 2026-09-25 · 算薪缺勤/请假粒度「天 → 班次」算法方案与离线原型（算法，无业务代码改动）
+
+按用户 2026-09-25 已裁定口径（每天 2 班次 / 基本工资按班次折算 / 已批请假只折算不罚款 / 旷工 100 元/班次 / 删中班 / 5 个验收算例）重设计「S2 算薪引擎」。**新增** `hrm-dev/docs/algo-payroll-shift.md`（四件套：问题建模 / 算法选型与复杂度 / 依据 / 可验证指标与基准数据）与 `hrm-dev/docs/algo-scripts/s2b-payroll-shift.mjs`（Node 离线原型，固定种子，实跑）。核心：以「排班行」为唯一计量单位、半天单元（`epochDay×2+(AM?0:1)`，1 单元 = 1 班次）做集合运算，`折算基本 = basic×|A|/|R|`、`旷工 = |R\(A∪L)|`。**5 个验收数字 1500/1475/1375/1450/1250 逐位复现通过**；500 人基准恒等式 0 违例、单人 0.27 ms。**事实性纠正**：劳社部发〔2008〕3号已被人社部发〔2025〕2号废止；`AttendanceSchedule` Service 查重键仍为 `employeeId+workDate`（需改三元键）；`payroll_rule_item.source VARCHAR(16)` 决定新 source 命名取 `PRORATED`。**接线改动仅登记**（删中班/改罚款 params 属数据变更、端口增方法属代码改动），交后端/数据库工程师；`db.md` 表结构、`api.md` 出参字段**无需变更**。登记 5 项待用户裁定（全勤奖含否请假、岗/津贴是否折算、罚款是否封顶、迟到粒度）与 3 项 `TODO(扩展)`。本批**只读源码、零改业务代码**，仅新增 2 文件 + 本行。
+
+## 2026-09-25 · 移动端「调薪调整」津贴明细编辑实现（前端，仅 1 文件）
+
+按冻结规范 `hrm-dev/docs/design-mobile-allowance-edit.md` 落地津贴明细增删改，**仅改** `hrm-dev/hrm-demo/src/mobile/modules/boss/views/hrDetail.vue`（+199/−4，无新文件、无新组件、无新 Token）。逐条落 4 条纠正：① 提交 payload **补传 `allowances`**（`key||null` / name trim / `Number(amount||0)`），修「缺省即保留原值」的静默失败；② 「津贴合计」与 `nextTotal`/`diff` 改由 **`form.allowances` 求和派生**（离职只读态取当前档案值）；③ 校验取 **PC 更严口径**（名称非空且 ≤20 字、金额非负整数且整数部分 ≤6 位），金额错误失焦落本行下 `role="alert"`，名称留空提交时收口到既有 `.form-error`；④ 有内容的行删除走 **1 次 `bossConfirm`**（空行豁免）。行结构 `3fr / 2fr / var(--touch-min)` 网格、行高 `--row-h-1`、分隔线仅行与行之间；仅覆盖 `.allowance-row .van-field` 的水平内边距（唯一 Vant 覆盖点）。`hrm-admin`/`hrm-server`、Mock 装配与断言、冻结规范文档均零触碰。
+
+### 门禁（在 `hrm-dev/hrm-demo` 实跑）
+- `npm run lint`：**0 error** / 41 warning（含本文件 3 条：2 条 `label-has-for` 属规范 §5.5 指定的「外部 `<label for>` + van-field 内部 input」结构所致、1 条 `max-lines`）。
+- `npm run test`：**429 通过 / 1 失败**（总数 430）。失败项 `useAttendanceStatus.spec.js`「今日待审批槽位」为**既有、与本变更无关**（该用例读真实时钟，本机 07:2x 落在打卡窗口开放前 → `wait` 而非 `todo`），未改任何既有断言。
+- `npm run build`（演示态）与 `npm run build:prod`（生产态）：**均成功**（各 ~1m40s）。
+- `npm run verify:mock` 919/919、`npm run verify:mobile` 48/48、`npm run verify:tokens` 通过。
+- `npx stylelint src/**`：本文件 0 问题；既有失败 2 处（`mobile/views/login/index.vue`、`pc/views/login/index.vue` 的 `comment-empty-line-before`）由并发会话改动引入，非本变更。
+
+### 事实性纠正
+- 任务给定 `npm run test` 基线「509 通过 / 0 失败」与实测不符：当前工作区实为 **430 用例（429 通过 / 1 失败）**，差异应来自并发会话改动或基线采集时点（失败项依赖真实时钟）。
+- `mobile/api/hr.js` 的 `updateHrSalary` 本身是纯透传，缺 `allowances` 的根因在调用方 payload；故**未改该文件**，修正落在 `hrDetail.vue` 的 submit。
+
+### 遗留与 `TODO(扩展)`
+- 本文件因承载完整明细区由 296 → 428 行（非空非注释），触发 `max-lines`（warn，非 error）。规范「对接点清单」要求全部落在 `hrDetail.vue`，故本轮不拆子组件；如后续拆分须先经设计与评审确认。
+- 未新增自动化用例（组件挂载需覆盖 router/api/vant 多重桩），四态与像素级项（热区、`inputmode` 唤起键盘、320/375 无横向滚动）收敛到部署后浏览器实测。
+
+## 2026-09-25 · 移动端「调薪调整」津贴区交互与视觉规范（纯设计交付，无代码改动）
+
+出 `hrm-dev/docs/design-mobile-allowance-edit.md`：把 `hrDetail.vue` 第 212 行只读的「津贴合计」`van-cell` 升级为可增删的津贴明细子区块。**布局结论**：每行 `van-field ×2`（名称 `3fr` / 金额 `2fr`）+ 44px 图标删除按钮构成的 3 列网格，行高 48、随页面滚动不内滚；节点仍是同一张 `.card`、同一左边界，**不新增卡片、不新增组件、不新增 Token**。删除需 1 次 `bossConfirm`（空行豁免）；合计改为 `form.allowances` 求和派生、**不防抖**；校验按 PC 客户端更严口径（整数 + 6 位上限）+ 契约（名称 1–20），文案逐字对齐 PC。**硬性对接点**：移动端 `updateHrSalary` 现未传 `allowances`，改为可编辑后必须补传，否则 UI 有反馈、数据无变化（静默失败）；契约与 Mock 无需变更（PC 已在用同一形状）。**未改任何代码**（`hrm-admin`/`hrm-server`/Demo Mock 装配与断言零触碰）；本批仅新增 1 份文档 + 本行日志。
+
+### 事实性纠正
+- `demo-boss-ui-spec.md` §6.3 引用的 `mobile/views/boss/hrDetail.vue` 路径已失效，实际在 `mobile/modules/boss/views/hrDetail.vue`。
+- 问题描述将 PC 口径概括为「金额为非负数」，实测 PC 客户端更严：要求整数且整数部分 ≤6 位（契约/Mock 只校验非负数字）；本规范按更严者执行。
+
+### 遗留（已登记到规范 §10）
+- `--text-placeholder` 对白底约 2.5:1，低于 AA 4.5:1，属全站 `van-field` 既有口径，需设计系统层统一裁决，不在本区块单点修改。
+- PC 端删除津贴项无二次确认，与移动端不一致，建议后续对齐评估。
+
+## 2026-09-25 · 新增第 10 角色「技术评审工程师」+ 方案报审硬性闸门（规则与配置，无代码改动）
+
+### 概述
+解决「方案产出方与方案评审方为同一主体」的独立性缺口（架构师既写 ADR 又出自评审报告，与 v2.2 新增网络安全工程师的根因同构）。新增第 10 角色 **技术评审工程师**（`express-station-tech-reviewer`），只做**方案阶段产物的技术质量独立评估**（六维：依据充分性 / 架构与模块边界 / NFR 覆盖度 / 复杂度与可行性论证 / 假设与风险登记 / 与 `api.md`·`db.md` 契约一致性），出结论等级 + 必改项 + 验收标准，**不产出方案、不代改、不代放行**。新增**方案报审硬性闸门**：**所有方案必须经该角色评估通过（结论「通过」或「有条件通过」）后，才能报主智能体审批**；结论「打回」不得报审，退回原作者修订后重评；主智能体**不得受理未评审方案**；结论绑定方案版本。本批**全部为 A 档本地文件改动，未提交、未执行任何生产动作**。
+
+### 产物（文件清单与改动摘要）
+| 文件 | 说明 |
+| ---- | ---- |
+| **新增** `.trae/skills/tech-evaluation/SKILL.md` | 领域核心技能：六步流程（受理→六维评估→结论分级→必改项与验收标准→复评→输出）、三级结论表与分级红线、必改项格式模板、报告模板、7 条评估方反模式 |
+| **新增** `.trae/agents/express-station-tech-reviewer/SKILL.md` | 第 10 角色定义：唯一职责域 + 8 条「明确不做」+ 硬性闸门 + 输入输出契约 + 六阶段工作流 + 项目专项评估要点 |
+| `.trae/rules/项目规则1.md` | v2.3 → **v2.4**：§8 角色表加行、角色数 9→10、§8 新增**第 8 条「方案报审硬性闸门」**（5 子项）、§9.2 技能矩阵新增 `tech-evaluation`、文末新增 B5 修订小节 |
+| `.trae/rules/智能体调度规则.md` | v1.0 → **v1.1**：§2 编制 1+10、§3 新增路由 **R25**、§4 新增组合优先级 **P0.6（技术评审先行）**、§5 新增链路 **L8（方案→技术评审→报审）**、§6.2 不可并行反例加行、§9 冲突裁决加 2 行、§10 反模式新增 **A22/A23**、§11 对齐检查表加行 |
+| `.github/CONTRIBUTING.md` | 重写为 `项目规则1.md` v2.4 **逐字镜像**（正文逐行一致，仅头部多一行镜像说明；已用 Compare-Object 校验正文差异为 0） |
+| `全局规则.md` | §6 智能体调用：角色编制改 10（含技术评审工程师）；新增**方案报审硬性闸门**段；头部补 2026-09-25 修订说明 |
+| `智能体配置.md` | 编制 9→10；主智能体段新增「方案报审硬性闸门」；§1 架构师输出产物区分 `review-{主题}.md`（自检）与 `tech-review-{主题}.md`（独立评估）；**新增「## 10. 技术评审工程师」章节**（身份 / 明确不做 8 条 / 硬性闸门 / 输入输出 / 硬红线 / 升级路径 / 加载技能） |
+| `hrm-dev/docs/agent-team-design.md` | v1.1 → **v1.2**：§0 结论、§3.1 编制表与 §3.2 编制图（新增评审链路子图）、**新增 §3.4 论证**、§4 契约卡 9→10 张并**新增 §4.10 契约卡**、§5 台账加 2 行、§6.1 路由 R25 / §6.2 P0.6 / §6.3 L8、§6.4 反例、§6.6 交接包附加要求、§6.7 打回处置、§6.8 冲突裁决 2 行、§7 权限绑定加闸门行、§8 反模式 A18–A20、§9 检查表、§10 存疑 9–11 条 |
+| `AGENTS.md` | 硬红线区新增一行：方案阶段产物须先过技术评审闸门才能报审 |
+| `hrm-dev/docs/project-tree.md` | `.trae/agents/` 9→10、`.trae/skills/` 13→14 |
+| 桌面交付包 `d:\Users\16626\Desktop\快递驿站智能体团队配置\` | 同步 `rules/`(2)、`agents/express-station-tech-reviewer/`、`skills/tech-evaluation/`、`docs/`(3)、`智能体配置.md`、`AGENTS.md`、`配置说明.md`(v1.1→v1.2)；**9 个同步文件 SHA256 全部逐字节 MATCH** |
+
+### 三类评估边界（并行不互替）
+| 维度 | 评估方 | 依据 |
+| ---- | ----- | ---- |
+| 工程面（方案技术质量） | 技术评审工程师 | 项目规则 §8 第 8 条；调度规则 P0.6 / R25 / L8 |
+| 安全面（漏洞 / 攻击面 / 依赖供应链 / 合规） | 网络安全工程师 | 项目规则 §8 审批纪律；调度规则 P0.5 / L7 |
+| 操作安全评估与 C 档授权 | 主智能体 | 项目规则 §10.3 |
+
+### 未验证项与遗留
+- **第 10 角色需在 TraeCode CN 界面手工创建**（智能体定义不落文件系统，无法脚本化）；未创建前 R25 路由无人承接、闸门无法闭环。创建名须为 `express-station-tech-reviewer`。
+- `全局规则.md` 仅同步仓库与交付包副本；**本机实际加载的 `.trae-cn\user_rules\rule-<时间戳>.md` 需另行同步并新开对话生效**。
+- 本批未提交（`git` 工作区存在并发会话在途改动）；如提交须用 `git commit -- <本批路径>` 指定路径，并先看 `git diff --cached --name-status` 全量（反模式 A21）。
+
+## 2026-09-25 · 测试环境「万能验证码」+ 生产 fail-fast（`hrm.sms.dev-universal-code`）— 只出源码与单测，未执行
+
+### 概述
+解决用户「设备验证步骤不点『获取验证码』直接输 `000000` 登不上（1102）」的体验问题：新增配置键 **`hrm.sms.dev-universal-code`**（默认**空串 = 关闭**）。三条件同时满足（**配置非空** + **非生产环境** + **请求 `code` 与该值恒等**）时，在 `/auth/device/verify`、`/auth/sms/login` 两处校验入口**直接放行**——**跳过 Redis 取码与比对，且不消耗任何验证码/尝试计数**；设备信任签发、会话建立、端准入（1110）、账号状态（1002）等授权判定与登录链路**一律照常**。生产 profile 下该键非空即 **fail-fast 启动失败**。**未改任何 HTTP 契约（URL/入参/出参/错误码）**；未改 `hrm-demo`/`hrm-admin`、未改 `api.md`/`db.md`/`plan.md` 等受限文档、未改迁移脚本与 `.trae/rules/`。**本机无 JDK/Maven，未编译未跑测，收敛到服务器阶段。**
+
+### 产物（文件清单与改动摘要）
+| 文件 | 说明 |
+| ---- | ---- |
+| `hrm-server/src/main/java/com/qiujie/config/SmsProperties.java` | 新增字段 `devUniversalCode = ""`（`hrm.sms.*` 命名空间内，默认关闭） |
+| **新增** `hrm-server/src/main/java/com/qiujie/service/support/sms/SmsUniversalCodePolicy.java` | 万能码判定纯逻辑：三条件、恒定时间精确比较（区分大小写）、无副作用、不打印任何内容 |
+| `hrm-server/src/main/java/com/qiujie/service/support/sms/SmsConfigGuard.java` | 新增 `isProd` / `validateNoUniversalCode` / `isUniversalCodeConfigured`；prod 非空即 fail-fast；非生产非空打启动 WARN（不回显码值） |
+| `hrm-server/src/main/java/com/qiujie/service/auth/impl/AuthServiceImpl.java` | 注入 `Environment`；`verifySmsCode` 顶部新增短路分支（两处校验入口共用收口点） |
+| `hrm-server/src/main/resources/application.yml` | 新增 ASCII 键 `dev-universal-code: ""`（中文仅注释） |
+| **新增** `hrm-server/src/test/java/com/qiujie/service/support/sms/SmsUniversalCodePolicyTest.java` | 判定逻辑边界单测（空配置/生产/相等/不等/null 与空串/大小写） |
+| `hrm-server/src/test/java/com/qiujie/service/support/sms/SmsConfigGuardTest.java` | 追加：万能码配置判定、prod fail-fast（且异常信息不含码值）、`isProd` 口径 |
+| **新增** `hrm-server/src/test/java/com/qiujie/service/auth/impl/AuthServiceImplUniversalCodeTest.java` | 服务层短路单测：生效时**零触达** `SmsCodeStore` 且仍签发会话；配置空/不相等/prod 时回原逻辑 |
+
+### 配置键清单
+| 键名 | 默认值 | 生效条件 | 生产是否禁止 |
+| ---- | ----- | -------- | ------------ |
+| `hrm.sms.dev-universal-code` | `""`（关闭） | 三者同时满足：① 配置非空；② 非生产（`SmsConfigGuard.isProd`：prod profile）；③ 请求 `code` 去空白后与配置值**恒等**（区分大小写） | **是**：prod profile 下非空即启动失败（`IllegalStateException`） |
+
+### 短路分支位置与范围
+- **位置**：`AuthServiceImpl#verifySmsCode` 方法**首行**——该方法同时是 `/auth/sms/login`（场景 `LOGIN`）与 `/auth/device/verify`（场景 `DEVICE_VERIFY`）唯一的验证码校验收口点，一条分支覆盖两处入口。
+- **跳过**：`SmsCodeStore.getCode`（Redis 取码）、`attempts`（读计数）、`incrementAttempts`（自增计数）、`clearCode`（码作废）；即**不读取、不消耗任何验证码与尝试计数**。
+- **不跳过**：进入 `verifySmsCode` **之前**的入参与授权判定（短信登录：手机号格式、账号存在性 1001、账号状态 1002、端准入 1110；设备验证：票据校验、账号状态 1002、端准入 1110）；以及**返回之后**的登录链路（`establishDeviceTrust` 设备令牌签发 + `auth_trusted_device` 落库、`issueLoginSession` 会话建立、登录日志）。短路仅记录场景名，不回显码值/手机号/员工标识。
+
+### 生产 fail-fast 实现
+`SmsConfigGuard` 构造期（Bean 创建 = 启动）在 `isProd` 为真时：先 `validateProd`（既有：凭据未配即失败），再 `validateNoUniversalCode`——`hrm.sms.dev-universal-code` 非空抛 `IllegalStateException(ERROR_PROD_UNIVERSAL_CODE)`，与「生产未配短信凭据即失败」**同等强度**；错误信息只说明「该键仅供测试环境」，**不回显码值**。服务层 `SmsUniversalCodePolicy` 再判 `production` → 生产恒不生效，构成**双保险**。
+
+### 静态自审与未验证项
+- 静态自审（本机无 JDK/Maven）：配置键 `dev-universal-code` 与强类型类 `SmsProperties.devUniversalCode` 逐键对应（Spring relaxed binding）；新增 import/签名核对（`Environment`、`SmsConfigGuard`、`SmsUniversalCodePolicy`）；`AuthServiceImpl` 新增 `final Environment` 由 `@RequiredArgsConstructor` 纳入构造器（**字段顺序已与单测构造调用逐位核对**）；无不可变集合传 null 之 NPE 风险（`List.of` 未涉及）；YAML 键全 ASCII、中文仅注释。
+- **未验证项（收敛服务器）**：`mvn -q test` 未实跑；Spring 容器启动期 fail-fast 的真机触发、非生产 WARN 日志实际输出、`/auth/device/verify` 与 `/auth/sms/login` 携万能码的端到端 200 均**未实跑**。
+
+### 事实性纠正
+- **`hrm.sms.dev-fixed-code` 不是万能码**：其语义仅为「降级通道**生成**的验证码固定为 `000000`」，仍须**先发码**落 Redis 再比对——故「不点获取验证码直接输 `000000`」必失败（1102）。本次新增的 `dev-universal-code` 才是「免发码放行」，二者语义不同，已在 `SmsProperties` 中并列注释区分。
+- **环境判定为 profile 驱动（沿用现有口径）**：`SmsConfigGuard.isProd` = `prod` profile 处于激活态。若生产服务器未激活 `prod` profile，则既有「未配凭据 fail-fast」与本「万能码 fail-fast」**均不触发**——此为既有口径的固有边界，本批未扩大判定方式（避免与 `SmsConfigGuard` 既有口径分叉）。
+
+### TODO(扩展) 与遗留
+- `TODO(扩展): 若产品要求万能码仅对特定场景（如仅 DEVICE_VERIFY 而不含短信登录）生效，可在 SmsUniversalCodePolicy 增加场景维度入参；本批按需求对两处入口统一生效。`
+- 遗留：服务器阶段需补跑 `mvn test` 与两条端点的真机验证；生产外置配置 `application-prod.yml` 须确认未写入该键（主智能体核查，本角色不下发/不接触生产配置）。
+
+## 2026-09-25 · 补齐联调/演示身份账号：标准化演示账号 + 驿站 8 补齐（种子脚本 §2.1 新增 8 行）+ 账号清单文档
+
+### 概述
+按用户要求「预留所有的身份账号并输入好」，在**测试库种子脚本** `hrm-dev/sql/seed/kdyzgl_test_seed.sql` 中**新增 8 个可直接登录的账号**（id 57–64），并新增交付文档 `hrm-dev/docs/demo-accounts.md`（完整账号清单 + 各端准入规则）。**既有 56 行 id 与内容零改动**（避免打断 `attendance_schedule.employee_id` 等既有引用）；新增行落在第 0 节清理之后的 §2.1 独立 INSERT 块，保持幂等。**仍只针对 `kdyzgl_test`**；`kdyzgl`（结构库）/`courier_station`（现网）绝不触碰。**未改 V1–V15、`init.sql` 快照、三端源码、`.trae/rules/`、其他文档正文**。**本轮只出脚本与文档，SQL 实跑收敛到服务器阶段。**
+
+### 产物
+| 文件 | 说明 |
+| ---- | ---- |
+| `hrm-dev/sql/seed/kdyzgl_test_seed.sql` | 第 §2 节表头注释更新为「既有 56；补充 8 见 §2.1，共 64」；**新增 §2.1 块（行 149–168）**：8 个 `employee` 行（id 57–64） |
+| **新增** `hrm-dev/docs/demo-accounts.md` | 账号清单：按端速查 / 按角色汇总 / 全量 64 行表 / 各端准入规则 / 登录前置（双通道 + 固定码 `000000`）/ 来源与重灌命令 / 数据覆盖缺口 |
+
+### 新增账号（8）
+| id | username | 角色 | 驿站 | 用途 |
+| -- | -------- | ---- | ---- | ---- |
+| 57 | `boss` | ADMIN | — | 网页端/PC + 移动端管理视角（唯一可登 PC 端） |
+| 58 | `manager` | STATION_ADMIN | 1 城东 | 移动端管理视角；兼验 PC 端 1110 拦截 |
+| 59 | `staff` | STAFF | 1 城东 | 移动端员工端主用 |
+| 60 | `staff2` | STAFF | 2 城西 | 备用员工账号 |
+| 61 | `st008_admin` | STATION_ADMIN | 8 开发区分站 | 补齐驿站 8 站长 |
+| 62 | `st008_staff` | STAFF | 8 开发区分站 | 补齐驿站 8 员工 |
+| 63 | `st008_staff2` | STAFF | 8 开发区分站 | 补齐驿站 8 员工 |
+| 64 | `st008_staff3` | STAFF | 8 开发区分站 | 补齐驿站 8 员工 |
+
+口令：复用脚本既有 BCrypt 散列（对应公开约定 `demo1234`），**脚本仍只写散列、不写明文**；全部 `status=1`、`pwd_changed=1`、`is_deleted=0`。
+
+### 决策与事实性纠正
+- **`boss` 而非新增 `demo_admin`**：既有 `ADMIN` 账号已有 4 个（`admin`/`admin_pwd0`/`16626369983`/`admin2`），再叠「演示管理者」易混淆；改以易记名 `boss` 作「网页端唯一可登角色（ADMIN）」的代表账号，语义清晰且易口头讲解。
+- **`staff2` 命名保留用户建议**：`staff2`（驿站 2）与既有 `staffNN`（数字后缀=id）形似，已在 `remark` 与文档中明确其含义为「驿站 2 的备用员工」，`demo-accounts.md` §1.3/§3.3 标注用途，避免误读为「第 2 号员工」。
+- **禁用样例不再另加**：既有 `staff56`（id 56，`status=0`）已覆盖「含禁用」筛选与看板口径，按要求**不重复添加**。
+- **新增账号仅落 `employee`**：登录与端准入只依赖 `employee`；新账号的考勤/工资/档案等业务数据有意留空（避免种子体积与维护成本膨胀），已在文档 §7 明示为「正常空态」而非缺陷。
+
+### 静态自检与未验证项
+- 已做静态自检（本机无 MySQL，用脚本解析 + 逐项比对）：新增 8 行**每行单元格数 = 列数 = 17**（括号深度感知的逗号计数，全通过）；全 `employee` 解析得 **64 行**，`id` 连续 1–64、**username 唯一**（含与既有 56 比对无冲突）；枚举合法（`role`∈{ADMIN/STATION_ADMIN/STAFF}、`gender`∈{1,2}、`status`∈{0,1}、`pwd_changed=1`、`is_deleted=0`）；逻辑外键指向存在（`dept_id`∈{1,2}⊂已建 1–6，`station_id`∈{1,2,8} 或 `NULL`⊂已建 1–8）；`phone` 为占位号 `13900000057–13900000064`。
+- **幂等性推演**：`employee` 在第 0 节被整表 `DELETE`，§2.1 与 §2 同一轮次执行且**不含 `IF NOT EXISTS`/无重复键风险**（同一 INSERT 批次内 id/username 唯一）；重跑脚本 = 先清后插，结果与首次执行一致。
+- **未验证项**：本机无 MySQL，**未实跑**；`DATE_ADD(@base, INTERVAL …)` 相对日期表达式、`NULL` 落 `last_login_time`（可空列）、以及 64 行整体 INSERT 的实跑结果**收敛到服务器阶段**由主智能体在 `kdyzgl_test` 执行并核对 `SELECT COUNT(*) FROM employee` = 64。
+
+### 执行与回滚
+- 执行（C 档，须主智能体三步授权）：`mysql --default-character-set=utf8mb4 kdyzgl_test < hrm-dev/sql/seed/kdyzgl_test_seed.sql`。
+- 回滚：反向 diff 删除 §2.1 块（或直接重跑旧版脚本）；种子为重置型，重跑即回种子态。
+- 仅补新增账号：见 `docs/demo-accounts.md` §6（单跑 §2.1 INSERT 的替代方案）。
+
+### 联动项（非本角色改动）
+- 脚本实跑与行数核对、`demo-accounts.md` 的对外发布口径（C 档，主智能体授权后在 `kdyzgl_test` 执行）。
+
+## 2026-09-24 · 测试库联调/演示种子数据（`hrm-dev/sql/seed/kdyzgl_test_seed.sql`）— 只出脚本与文档，未执行
+
+### 概述
+为「前端演示站切换为直连真实后端」提供可见数据：产出**独立种子脚本** `hrm-dev/sql/seed/kdyzgl_test_seed.sql`（约 2692 行，32 张表、约 2200 行数据）。**只针对测试库 `kdyzgl_test`**，走人工执行、**不走 Flyway**、不入 `sql/schema` 快照；`courier_station`（现网）与 `kdyzgl`（结构库）绝不触碰（脚本头部有醒目拦截注释）。**未改动 V1–V15、`init.sql` 快照、`hrm-server`/`hrm-demo`/`hrm-admin` 源码与规则文件**；结构/枚举以 `docs/db.md` 与 V1–V15 为准、数据形态参照 Mock 真源（规模裁剪）。**本轮只出脚本与文档，SQL 实跑收敛到服务器阶段。**
+
+### 产物
+| 文件 | 说明 |
+| ---- | ---- |
+| **新增** `hrm-dev/sql/seed/kdyzgl_test_seed.sql` | 14 个分节（0 清理 → 1 组织 → 2 账号 → 3 日志 → 4 考勤 → 5 请假 → 6 KPI → 7 人事 → 8 财务 → 9 工单 → 10 通知 → 11 同步 → 12 包裹 → 13 校验），每节含「为什么播这些」 |
+| `hrm-dev/docs/deploy.md` | 新增 §3.6「测试库 `kdyzgl_test` 与联调种子数据」：定位/隔离边界/执行与回滚命令/密码哈希生成与校验/与 Seeder 关系/收敛说明 |
+
+### 表 → 行数（生效于脚本末尾校验块）
+`department` 6、`station` 8、`employee` 56、`login_log` 38、`client_log` 8、`attendance_rule` 8、`attendance_shift` 24、`attendance_schedule` 252、`attendance_record` 386、`attendance_makeup` 10、`leave_setting` 1、`leave_request` 12、`leave_log` 27、`kpi_metric` 7、`kpi_score` 110、`hr_profile` 56、`hr_salary` 56、`hr_salary_log` 75、`hr_flow` 9、`hr_flow_step` 54、`payroll_rule` 2、`payroll_rule_item` 9、`payroll` 67、`payroll_item` 536、`work_order` 40、`work_order_timeline` 93、`work_order_transfer` 8、`work_order_dispatch_rule` 5、`notification` 99、`sync_task` 56、`sync_task_log` 166、`parcel` 210。
+
+枚举覆盖：员工三角色齐全（ADMIN / STATION_ADMIN / STAFF）；考勤四态（NORMAL/LATE/EARLY_LEAVE/ABNORMAL）；请假 6 态全；工资单 6 态全；工单 0–3；包裹 0–4（含已退回）；通知类型 1–6。
+
+### 账号与口令
+统一演示口令 `demo1234`，`employee.password` 只落 BCrypt 散列（`$2a$10$TVkFYxOLLRGLQ47IMUPhVuLHJW3dDUhDqEx0PSa7bs0tq38jQhjl2`，bcryptjs 生成并 `compareSync` 回环校验通过），**脚本不含明文**。账号：`admin`/`admin_pwd0`/`admin2`/`16626369983`（ADMIN，`station_id` 空）；`st001_admin`、`st002_admin`…`st007_admin`（STATION_ADMIN，各绑 1–7 号站）；其余 STAFF（含 `st001_staff`）。全部 `status=1`、`pwd_changed=1`（免首登强制改密）；末位 `staff56` 置 `status=0` 覆盖「含禁用」口径。
+
+### 决策与事实性纠正
+- **不触碰同步配置 5 表**：任务只点名「配置中心四层」需避让，但实测 `SyncConfigSeeder#seedStationsAndOverrides` **同时播种 `sync_station_config` 与覆盖值**（并会为「丰巢智能柜」自动纳管 `MIGRATED_*` 选项）。若预置该表，Seeder 的 `fresh=count==0` 判定会跳过、导致覆盖值缺失。故脚本**对 `sync_station_config` 与四层表一并跳过**，交由 Seeder 幂等播种。
+- **`bcryptjs` 非本仓库依赖**：任务称「`hrm-dev/hrm-demo` 有该依赖」不成立（`package.json` 无 bcryptjs、`node_modules` 无）。已改为临时目录安装生成，不改仓库依赖清单（见 deploy.md §3.6）。
+- **工单派单规则按 Mock 实际 5 条**（任务写「4 条」）——Mock `db.js#DISPATCH_RULE_SEED` 实为 5 条，脚本按 5 条落。
+- **时间锚点用 `@base := CURDATE()` 而非写死日期**：演示站直连后端需「今日/近 7 天/近 30 天」持续可见，写死日期会让数日后执行时页面全空；单锚点保证同日可复现。
+- 考勤排班/打卡/补卡**只投城东驿站**（对齐 Mock 的 `STATION_ID=1`），避免 8 站满量拖慢首屏；非城东驿站请假样本的 `counted_days` 为近似值（无排班真源）。
+
+### 静态自检与未验证项
+- 已做静态自检：列名存在性（逐表比对 V1–V15 DDL）、类型匹配、枚举取值合法性、非空约束（`NULL` 仅落在可空列）、逻辑外键指向的记录确实存在（如 `shift_id`∈1–24、`flow_id`∈1–9、`payroll_id`∈1–67、`task_id`∈1–56、`leave_id`∈1–12）、JSON 列内容合法、**每行单元格数 = 列数**（生成器内置断言，全表通过）、无未加引号的字符串/枚举字面量。
+- **未验证项**：本机无 MySQL，**未实跑**；`@base` 相对日期表达式、JSON 列的类型转换、以及 MySQL 8 对 `VALUES` 中表达式/`CONCAT` 的接受度**收敛到服务器阶段**由主智能体在 `kdyzgl_test` 实跑核对。
+
+### 执行与回滚
+- 执行：`mysql -uroot -p kdyzgl_test < hrm-dev/sql/seed/kdyzgl_test_seed.sql`（执行属 C 档，须主智能体三步授权）。
+- 幂等：先按「子表→父表」整表 `DELETE` 再 `INSERT`，可重复执行；**重跑即回滚到种子态**。
+- 不影响结构：脚本无 DDL、不 `DROP`/不 `TRUNCATE`；`auth_trusted_device` 与同步配置 5 表不在清理范围内。
+
+### 联动项（非本角色改动）
+- 脚本实跑与行数核对（C 档，主智能体授权后在 `kdyzgl_test` 执行）。
+
 ## 2026-09-24 · 后端 M4 批（登录契约改造）：短信验证码登录 + 设备信任 + 3 天到期强制重登 — 与前端 Mock 逐条对齐
 
 ### 概述
@@ -1018,4 +1257,50 @@ Spring Boot 绑定前将属性名经 `ConfigurationPropertyName.adapt()` 规范�
 - 本机无 JDK/Maven，**仅静态自审**（诊断零告警；`TableInfoHelper.initTableInfo` 签名、`GlobalConfig` 默认处理器非空、`MybatisConfiguration` 无参构造器均按 3.5.7 源码核对）；`mvn test` 复验收敛服务器阶段，目标 509 用例全绿。
 - HTTP 契约、业务口径、迁移脚本、`hrm-demo`/`hrm-admin` 零改动；断言未弱化（#2 属纠错且更精确），未加 `@Disabled`、未改 `pom.xml`。
 - 观察项（低风险，无需裁定）：`as` 比较改为大小写不敏感，较 Mock 的精确 `=== 'boss'` 略宽松；与既有 `clientType` 归一（`EndAdmissionPolicyTest.webIsCaseInsensitive` 已确立）一致，方向上更偏 fail-closed。
+
+---
+
+## 2026-09-25 · 修复 leave_log 保留字列名导致的 500（全量同类隐患扫描）
+
+### 概述
+
+服务器 dev（库 `kdyzgl_test`）实测 500：`BadSqlGrammarException ... near 'before,after,remark FROM leave_log'`
+（工作台刷新 → `/leave/my?status=PENDING`、`/leave/list?status=PENDING_STATION` 关联查 `leave_log`）。
+根因：`leave_log.before` 未转义，`BEFORE` 为 MySQL 8.0 保留字（官方关键字表标记 (R)），MyBatis-Plus 生成
+SQL 不自动加引号 → 1064 语法错误。本机无 JDK/Maven，仅静态自审，测试收敛到服务器阶段。
+
+### 后端工程师交付
+
+| 变更 | 文件 |
+| ---- | ---- |
+| 实体列名转义 | `hrm-server/src/main/java/com/qiujie/entity/LeaveLog.java`（`before`/`after` 加 `@TableField` 反引号列名，导入 `TableField`） |
+| 新增回归单测 | `hrm-server/src/test/java/com/qiujie/entity/LeaveLogReservedWordMappingTest.java`（新） |
+| 新增解析/契约单测 | `hrm-server/src/test/java/com/qiujie/service/leave/support/LeaveLogSnapshotJsonTest.java`（新） |
+
+**保留字扫描（38 表全量）**：基准 MySQL 8.0 关键字表逐一比对 `init.sql` 列定义，**唯一保留字列 = `leave_log.before`**；
+`leave_log.after` 为非保留关键字（一并转义，防御性）；`client_log.count` 非保留（原生 SQL 已转义，保留不动）；
+`HrAllowance.key` 为 `allowances` JSON 数组内嵌字段、非表列（无风险）。除上述外全量核对无命中。
+未改 `init.sql` / V1–V15 迁移 / HTTP 契约（URL、入参、出参、错误码零变化）。
+
+### 有意变更清单
+
+- 仅 SQL 层列名转义（反引号包裹 `before`/`after`）；HTTP 出参字段名仍为 `before`/`after`。
+
+### 未验证项（收敛到服务器阶段）
+
+- 编译打包、单测实跑（本机无 JDK/Maven）；`leave_log` 真实读写在 dev 库的端到端验证。
+- `mvn -q -Dtest=LeaveLogReservedWordMappingTest,LeaveLogSnapshotJsonTest test` 与工作台刷新冒烟未执行。
+
+### 事实性纠正
+
+- 任务描述称 `before`/`after` **均**为 MySQL 保留字：据官方关键字表，仅 `BEFORE` 标 (R) 为保留字；
+  `AFTER` 为非保留关键字（可裸用）。报错行 `'before,after,remark'` 由 `before` 触发，二者一并转义属防御性加固。
+- PostgreSQL 快照（`sql/schema/postgresql/init.sql`）仅含 4 表（department/station/employee/login_log），
+  无 `leave_log`；跨库引用需另议（本次 MySQL 单库锁定）。
+
+### 遗留与 `TODO(扩展)`
+
+- 建议（仅建议，未动 DDL）：`leave_log.before/after` 语义弱且 `before` 命中保留字，长期可考虑重命名为
+  `before_snapshot`/`after_snapshot`（需新迁移版本号 + 快照同步 + 数据库工程师评估，属 C 档）。
+- `TODO(扩展)`：切换 PostgreSQL 时反引号需改双引号（方言差异），同 `ClientLogMapper` 既有标注。
 

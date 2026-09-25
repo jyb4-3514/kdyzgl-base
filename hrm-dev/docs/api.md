@@ -74,6 +74,7 @@
 | ---- | ---- |
 | 200 / 400 / 401 / 403 / 404 / 500 | 通用段（与 HTTP 语义对齐） |
 | 10xx | 认证与账号 |
+| 11xx | 认证增强（短信 / 图形码 / 设备信任 / 会话到期 / 端准入） |
 | 20xx | 员工 |
 | 30xx | 部门 |
 | 40xx | 驿站 |
@@ -93,6 +94,16 @@
 | 1002 | 账号已禁用，请联系管理员 | 登录账号处于禁用状态 |
 | 1003 | 登录账号已存在 | 新增员工时 username 与活跃数据重复 |
 | 1004 | 原密码错误 | 修改本人密码时原密码校验失败 |
+| 1101 | 验证码发送过于频繁，请稍后再试 | 短信频控命中 |
+| 1102 | 验证码错误或已过期，请重新获取 | 短信验证码校验失败 |
+| 1103 | 验证码尝试次数过多，请重新获取 | 单码尝试次数超限 |
+| 1104 | 检测到新设备，需短信验证 | 新设备二次验证分流（HTTP 200 + needDeviceVerify，非错误提示） |
+| 1105 | 短信服务暂不可用，请稍后重试 | 短信通道投递失败 |
+| 1106 | 图形验证码错误或已失效，请重新输入 | captcha-enabled=true 时图形码校验失败 |
+| 1107 | 该设备已被撤销，请重新登录 | 设备信任令牌已被撤销 |
+| 1108 | 登录已到期，请重新登录 | 会话超重认证窗口，强制重登（不做短信续期） |
+| 1109 | 该账号未绑定手机号，无法短信验证 | 短信登录/验证需已绑定手机号 |
+| 1110 | 该账号无权登录此端 | 端准入拒绝（端 - 角色不匹配，或缺省 / 未知 / 非法端），详见 4.1.5 |
 | 2001 | 不允许对当前登录账号执行该操作 | 禁用/删除/重置密码/角色降级作用于自身 |
 | 2002 | 不允许对最后一个可用管理员执行该操作 | 最后管理员保护 |
 | 2003 | 手机号已被其他员工使用 | phone 与活跃数据重复 |
@@ -188,8 +199,13 @@
 | ---- | ---- | ---- | ---- |
 | username | string | 是 | 4-30 位 |
 | password | string | 是 | 非空 |
+| clientType | string | 否 | 端类型，见 4.1.5（优先取请求头 `X-Client-Type`；本字段为兼容旧前端） |
+| as | string | 否 | 入口视角 `boss`/`station`/`staff`，见 4.1.5 |
+| device | object | 否 | 设备弱信号 `{deviceId,platform,model,osVersion,appVersion}`，用于设备信任判定 |
 
-行为：校验账号密码（BCrypt matches）→ 校验 `status=1` 且未删除 → 建立会话（3.1）→ 写 `login_log`（成功/失败均记录）→ 更新 `last_login_time`。账号不存在与密码错误统一返回 1001（防账号探测）。
+请求头（端准入，详见 4.1.5）：`X-Client-Type: ADMIN | BOSS | STAFF`；`X-Device-Id: string`（设备标识回退）。
+
+行为：校验账号密码（BCrypt matches）→ 校验 `status=1` 且未删除 → **端准入（见 4.1.5）** → 建立会话（3.1）→ 写 `login_log`（成功/失败均记录）→ 更新 `last_login_time`。账号不存在与密码错误统一返回 1001（防账号探测）。
 
 响应示例：
 
@@ -214,7 +230,7 @@
 
 > 前端拿到 `pwdChanged=false` 时强制进入改密流程（[requirement.md](requirement.md) 5.3）。
 
-错误码：400 / 1001 / 1002。
+错误码：400 / 1001 / 1002 / **1110**（端准入拒绝，见 4.1.5）。
 
 #### 4.1.2 退出登录
 
@@ -266,6 +282,63 @@
 行为：校验通过 → 更新散列 → `pwd_changed=1` → 删除本人会话（需重新登录）。
 
 错误码：400（强度不足）/ 1004（原密码错误）。
+
+#### 4.1.5 端准入契约（`X-Client-Type` / fail-closed / 1110）
+
+> 依据：`security-client-admission-review.md` 必改 1–7。三端**互斥准入**，账号不得混登；端类型为**产品 / 审计约束**
+> （客户端自称、可伪造，**非鉴权边界**，权限恒由会话 `role` + `@RequireRoles` 决定）。
+
+**端类型取值域（唯一真源 `ClientType`）**：`ADMIN`（PC 管理端 `pc.html`）/ `BOSS`（管理端 H5 驿站精灵，`?as=boss`）/
+`STAFF`（员工端 H5 驿站助手）/ `WEB`（旧网页端 / 缺省值，按 PC 口径约束）。
+
+**入参优先级**：请求头 `X-Client-Type`（新契约，非空即以其为准，非法即拒）→ 请求体 `clientType`（兼容旧前端）。
+旧值 `H5` 按入口 `as` 派生：`as=boss` → `BOSS`；其余（无 `as` / `staff` / `station`）→ `STAFF`。
+
+**目标准入矩阵（fail-closed）**：
+
+| 端类型 | 端取值来源 | 允许角色 | 配置键（默认值） |
+| ---- | ---- | ---- | ---- |
+| PC 管理端 | `X-Client-Type: ADMIN` / `clientType: WEB` | 仅 `ADMIN` | `hrm.auth.pc-allowed-roles`（`ADMIN`） |
+| 旧网页端 / 缺省值 | `clientType: WEB` | 仅 `ADMIN` | `hrm.auth.pc-allowed-roles`（`ADMIN`） |
+| 管理端 H5（驿站精灵） | `X-Client-Type: BOSS` / `clientType: H5` + `as=boss` | 仅 `ADMIN` | `hrm.auth.boss-allowed-roles`（`ADMIN`） |
+| 员工端 H5（驿站助手） | `X-Client-Type: STAFF` / `clientType: H5`（无 `as` 或 `as=station`） | `STAFF` + `STATION_ADMIN`（拒 `ADMIN`） | `hrm.auth.staff-allowed-roles`（`STAFF,STATION_ADMIN`） |
+| **缺省 / 未知 / 非法端** | 未上报 `clientType` / `X-Client-Type`，或取值不在上述范围 | **一律拒绝（1110）** | —（fail-closed，无可配放行） |
+
+**适用路径**（该判定由服务端统一执行，前端拦截仅为体验）：`POST /auth/login`（密码）、`POST /auth/sms/login`（短信）、
+`POST /auth/device/verify` 与 `POST /auth/sms/send`（scene=`DEVICE_VERIFY`）的票据复判——四条路径共用同一策略对象。
+
+**失败行为**：命中即 **HTTP 200 + `{ code: 1110, message: "该账号无权登录此端" }`**，停留登录页、**不签发会话**、
+写 `login_log`（`fail_reason=该账号无权登录此端`）。
+
+请求示例：
+
+```http
+POST /api/v1/auth/login
+X-Client-Type: STAFF
+Content-Type: application/json
+
+{ "username": "zhangsan", "password": "******", "device": { "deviceId": "d-1", "platform": "H5" } }
+```
+
+失败示例：
+
+```json
+{ "code": 1110, "message": "该账号无权登录此端", "data": null }
+```
+
+**配置键**（全 ASCII、逗号分隔、逐项去空白并忽略大小写、非已知角色名丢弃；显式配空 = 该端 fail-closed）：
+
+| 键 | 端 | 默认值 |
+| ---- | ---- | ---- |
+| `hrm.auth.pc-allowed-roles` | `ADMIN` / `WEB` | `ADMIN` |
+| `hrm.auth.boss-allowed-roles` | `BOSS` | `ADMIN` |
+| `hrm.auth.staff-allowed-roles` | `STAFF` | `STAFF,STATION_ADMIN` |
+
+> **端类型上报方式**（两种，服务端均支持）：
+> - **请求头 `X-Client-Type`**（取值 `ADMIN` / `BOSS` / `STAFF`）：**优先级最高**，只要存在即以其为准（非法则直接拒，不回退请求体）；
+> - **请求体字段 `clientType`（+ 可选 `as`）**：现状前端均走此方式——`hrm-admin`（PC）传 `WEB`；`hrm-demo` 移动端传 `H5` 并以 `as`（`boss` / `station`）派生管理端/员工端。
+>
+> **必须显式上报**：缺省 / 未知 / 非法端一律 **1110**（fail-closed）。存量会话在 TTL（默认 3 天）内不失效——端准入**仅约束新登录**，属已知运营口径（「收紧即刻全量生效」需另行清会话，属运营动作）。
 
 ### 4.2 看板接口
 
