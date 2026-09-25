@@ -116,7 +116,8 @@ test.describe('A1 页面加载与登录', () => {
   })
 
   test('A1-5 移动端管理端登录走通且落地经营总览', async ({ page }) => {
-    await page.goto('/mobile.html#/login', { waitUntil: 'domcontentloaded' })
+    // 端准入互斥：管理员只能在管理端入口（as=boss）登录，缺省 as 会被 1110 拒
+    await page.goto('/mobile.html#/login?as=boss', { waitUntil: 'domcontentloaded' })
     await page.locator('.login__card').waitFor()
     const inputs = page.locator('.login__card input')
     await inputs.nth(0).fill(ACCOUNT.boss)

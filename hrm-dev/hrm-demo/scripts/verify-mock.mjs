@@ -16,6 +16,7 @@ import { resetLeaveStore } from '../src/shared/mock/leaveStore.js'
 import { resetClientLogStore } from '../src/shared/mock/clientLogStore.js'
 import { ATTENDANCE_METRIC, LEAVE_STATUS, LEAVE_TYPE, NOTIFICATION_TYPE } from '../src/shared/constants/dict.js'
 import { AUTH_BOOST_CODE, LEAVE_CODE, codeMessage } from '../src/shared/constants/errorCode.js'
+import { ROLE } from '../src/shared/constants/role.js'
 import {
   addDays,
   currentMonth,
@@ -96,7 +97,18 @@ async function expectCode(name, method, url, options, code, httpStatus = 200) {
   return res
 }
 
-const login = (username, password) => call('post', '/auth/login', { data: { username, password } })
+/**
+ * 登录用例助手：按账号角色推导端类型后再登录。
+ * 为什么必须显式带端：端准入已改为 fail-closed（缺省 / 未知端一律 1110），不传 clientType 的登录不再放行，
+ * 故统一在此按角色补齐端类型（ADMIN → WEB 网页端；STATION_ADMIN / STAFF → H5 员工端），
+ * 使既有用例只改「夹具」不改「断言」。需构造异常端 / 跨端场景时另用 call(...) 显式传 clientType/as。
+ */
+const login = (username, password) => {
+  const employee = db.employees.find((e) => e.is_deleted === 0 && e.username === username)
+  const endFields =
+    employee && employee.role === ROLE.ADMIN ? { clientType: 'WEB' } : { clientType: 'H5', as: 'station' }
+  return call('post', '/auth/login', { data: { username, password, ...endFields } })
+}
 
 /* ===== 考勤校验用的独立推算：不引用 attendanceStore 的判定函数，避免「用被测实现验证被测实现」 ===== */
 /** 'HH:mm' → 当日分钟数 */
@@ -211,7 +223,7 @@ async function main() {
   )
   // 兼容性验证：即便传入已含 /api/v1 的绝对地址，归一化后仍能命中同一路由
   const absolute = await call('post', 'http://localhost:5188/api/v1/auth/login', {
-    data: { username: 'admin', password: 'demo1234' }
+    data: { username: 'admin', password: 'demo1234', clientType: 'WEB' }
   })
   check('V1 绝对地址 + /api/v1 前缀可被归一化命中', absolute.ok === true)
 
@@ -254,7 +266,7 @@ async function main() {
     'admin_pwd0 登录（首登改密）',
     'post',
     '/auth/login',
-    { data: { username: 'admin_pwd0', password: 'demo1234' } },
+    { data: { username: 'admin_pwd0', password: 'demo1234', clientType: 'WEB' } },
     200
   )
   check('登录返回 pwdChanged=false', pwd0.ok && pwd0.result.employee.pwdChanged === false)
@@ -5652,7 +5664,9 @@ async function main() {
       obDone.result.currentStepKey === null
   )
   check('入库员工此时才转为在职（status=1）', db.employees.find((e) => e.id === onboardEmpId).status === 1)
-  const onboardLogin = await call('post', '/auth/login', { data: { username: 'onboard_demo01', password: 'Init1234' } })
+  const onboardLogin = await call('post', '/auth/login', {
+    data: { username: 'onboard_demo01', password: 'Init1234', clientType: 'H5', as: 'station' }
+  })
   check(
     '走完流程的新员工账号可登录（首登需改密）',
     onboardLogin.ok && onboardLogin.result.employee.pwdChanged === false
@@ -6907,10 +6921,12 @@ async function main() {
   const staffPhone = db.employees.find((e) => e.id === devStaffId).phone
   const deviceA = { deviceId: 'demo-device-A', platform: 'WEB', model: 'DemoPC', osVersion: 'Win', screen: '1920x1080', timezone: 'Asia/Shanghai' }
 
-  // 1) 既有出参零变更（不传 clientType/device）：原有 3 字段仍在，且追加字段为向后兼容
+  // 1) 既有出参零变更：显式上报 WEB 端后，原有 3 字段仍在，且追加字段为向后兼容
+  // 注：端准入改 fail-closed 后，登录必须上报端类型（本用例经 login 助手按角色补 WEB），
+  // 「不传 clientType 也放行」的旧行为已随口径收紧删除，故此处不再测「缺省放行」。
   const backward = await login('admin', 'demo1234')
   check(
-    'B1. 既有出参保留 token/expiresIn/employee（未传 clientType/device 时行为不变）',
+    'B1. 既有出参保留 token/expiresIn/employee（显式上报 WEB 端）',
     backward.ok &&
       typeof backward.result.token === 'string' &&
       backward.result.expiresIn === 259200 &&
@@ -6950,13 +6966,8 @@ async function main() {
   check('B1. 已受信设备登录直接签发会话（不再触发二次验证）', trustedLogin.ok && typeof trustedLogin.result.token === 'string' && trustedLogin.result.needDeviceVerify === false)
   const devAdminToken = trustedLogin.ok ? trustedLogin.result.token : ''
 
-  // 6) 端准入 1110：网页端仅 ADMIN；移动端管理端视角 ADMIN/STATION_ADMIN
-  await expectCode('端准入. 网页端非 ADMIN → 1110', 'post', '/auth/login', { data: { username: 'st001_admin', password: 'demo1234', clientType: 'WEB' } }, AUTH_BOOST_CODE.END_NOT_ALLOWED)
-  await expectCode('端准入. 移动端管理端视角 STAFF → 1110', 'post', '/auth/login', { data: { username: 'st001_staff', password: 'demo1234', clientType: 'H5', as: 'boss' } }, AUTH_BOOST_CODE.END_NOT_ALLOWED)
-  const h5Station = await call('post', '/auth/login', { data: { username: 'st001_admin', password: 'demo1234', clientType: 'H5', as: 'boss' } })
-  check('端准入. 移动端管理端视角 STATION_ADMIN 放行', h5Station.ok && typeof h5Station.result.token === 'string')
-  const h5Staff = await call('post', '/auth/login', { data: { username: 'st001_staff', password: 'demo1234', clientType: 'H5', as: 'station' } })
-  check('端准入. 员工端不限角色（STAFF 放行）', h5Staff.ok && typeof h5Staff.result.token === 'string')
+  // 6) 端准入三端互斥矩阵见本段末尾「11)」（放在设备管理之后：矩阵会反复登录同名账号，
+  //    会顶掉上文 C1/C2 依赖的会话；矩阵自身不依赖任何 token，置于末尾不影响其他用例）
 
   // 7) 短信验证码通道（A2）+ 频控（1101）+ 未绑手机号（1109）
   const smsSendOk = await call('post', '/auth/sms/send', { data: { phone: staffPhone, scene: 'LOGIN', clientType: 'H5' } })
@@ -6991,9 +7002,64 @@ async function main() {
   check('D1. 图形验证码端点可用且返回 ticket', captcha.ok && typeof captcha.result.ticket === 'string')
   check('11xx 全段均有中文文案（无「有码无文案」）', [1101, 1102, 1103, 1104, 1105, 1106, 1107, 1108, 1109, 1110].every((c) => codeMessage(c) !== '操作失败'))
 
+  // 11) 端准入三端互斥矩阵（fail-closed）：4 端 × 3 角色逐格 + 缺省/未知/非法端一律拒
+  // 端 → 允许角色：PC 网页端(WEB)/PC 管理端(ADMIN) 仅 ADMIN；管理端 H5(as=boss) 仅 ADMIN；
+  //               员工端 H5(as=station|staff|缺省) STAFF + STATION_ADMIN
+  // 放在段末：矩阵会反复登录同名账号（互踢顶会话），自身不依赖任何 token，故不影响上文用例
+  const END_ACCOUNT_OF = { ADMIN: 'admin', STATION_ADMIN: 'st001_admin', STAFF: 'st001_staff' }
+  const END_MATRIX = [
+    { name: 'PC网页端(WEB)', body: { clientType: 'WEB' }, allow: ['admin'] },
+    { name: 'PC管理端(ADMIN)', body: { clientType: 'ADMIN' }, allow: ['admin'] },
+    { name: '管理端H5(as=boss)', body: { clientType: 'H5', as: 'boss' }, allow: ['admin'] },
+    { name: '员工端H5(as=station)', body: { clientType: 'H5', as: 'station' }, allow: ['st001_admin', 'st001_staff'] }
+  ]
+  for (const end of END_MATRIX) {
+    for (const [role, account] of Object.entries(END_ACCOUNT_OF)) {
+      const res = await call('post', '/auth/login', { data: { username: account, password: 'demo1234', ...end.body } })
+      const shouldAllow = end.allow.includes(account)
+      if (shouldAllow) {
+        check(`端准入矩阵. ${end.name} × ${role} → 放行`, res.ok && typeof res.result.token === 'string', `code=${res.code}`)
+      } else {
+        check(
+          `端准入矩阵. ${end.name} × ${role} → 1110`,
+          !res.ok && res.code === AUTH_BOOST_CODE.END_NOT_ALLOWED,
+          `code=${res.code}`
+        )
+      }
+    }
+  }
+  // 缺省 / 空串 / 未知 / 非法端一律 fail-closed（旧实现「缺省即不校验」的口子已封，三个角色全拒）
+  for (const [label, clientType] of [
+    ['缺省', undefined],
+    ['空串', ''],
+    ['未知(ANDROID)', 'ANDROID'],
+    ['非法(WEB端)', 'WEB端']
+  ]) {
+    for (const [role, account] of Object.entries(END_ACCOUNT_OF)) {
+      const res = await call('post', '/auth/login', { data: { username: account, password: 'demo1234', clientType } })
+      check(
+        `端准入. ${label}端 × ${role} → 1110`,
+        !res.ok && res.code === AUTH_BOOST_CODE.END_NOT_ALLOWED,
+        `code=${res.code}`
+      )
+    }
+  }
+  // 旧值 H5 的 as 派生（大小写 / 空白不敏感）：as=boss → 管理端；as=staff / 缺省 → 员工端
+  await expectCode(
+    '端准入. H5+as=staff 下 ADMIN → 1110（员工端不收管理员）',
+    'post',
+    '/auth/login',
+    { data: { username: 'admin', password: 'demo1234', clientType: 'H5', as: 'staff' } },
+    AUTH_BOOST_CODE.END_NOT_ALLOWED
+  )
+  const h5BossAdmin = await call('post', '/auth/login', { data: { username: 'admin', password: 'demo1234', clientType: 'H5', as: ' BOSS ' } })
+  check('端准入. H5+as=boss（大小写/空白不敏感）→ 管理端 ADMIN 放行', h5BossAdmin.ok && typeof h5BossAdmin.result.token === 'string')
+  const h5NoAsStaff = await call('post', '/auth/login', { data: { username: 'st001_staff', password: 'demo1234', clientType: 'H5' } })
+  check('端准入. H5 缺省 as → 员工端 STAFF 放行', h5NoAsStaff.ok && typeof h5NoAsStaff.result.token === 'string')
+
   console.log(
     `\n[登录体系改造] 受信设备 ${db.trustedDevices.length} 条 / 短信审计 ${db.smsLogs.length} 条 / ` +
-      `1110 端准入（WEB 非 ADMIN、H5 管理端 STAFF）与 1108 到期均已覆盖`
+      `1110 端准入（4 端 × 3 角色逐格 + 缺省/未知端 fail-closed）与 1108 到期均已覆盖`
   )
 
   console.log('\n================ Mock 契约校验结果 ================')

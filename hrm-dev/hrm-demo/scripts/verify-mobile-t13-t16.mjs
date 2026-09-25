@@ -49,8 +49,14 @@ async function call(method, url, { data, params, token } = {}) {
     return { ok: false, code: error.code, message: error.message }
   }
 }
+/**
+ * 登录助手：端准入 fail-closed 后，登录必须上报端类型，故按账号角色补齐
+ * （ADMIN → 网页端 WEB；站长 / 员工 → 员工端 H5，与页面实际入口一致），否则一律 1110。
+ */
 const login = async (username) => {
-  const res = await call('post', '/auth/login', { data: { username, password: 'demo1234' } })
+  const employee = db.employees.find((e) => e.is_deleted === 0 && e.username === username)
+  const endFields = employee && employee.role === 'ADMIN' ? { clientType: 'WEB' } : { clientType: 'H5', as: 'station' }
+  const res = await call('post', '/auth/login', { data: { username, password: 'demo1234', ...endFields } })
   return res.ok ? res.data.token : null
 }
 const pad = (n) => String(n).padStart(2, '0')

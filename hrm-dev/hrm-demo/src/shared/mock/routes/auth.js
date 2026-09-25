@@ -1,5 +1,5 @@
 import { AUTH_BOOST_CODE, AUTH_CODE, CODE } from '../../constants/errorCode.js'
-import { ALL_ROLES } from '../../constants/role.js'
+import { ALL_ROLES, ROLE } from '../../constants/role.js'
 import { db, persistTrustedDevices, toEmployeeVO } from '../db.js'
 import { fail, formatDateTime, maskPhone, ok } from '../util.js'
 import { isBlank, isPhone, isStrongPassword } from '../validate.js'
@@ -53,19 +53,50 @@ function addLoginLog({ username, employeeId, result, reason }) {
   })
 }
 
+/** 归一 token：null → ''，否则 trim + 转大写（与后端 ClientAdmissionPolicy.normalizeToken 同口径） */
+const normalizeEndToken = (value) => (value == null ? '' : String(value).trim().toUpperCase())
+
 /**
- * 端准入（demo-login-redesign §1.3 + 主智能体裁定）
- * - `clientType` 缺省即不校验：既有调用方（verify 脚本、一期页面）不传该字段，行为与改造前完全一致
- * - WEB（PC）：仅 ADMIN；H5 且入口声明 `as=boss`（管理端视角）：ADMIN / STATION_ADMIN
- * - 员工端（H5 无 as / as=staff|station）不限角色
+ * 端类型归一（全仓唯一入口，镜像后端 ClientAdmissionPolicy.resolveEnd）
+ * - 命中取值域 ADMIN / BOSS / STAFF / WEB → 该端（ADMIN 与 WEB 合流为 PC 口径）；
+ * - 旧值 H5 → 按入口 `as` 派生：as=boss（大小写/空白不敏感）→ BOSS，其余 → STAFF；
+ * - 缺省 / 未知 / 非法 → null（**不再回落 WEB**）。
+ * 为什么参数化 as：H5 只是「移动端」的历史标识，本身分不出管理端 / 员工端，须由入口 as 派生。
+ */
+function resolveEnd(clientType, as) {
+  const token = normalizeEndToken(clientType)
+  if (!token) return null
+  if (token === 'ADMIN' || token === 'WEB') return 'PC'
+  if (token === 'BOSS') return 'BOSS'
+  if (token === 'STAFF') return 'STAFF'
+  if (token === 'H5') return normalizeEndToken(as) === 'BOSS' ? 'BOSS' : 'STAFF'
+  return null
+}
+
+/**
+ * 端 → 允许角色（与后端 pc/boss/staff 三组配置逐格一致；ADMIN 端与 WEB 端共用 pc 组）
+ * 为什么用常量表而非 if 链：端维度一旦散在分支里，漏判即静默放行（历史缺陷根因），表驱动可逐格核对。
+ */
+const END_ALLOWED_ROLES = {
+  PC: [ROLE.ADMIN],
+  BOSS: [ROLE.ADMIN],
+  STAFF: [ROLE.STAFF, ROLE.STATION_ADMIN]
+}
+
+/**
+ * 端准入（三端互斥矩阵，fail-closed；与后端 ClientAdmissionPolicy 一致）
+ * - PC / 网页端（WEB·ADMIN）：仅 ADMIN
+ * - 管理端 H5（as=boss）：仅 ADMIN
+ * - 员工端 H5（as=station / staff / 缺省）：仅 STAFF + STATION_ADMIN
+ * - 端类型缺省 / 未知 / 非法：一律拒（1110）
+ * 为什么 fail-closed：端类型由客户端自称、可省略；旧实现「缺省即不校验」让任何未上报端的调用方能绕开互斥
+ * （如管理员在员工端登录、站长在管理端登录），准入形同虚设。故不可判定端直接拒绝，不再有「不约束」分支。
+ * 定位说明：端类型不是鉴权边界（角色 + 数据范围才是），本约束是产品 / 审计约束——让「账号不能混登」可预期。
  */
 function endAdmissionError(clientType, role, as) {
-  if (!clientType) return null
-  if (clientType === 'WEB') return role === 'ADMIN' ? null : AUTH_BOOST_CODE.END_NOT_ALLOWED
-  if (clientType === 'H5' && as === 'boss') {
-    return role === 'ADMIN' || role === 'STATION_ADMIN' ? null : AUTH_BOOST_CODE.END_NOT_ALLOWED
-  }
-  return null
+  const end = resolveEnd(clientType, as)
+  if (!end) return AUTH_BOOST_CODE.END_NOT_ALLOWED
+  return END_ALLOWED_ROLES[end].includes(role) ? null : AUTH_BOOST_CODE.END_NOT_ALLOWED
 }
 
 /** 签发会话：返回登录出参（既有 3 字段 + 追加的 sessionExpireAt），并写入 sessions 与 sessionMeta（3 天到期判定用） */
@@ -217,7 +248,7 @@ function login({ db: database, body }) {
     return fail(AUTH_CODE.ACCOUNT_DISABLED)
   }
 
-  // 端准入：仅当调用方显式上报 clientType 时校验，未上报即维持既有行为（既有 4 端点零变更）
+  // 端准入（fail-closed）：缺省 / 未知 / 非法端一律 1110，须显式上报 clientType（移动端另带 as）
   const endError = endAdmissionError(body.clientType, employee.role, body.as)
   if (endError) {
     addLoginLog({ username, employeeId: employee.id, result: 0, reason: '该账号无权登录此端' })
@@ -299,6 +330,11 @@ function smsSend({ db: database, body }) {
     }
     const employee = database.employees.find((e) => e.id === record.employeeId)
     if (!employee || employee.status !== 1) return fail(AUTH_CODE.ACCOUNT_DISABLED)
+
+    // 端准入复判（与后端 AuthServiceImpl#sendDeviceVerifyCode 一致）：票据签发时已判过一次，
+    // 此处再判是防「票据被跨端复用」；端类型取票据存值，不回头信客户端二次上报。
+    const endError = endAdmissionError(record.clientType, employee.role, record.as)
+    if (endError) return fail(endError)
 
     const masked = maskPhone(employee.phone)
     const lastDeviceSend = lastSendAt(database, masked)
@@ -385,7 +421,9 @@ function deviceVerify({ db: database, body }) {
   const session = issueSession(database, employee, record.deviceId)
   trustDevice(database, employee, {
     deviceId: record.deviceId,
-    platform: record.clientType === 'WEB' ? 'WEB' : 'H5'
+    // 设备平台归类：与后端 isMobileEnd 一致（BOSS / STAFF → H5，ADMIN / WEB → 网页端），
+    // 不能只判字面量 'WEB'，否则 clientType='ADMIN' 会被误归为 H5
+    platform: resolveEnd(record.clientType, record.as) === 'PC' ? 'WEB' : 'H5'
   })
   addLoginLog({ username: employee.username, employeeId: employee.id, result: 1, reason: '设备二次验证通过' })
   return ok({ ...session, deviceTrusted: true })

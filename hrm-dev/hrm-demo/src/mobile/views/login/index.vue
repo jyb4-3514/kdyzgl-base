@@ -37,6 +37,8 @@ const route = useRoute()
  */
 const isBossView = computed(() => route.query.as === 'boss')
 const appName = computed(() => resolveAppName({ as: route.query.as, role: auth.role }))
+/** 当前入口端（与 ?as 同口径，且与后端端准入矩阵一致）：as=boss 为管理端，其余（staff/station/缺省）为员工端 */
+const entryEnd = computed(() => (route.query.as === 'boss' ? 'boss' : 'station'))
 
 /** S9 到期强制重登提示（1108）：守卫/接口带 ?expired=1 进入登录页时给出 warning 提示条 */
 const expiredTip = ref(route.query.expired === '1' ? '登录已到期，请重新登录' : '')
@@ -104,7 +106,8 @@ const demoPassword = ref('')
 
 if (import.meta.env.VITE_MOCK_ENABLED === 'true') {
   import('@/demo/accounts.js').then(({ DEMO_ACCOUNT_LIST, DEMO_PASSWORD }) => {
-    demoAccounts.value = DEMO_ACCOUNT_LIST
+    // 只列本端可登的演示身份：端准入互斥后，员工端入口不得出现管理员账号（点了必被 1110 拒），反之亦然
+    demoAccounts.value = DEMO_ACCOUNT_LIST.filter((item) => item.end === entryEnd.value)
     demoPassword.value = DEMO_PASSWORD
     // 入口页卡片带 ?as=boss|station|staff 直达对应演示身份，省掉演示现场手输账号
     const account = DEMO_ACCOUNT_LIST.find((item) => item.key === route.query.as)
@@ -381,7 +384,7 @@ function onForgot() {
               />
               <van-field
                 v-model="smsForm.code"
-                type="tel"
+                type="password"
                 inputmode="numeric"
                 autocomplete="one-time-code"
                 name="code"
@@ -420,7 +423,7 @@ function onForgot() {
           <van-field
             ref="deviceCodeRef"
             v-model="deviceForm.code"
-            type="tel"
+            type="password"
             inputmode="numeric"
             autocomplete="one-time-code"
             name="code"

@@ -186,9 +186,11 @@ export async function pcLoginAs(page, username = ACCOUNT.boss) {
   await page.locator('.app-menu').waitFor({ state: 'visible', timeout: 20_000 })
 }
 
-/** 移动端登录（hash 路由，入口 mobile.html） */
+/** 移动端登录（hash 路由，入口 mobile.html）。按账号角色选择入口端：管理员走管理端 as=boss，站长/员工走员工端 as=station */
 export async function mobileLoginAs(page, username = ACCOUNT.staff) {
-  await page.goto('/mobile.html#/login', { waitUntil: 'domcontentloaded' })
+  // 端准入互斥：管理员只能在管理端入口（as=boss）登录；缺省 as 一律按员工端，登录管理员会被 1110 拒
+  const entry = username === ACCOUNT.boss ? '/mobile.html#/login?as=boss' : '/mobile.html#/login?as=station'
+  await page.goto(entry, { waitUntil: 'domcontentloaded' })
   await page.locator('.login__card').waitFor({ state: 'visible' })
   const inputs = page.locator('.login__card input')
   await inputs.nth(0).fill(username)

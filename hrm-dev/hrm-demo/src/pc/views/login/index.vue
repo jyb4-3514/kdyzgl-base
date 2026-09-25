@@ -349,6 +349,8 @@ function onForgot() {
               <el-form-item prop="code">
                 <el-input
                   v-model.trim="smsForm.code"
+                  type="password"
+                  show-password
                   placeholder="请输入 6 位验证码"
                   maxlength="6"
                   @keyup.enter="onSmsSubmit"
@@ -382,6 +384,8 @@ function onForgot() {
             <el-input
               ref="deviceCodeRef"
               v-model.trim="deviceForm.code"
+              type="password"
+              show-password
               placeholder="请输入 6 位验证码"
               maxlength="6"
               @keyup.enter="onDeviceSubmit"

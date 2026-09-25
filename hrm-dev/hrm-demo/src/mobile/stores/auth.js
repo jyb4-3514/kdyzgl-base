@@ -91,7 +91,9 @@ export const useAuthStore = defineStore('mobileAuth', () => {
     if (!account) throw new Error('演示身份不存在')
     // 先清旧态，避免切换失败后残留上一个身份的角标与缓存；状态复位统一走 clearSession，不在这里各写一份
     clearSession()
-    await login({ username: account.username, password: DEMO_PASSWORD })
+    // 端准入 fail-closed：切换必须带目标身份所属端（管理员 as=boss / 站长·员工 as=station），
+    // 否则跨端切换（员工端 ↔ 管理端）会被 1110 拒绝——端由目标身份决定，而非当前页面。
+    await login({ username: account.username, password: DEMO_PASSWORD, clientType: 'H5', as: account.end })
     return homePath.value
   }
 
