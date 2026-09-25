@@ -7,7 +7,10 @@
   "workspaces": ["packages/*", "apps/*"],
   "scripts": {
     "verify:mock": "node scripts/verify-mock.mjs",
-    "verify:tokens": "node packages/tokens/scripts/gen-element-tokens.mjs --check --targets ../hrm-demo/src/pc/styles/tokens.scss"
+    "verify:tokens": "node packages/tokens/scripts/gen-element-tokens.mjs --check --targets ../hrm-demo/src/pc/styles/tokens.scss,../hrm-demo/src/mobile/styles/tokens.scss,../hrm-admin/src/styles/tokens.scss,apps/staff-h5/src/styles/tokens.scss,apps/boss-h5/src/styles/tokens.scss,apps/web/src/styles/tokens.scss",
+    "e2e:staff": "npm run e2e -w @kdyzgl/staff-h5",
+    "e2e:boss": "npm run e2e -w @kdyzgl/boss-h5",
+    "e2e:web": "npm run e2e -w @kdyzgl/web"
   },
   "devDependencies": {
     "axios": "^1.7.9"

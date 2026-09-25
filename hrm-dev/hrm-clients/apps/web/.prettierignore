@@ -1,0 +1,15 @@
+# 一期只读资产：绝对禁止被格式化（误伤即灾难，双重路径写法防御不同调用姿势）
+../hrm-admin
+hrm-admin
+
+# 依赖与构建产物
+node_modules
+dist
+package-lock.json
+.tmp*
+
+# e2e 运行产物：截图证据（二进制）与 Playwright 报告由测试运行持续重生成，
+# 纳入格式检查会导致「刚格式化完立刻又报新文件」，故整目录排除（源码 *.spec.js 仍受检）
+e2e/evidence
+e2e/playwright-report
+e2e/test-results

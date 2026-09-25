@@ -1,0 +1,129 @@
+/**
+ * Element Plus 组件覆盖（T02，demo-ui-redesign.md 2.8「与 Element 默认行为的差异」）
+ *
+ * 为什么必须单独一份且放在 Element 样式之后：这里的规则要压过 theme-chalk 的同名声明，
+ * 顺序颠倒会被 Element 默认值覆盖，等于没写。
+ */
+
+/* 主按钮 hover 由「变浅」改为「加深」：Element 默认 hover 用 light-3（#538AE4）配白字仅 3.43:1。
+ * 加深到 blue-800（#0745A8，白字 8.66:1）后 hover/active 态同样满足 AA。 */
+.el-button--primary {
+  --el-button-bg-color: var(--color-primary);
+  --el-button-border-color: var(--color-primary);
+  --el-button-hover-bg-color: var(--color-primary-hover);
+  --el-button-hover-border-color: var(--color-primary-hover);
+  /* active / disabled 用的 900 / 600 档仅此两对，为单点取值，暂保留 L1 直引（P2-4 已登记） */
+  --el-button-active-bg-color: var(--c-blue-900);
+  --el-button-active-border-color: var(--c-blue-900);
+  --el-button-disabled-bg-color: var(--c-blue-600);
+  --el-button-disabled-border-color: var(--c-blue-600);
+}
+
+/* 卡片一律描边、不投影：PC 后台密度大，卡片阴影叠表格会显脏 */
+.el-card {
+  border-radius: var(--r-md);
+  border-color: var(--border-line);
+  box-shadow: var(--e0);
+
+  &.is-always-shadow,
+  &.is-hover-shadow:hover {
+    box-shadow: var(--e0);
+  }
+}
+
+.el-card__header {
+  padding: var(--sp-4);
+  border-bottom-color: var(--border-line);
+}
+
+/* 表格：行高与字阶对齐 Token；数字列宽等宽由 tokens.scss 的 .tabular-nums 兜住 */
+.el-table {
+  --el-table-header-bg-color: var(--surface-subtle);
+  --el-table-header-text-color: var(--text-2);
+  --el-table-row-hover-bg-color: var(--color-primary-surface);
+  --el-table-border-color: var(--border-line);
+
+  th.el-table__cell {
+    height: var(--table-head-h);
+    font-weight: var(--fw-semibold);
+    color: var(--text-2);
+  }
+
+  td.el-table__cell {
+    height: var(--table-row-h);
+    padding: 0;
+  }
+}
+
+/* 表单控件边界加深到 --border-control（白底 3.10:1），满足 SC 1.4.11 */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  box-shadow: 0 0 0 1px var(--border-control) inset;
+}
+
+/* 聚焦环统一用 500 档 --color-primary-icon（与下方全端焦点环同一取值，避免同页两套蓝）。
+ * 白底 3.245:1 ≥ SC 1.4.11 的 3:1 */
+.el-select__wrapper.is-focused,
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px var(--color-primary-icon) inset;
+}
+
+/* 抽屉底部操作区：与正文用 1px 分隔线断开，避免按钮与内容糊在一起（C-P9） */
+.el-drawer__footer {
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-line);
+}
+
+/* 弹窗宽度兜底：项目内 el-dialog 一律写死固定 px 宽（420 / 460 / 480 / 520 / 560 / 640 六档，共 16 处），
+ * 实测 375 视口下 560px 弹窗右边界越出视口 185px，且被 .el-overlay-dialog 的横向滚动藏掉一半。
+ * 抽屉侧早已统一用 min(var(--drawer-w), 92vw) 兜底，弹窗缺同一层保护，故在此一次性补齐，
+ * 不逐组件改 width 属性。影响面：视口 ≥672px 不受约束（最宽 640 + 两侧各 16），820 档实测无变化。
+ * .is-fullscreen 除外：全屏弹窗按设计要铺满视口（Element 把 --el-dialog-width 置为 100%）。 */
+.el-dialog:not(.is-fullscreen) {
+  max-width: calc(100% - var(--sp-8));
+}
+
+/* 焦点可见（补齐 SC 2.4.7）：全端统一 2px 主色环，不再有 outline:none */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-primary-icon);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* 表头吸顶（T19）：Element 的 .el-table 默认 overflow:hidden 会把 sticky 裁掉，
+ * 故只在显式加了 .sticky-table 的表格上放开裁剪，避免影响一期冻结页的表格。 */
+.el-table.sticky-table {
+  overflow: visible;
+
+  .el-table__header-wrapper {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+}
+
+/* 路由切换进度条（T19）：Element 无内置，用 2px 主色条 300ms 走完一次 */
+.route-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2000;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-primary-icon), var(--color-primary));
+  transform-origin: left center;
+  animation: route-progress-run var(--dur-slow) var(--ease-out) forwards;
+}
+
+@keyframes route-progress-run {
+  from {
+    transform: scaleX(0);
+    opacity: 1;
+  }
+
+  to {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
