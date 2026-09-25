@@ -68,17 +68,25 @@
 ## 3. 构建（两个 APK）
 
 两壳由 `app/build.gradle` 的 `productFlavors { staff / boss }` × `buildTypes { debug / release }`
-组成 4 个变体。**每个变体产出独立 APK**（两壳可同时安装，`applicationId` 不同）：
+组成 **4 个构建变体**——**变体数 ≠ 交付物数量**：
+
+| 类别 | 变体数 | 产物 | 是否交付 |
+| --- | --- | --- | --- |
+| **交付物** | **2** | `app-staff-release.apk`（驿站助手壳）、`app-boss-release.apk`（驿站精灵壳） | **是**（发布到站点 `/apk/`） |
+| 本地联调 | 2 | `app-staff-debug.apk`、`app-boss-debug.apk`（H5 指向 `http://10.0.2.2:5189|5190/…`） | 否（仅开发机用） |
+
+> **产品形态是「两个 APK」**（ADR §7.1 D5 / 附录 ADR-SM-07）；debug 两个只是同一工程为联调方便而存在的变体，**不进入分发**。
+> 两壳 `applicationId` 不同（`com.example.hrmwebview.staff` / `.boss`），**可同机并存安装**。
 
 ```bash
-# 驿站助手（staff）/ 驿站精灵（boss）
-./gradlew assembleStaffDebug     # → app/build/outputs/apk/staff/debug/app-staff-debug.apk
-./gradlew assembleBossDebug      # → app/build/outputs/apk/boss/debug/app-boss-debug.apk
+# ===== 交付：只需这两条（2 个 release APK）=====
 ./gradlew assembleStaffRelease   # → app/build/outputs/apk/staff/release/app-staff-release.apk
 ./gradlew assembleBossRelease    # → app/build/outputs/apk/boss/release/app-boss-release.apk
 
-# 一次性产出全部 4 个
-./gradlew assemble
+# 本地联调（可选，2 个 debug 变体；产物不入分发）
+./gradlew assembleStaffDebug     # → app/build/outputs/apk/staff/debug/app-staff-debug.apk
+./gradlew assembleBossDebug      # → app/build/outputs/apk/boss/debug/app-boss-debug.apk
+```
 
 # 真实 H5 地址经构建参数注入（不入库）；键名 h5UrlStaffDebug / h5UrlStaffRelease / h5UrlBossDebug / h5UrlBossRelease
 ./gradlew assembleStaffRelease -Ph5UrlStaffRelease=https://<真实域名>/staff/
