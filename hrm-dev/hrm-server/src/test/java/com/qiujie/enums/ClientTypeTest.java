@@ -4,35 +4,41 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 端类型归一单测（M1 端类型归一，覆盖缺失/非法/大小写混合/含空白）。
- * 注意：本机无 JDK/Maven，无法执行；收敛到服务器阶段运行。
+ * 端类型严格归一单测（覆盖缺失 / 空白 / 未知 / 大小写混合）。
+ * <p>
+ * 关键变更（对齐 {@code security-client-admission-review.md} 必改 2）：<b>不再回落 {@code WEB}</b>——
+ * 缺失 / 未知返回 {@code null}，由端准入策略按 fail-closed 拒绝（旧断言「回落 WEB」已显式变更）。
+ * </p>
+ * <p>注：本机无 JDK/Maven，本测试<b>未执行</b>，收敛到服务器阶段运行。</p>
  */
 class ClientTypeTest {
 
     @Test
-    void normalizeFallsBackToWebForMissingOrBlank() {
-        assertEquals(ClientType.WEB.name(), ClientType.normalize(null));
-        assertEquals(ClientType.WEB.name(), ClientType.normalize(""));
-        assertEquals(ClientType.WEB.name(), ClientType.normalize("   "));
+    void parseReturnsNullForMissingOrBlank() {
+        assertNull(ClientType.parse(null));
+        assertNull(ClientType.parse(""));
+        assertNull(ClientType.parse("   "));
     }
 
     @Test
-    void normalizeIsTrimmedAndCaseInsensitive() {
-        assertEquals(ClientType.ADMIN.name(), ClientType.normalize(" admin "));
-        assertEquals(ClientType.STAFF.name(), ClientType.normalize("Staff"));
-        assertEquals(ClientType.BOSS.name(), ClientType.normalize("boss"));
-        assertEquals(ClientType.WEB.name(), ClientType.normalize("WEB"));
+    void parseIsTrimmedAndCaseInsensitive() {
+        assertEquals(ClientType.ADMIN, ClientType.parse(" admin "));
+        assertEquals(ClientType.STAFF, ClientType.parse("Staff"));
+        assertEquals(ClientType.BOSS, ClientType.parse("boss"));
+        assertEquals(ClientType.WEB, ClientType.parse("WEB"));
     }
 
     @Test
-    void normalizeFallsBackToWebForUnknownValue() {
-        // 未知/非法端类型一律回落 WEB，防止任意串进入会话存储
-        assertEquals(ClientType.WEB.name(), ClientType.normalize("H5"));
-        assertEquals(ClientType.WEB.name(), ClientType.normalize("PC"));
-        assertEquals(ClientType.WEB.name(), ClientType.normalize("android"));
+    void parseReturnsNullForUnknownValues() {
+        // 未知 / 非法端类型一律返回 null（旧实现回落 WEB 的口子已删除）
+        assertNull(ClientType.parse("H5"));
+        assertNull(ClientType.parse("PC"));
+        assertNull(ClientType.parse("android"));
+        assertNull(ClientType.parse("123"));
     }
 
     @Test
@@ -45,10 +51,5 @@ class ClientTypeTest {
         assertFalse(ClientType.isValid(null));
         assertFalse(ClientType.isValid(""));
         assertFalse(ClientType.isValid("   "));
-    }
-
-    @Test
-    void defaultIsWeb() {
-        assertEquals(ClientType.WEB, ClientType.DEFAULT);
     }
 }

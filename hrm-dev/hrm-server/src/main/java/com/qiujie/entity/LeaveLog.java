@@ -1,6 +1,7 @@
 package com.qiujie.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -45,10 +46,21 @@ public class LeaveLog {
     /** 变更后状态 */
     private String toStatus;
 
-    /** 变更前快照 JSON 文本 */
+    /**
+     * 变更前快照 JSON 文本。
+     * <p>为什么显式转义：{@code BEFORE} 是 MySQL 8.0 保留字（BEFORE MySQL 8.0 Keywords: BEFORE (R)），
+     * MyBatis-Plus 生成 SQL / LambdaQueryWrapper 解析列名时不会自动加引号，不转义将报 1064 语法错误。
+     * 出参字段名仍为 {@code before}（{@link com.qiujie.vo.leave.LeaveLogVO} 不受影响）。
+     */
+    @TableField(value = "`before`")
     private String before;
 
-    /** 变更后快照 JSON 文本 */
+    /**
+     * 变更后快照 JSON 文本。
+     * <p>为什么显式转义：{@code AFTER} 在 MySQL 8.0 虽为非保留关键字（可裸用），但与 {@code before}
+     * 同属保留/近保留词族，且未来切换 PostgreSQL 时习惯保持一致；一并转义可消除歧义、便于统一维护。
+     */
+    @TableField(value = "`after`")
     private String after;
 
     /** 备注（驳回原因 / 撤回原因 / 排障说明） */

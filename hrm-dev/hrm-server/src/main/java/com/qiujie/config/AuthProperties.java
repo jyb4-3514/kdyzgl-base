@@ -96,17 +96,34 @@ public class AuthProperties {
     private String deviceFingerprintSalt = "";
 
     /**
-     * PC 管理端（{@link com.qiujie.enums.ClientType#ADMIN}）允许登录的角色集合。默认 {@code ["ADMIN"]}。
+     * PC 端允许登录的角色集合，兼管端 {@link com.qiujie.enums.ClientType#ADMIN}（PC 管理端 pc.html）与
+     * 端 {@link com.qiujie.enums.ClientType#WEB}（旧网页端 / 缺省值）。默认 {@code ["ADMIN"]}。
      * <p>
      * 取值：角色名集合，全 ASCII；YAML 可写标量逗号分隔形式（如 {@code ADMIN} 或 {@code ADMIN,STATION_ADMIN}），
      * 也可写 YAML 列表。逐项去空白、忽略大小写、非已知角色名丢弃——解析口径见
-     * {@link com.qiujie.service.auth.support.ClientRolePolicy#normalizeAllowedRoles}。
+     * {@link com.qiujie.service.auth.support.ClientAdmissionPolicy#normalizeAllowedRoles}。
      * <p>
-     * 边界：显式配置为空集合 = 任何角色均不得从 PC 管理端登录（fail-closed）；键缺失则回落本默认值 ADMIN。
+     * 边界：显式配置为空集合 = 任何角色均不得从该端登录（fail-closed）；键缺失则回落本默认值 ADMIN。
      * <p>
      * 为什么外置：端维度角色口径属产品 / 审计约束（security-auth-review §4.5、multi-client-architecture §3.6），
      * 须可配可审计；代码内严禁内联角色字面量判断（规则 §11.4、反模式 A03）。
      * 注：本键为单标量、全 ASCII，不受「YAML 非 ASCII 配置键被静默归并」问题影响（见 {@code application.yml} dispatch 注释）。
      */
     private List<String> pcAllowedRoles = new ArrayList<>(List.of("ADMIN"));
+
+    /**
+     * 管理端 H5（端 {@link com.qiujie.enums.ClientType#BOSS}，驿站精灵 {@code ?as=boss}）允许登录的角色集合。
+     * 默认 {@code ["ADMIN"]}（管理端仅管理员可进，站长 / 员工一律 1110）。
+     * <p>
+     * 解析口径 / 边界 / 外置理由同 {@link #pcAllowedRoles}。键名 {@code hrm.auth.boss-allowed-roles}（全 ASCII）。
+     */
+    private List<String> bossAllowedRoles = new ArrayList<>(List.of("ADMIN"));
+
+    /**
+     * 员工端 H5（端 {@link com.qiujie.enums.ClientType#STAFF}，驿站助手）允许登录的角色集合。
+     * 默认 {@code ["STAFF", "STATION_ADMIN"]}（员工 + 站长可登；<b>管理员不得混登员工端</b>，命中即 1110）。
+     * <p>
+     * 解析口径 / 边界 / 外置理由同 {@link #pcAllowedRoles}。键名 {@code hrm.auth.staff-allowed-roles}（全 ASCII）。
+     */
+    private List<String> staffAllowedRoles = new ArrayList<>(List.of("STAFF", "STATION_ADMIN"));
 }

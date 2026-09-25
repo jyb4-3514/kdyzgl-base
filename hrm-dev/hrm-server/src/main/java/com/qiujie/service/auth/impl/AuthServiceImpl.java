@@ -30,14 +30,15 @@ import com.qiujie.service.auth.support.DeviceSnapshot;
 import com.qiujie.service.auth.support.DeviceTicket;
 import com.qiujie.service.auth.support.DeviceTicketStore;
 import com.qiujie.service.auth.support.DeviceTokenCodec;
-import com.qiujie.service.auth.support.EndAdmissionPolicy;
+import com.qiujie.service.auth.support.ClientAdmissionPolicy;
 import com.qiujie.service.auth.support.SmsCodeStore;
 import com.qiujie.service.auth.support.TrustedDeviceRegistry;
-import com.qiujie.service.auth.support.ClientRolePolicy;
 import com.qiujie.service.support.sms.SmsCodeGenerator;
+import com.qiujie.service.support.sms.SmsConfigGuard;
 import com.qiujie.service.support.sms.SmsScene;
 import com.qiujie.service.support.sms.SmsSendResult;
 import com.qiujie.service.support.sms.SmsSender;
+import com.qiujie.service.support.sms.SmsUniversalCodePolicy;
 import com.qiujie.service.support.sms.SmsVerifyPolicy;
 import com.qiujie.util.DesensitizeUtil;
 import com.qiujie.util.JwtUtil;
@@ -53,6 +54,7 @@ import com.qiujie.vo.auth.TrustedDeviceVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.env.Environment;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -107,6 +109,8 @@ public class AuthServiceImpl implements AuthService {
     private final TrustedDeviceRegistry trustedDeviceRegistry;
     private final DeviceFingerprint deviceFingerprint;
     private final CaptchaStore captchaStore;
+    /** 运行环境（判定 prod profile，供测试环境万能验证码的「非生产」条件复用 SmsConfigGuard 口径） */
+    private final Environment environment;
 
     // ==================== 一期 4 端点 ====================
 
@@ -129,15 +133,15 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(ErrorCode.ACCOUNT_DISABLED);
         }
 
-        // 端准入（1110）：请求体 clientType 优先（前端 Mock 口径），请求头 X-Client-Type 回退（V3 既有行为不变）。
+        // 端准入（1110）：请求头 X-Client-Type 优先（新契约），请求体 clientType 回退（兼容旧前端）；缺省/未知/非法一律拒。
         // 为什么放在「密码与状态校验通过之后」：先验身份再判端权限，避免通过错误码差异探测账号是否存在。
         // 为什么不是安全边界：端类型来自客户端可伪造/可省略的自称，权限恒以会话中的真实 role 为准。
-        if (!isEndAllowed(request.getClientType(), request.getEntryAs(), employee.getRole(), headerClientType)) {
+        if (!isEndAllowed(headerClientType, request.getClientType(), request.getEntryAs(), employee.getRole())) {
             recordLoginLog(employee.getUsername(), employee.getId(), false, "该账号无权登录此端", ctx.loginIp(), ctx.userAgent());
             throw new BusinessException(ErrorCode.LOGIN_CLIENT_NOT_ALLOWED);
         }
 
-        String clientTypeText = resolveClientTypeText(request.getClientType(), headerClientType);
+        String clientTypeText = resolveClientTypeText(headerClientType, request.getClientType(), request.getEntryAs());
         String deviceIdText = firstNonBlank(trim(request.getDevice() == null ? null : request.getDevice().getDeviceId()),
                 trim(headerDeviceId));
 
@@ -278,9 +282,9 @@ public class AuthServiceImpl implements AuthService {
     private SmsSendVO sendDeviceVerifyCode(SmsSendRequest request, AuthRequestContext ctx) {
         DeviceTicket ticket = requireTicket(request.getTwoFactorTicket());
         Employee employee = requireEnabledEmployee(ticket.getEmployeeId());
-        // 端准入复判（票据签发时已过；此处防票据被跨端复用）
-        if (!EndAdmissionPolicy.isAllowed(ticket.getClientType(), ticket.getEntryAs(), employee.getRole(),
-                authProperties.getPcAllowedRoles())) {
+        // 端准入复判（票据签发时已过；此处防票据被跨端复用）——与登录共用同一策略对象
+        if (!ClientAdmissionPolicy.isLoginAllowed(null, ticket.getClientType(), ticket.getEntryAs(),
+                employee.getRole(), allowedRoles())) {
             throw new BusinessException(ErrorCode.LOGIN_CLIENT_NOT_ALLOWED);
         }
         if (employee.getPhone() == null || employee.getPhone().isBlank()) {
@@ -335,7 +339,7 @@ public class AuthServiceImpl implements AuthService {
     // ==================== A2 短信登录 ====================
 
     @Override
-    public LoginVO smsLogin(SmsLoginRequest request, AuthRequestContext ctx) {
+    public LoginVO smsLogin(SmsLoginRequest request, AuthRequestContext ctx, String headerClientType) {
         String phone = trim(request.getPhone());
         if (phone == null || !phone.matches(PHONE_PATTERN)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "请输入正确的 11 位手机号");
@@ -354,14 +358,15 @@ public class AuthServiceImpl implements AuthService {
         if (employee.getStatus() == null || employee.getStatus() != 1) {
             throw new BusinessException(ErrorCode.ACCOUNT_DISABLED);
         }
-        if (!isEndAllowed(request.getClientType(), request.getEntryAs(), employee.getRole(), null)) {
+        // 端准入：请求头优先、请求体回退（与密码路径共用同一策略对象）
+        if (!isEndAllowed(headerClientType, request.getClientType(), request.getEntryAs(), employee.getRole())) {
             recordLoginLog(employee.getUsername(), employee.getId(), false, "该账号无权登录此端",
                     ctx.loginIp(), ctx.userAgent());
             throw new BusinessException(ErrorCode.LOGIN_CLIENT_NOT_ALLOWED);
         }
         verifySmsCode(SmsScene.LOGIN, phone, code);
 
-        String clientTypeText = resolveClientTypeText(request.getClientType(), null);
+        String clientTypeText = resolveClientTypeText(headerClientType, request.getClientType(), request.getEntryAs());
         String deviceToken = establishDeviceTrust(employee, toDeviceSnapshot(request.getDevice()), clientTypeText, ctx);
         String deviceIdText = trim(request.getDevice() == null ? null : request.getDevice().getDeviceId());
         return issueLoginSession(employee, clientTypeText, deviceIdText, ctx, "短信验证码登录", false, deviceToken);
@@ -377,8 +382,8 @@ public class AuthServiceImpl implements AuthService {
         }
         DeviceTicket ticket = requireTicket(request.getTwoFactorTicket());
         Employee employee = requireEnabledEmployee(ticket.getEmployeeId());
-        if (!EndAdmissionPolicy.isAllowed(ticket.getClientType(), ticket.getEntryAs(), employee.getRole(),
-                authProperties.getPcAllowedRoles())) {
+        if (!ClientAdmissionPolicy.isLoginAllowed(null, ticket.getClientType(), ticket.getEntryAs(),
+                employee.getRole(), allowedRoles())) {
             throw new BusinessException(ErrorCode.LOGIN_CLIENT_NOT_ALLOWED);
         }
         // 设备场景验证码按员工暂存（页面不回传明文手机号）
@@ -555,32 +560,38 @@ public class AuthServiceImpl implements AuthService {
 
     // ==================== 内部：通用 ====================
 
-    /** 端准入：请求体 clientType 优先（前端口径）；未上报则回退既有 X-Client-Type 头（改造前行为） */
-    private boolean isEndAllowed(String bodyClientType, String entryAs, String role, String headerClientType) {
-        if (bodyClientType != null && !bodyClientType.isBlank()) {
-            return EndAdmissionPolicy.isAllowed(bodyClientType, entryAs, role, authProperties.getPcAllowedRoles());
-        }
-        return ClientRolePolicy.isLoginAllowed(headerClientType, role, authProperties.getPcAllowedRoles());
+    /**
+     * 端准入（1110）：请求头 X-Client-Type 优先（新契约），请求体 clientType 回退（兼容旧前端）。
+     * 三条登录路径与票据复判共用 {@link ClientAdmissionPolicy} 同一策略对象。
+     */
+    private boolean isEndAllowed(String headerClientType, String bodyClientType, String entryAs, String role) {
+        return ClientAdmissionPolicy.isLoginAllowed(headerClientType, bodyClientType, entryAs, role, allowedRoles());
     }
 
-    /** 会话中记录的端类型文本：请求体原值（WEB/H5）优先，否则回落既有头归一值 */
-    private String resolveClientTypeText(String bodyClientType, String headerClientType) {
-        String value = trim(bodyClientType);
-        if (value != null && !value.isBlank()) {
-            String upper = value.toUpperCase(Locale.ROOT);
-            return EndAdmissionPolicy.normalizeClientType(upper).isEmpty() ? ClientType.normalize(upper) : upper;
-        }
-        return ClientType.normalize(headerClientType);
+    /** 组装端准入的三端允许角色集合（全部外置可配；缺失即该端 fail-closed） */
+    private ClientAdmissionPolicy.AllowedRoles allowedRoles() {
+        return new ClientAdmissionPolicy.AllowedRoles(authProperties.getPcAllowedRoles(),
+                authProperties.getBossAllowedRoles(), authProperties.getStaffAllowedRoles());
     }
 
-    /** 设备平台归一：优先前端上报，其次按端类型（WEB/H5）归类 */
+    /**
+     * 会话中记录的端类型文本：与端准入同一归一函数产出的规范名（ADMIN/BOSS/STAFF/WEB）。
+     * <p>注意：旧实现记录请求体原值（WEB/H5）；本次统一为规范端名，与 {@code SessionInfo.clientType} 的既有约定一致。
+     * 端准入已通过时结果必非 null，兜底 WEB 仅为防御（正常不可达）。
+     */
+    private String resolveClientTypeText(String headerClientType, String bodyClientType, String entryAs) {
+        ClientType end = ClientAdmissionPolicy.resolveEnd(headerClientType, bodyClientType, entryAs);
+        return (end == null ? ClientType.WEB : end).name();
+    }
+
+    /** 设备平台归一：优先前端上报，其次按端类型（移动端 BOSS/STAFF → H5，其余 → WEB）归类 */
     private String platformOf(String platform, String clientTypeText) {
         String value = trim(platform);
         if (value != null && !value.isBlank()) {
             return truncate(value.toUpperCase(Locale.ROOT), 16);
         }
-        return EndAdmissionPolicy.CLIENT_H5.equals(EndAdmissionPolicy.normalizeClientType(clientTypeText))
-                ? EndAdmissionPolicy.CLIENT_H5 : EndAdmissionPolicy.CLIENT_WEB;
+        ClientType end = ClientAdmissionPolicy.resolveEnd(null, clientTypeText, null);
+        return ClientAdmissionPolicy.isMobileEnd(end) ? ClientAdmissionPolicy.CLIENT_H5 : ClientType.WEB.name();
     }
 
     private DeviceSnapshot toDeviceSnapshot(DeviceInfo device) {
@@ -628,8 +639,18 @@ public class AuthServiceImpl implements AuthService {
      * 校验并消费验证码（一次性）。
      * <p>判定口径与前端 Mock {@code verifyCode} 逐条一致：未申请/已过期 → 1102；达尝试上限 → 1103 并作废；
      * 比对失败 → 计数 +1（达上限则 1103 并作废，否则 1102）；通过 → 立即删除验证码。
+     * <p><b>测试环境万能验证码短路</b>（{@code hrm.sms.dev-universal-code}）：三条件同时满足即直接返回，
+     * <b>跳过</b> Redis 取码 / 比对 / 尝试计数读写 / 码作废（<b>不消耗</b>任何验证码与尝试次数）；
+     * <b>不跳过</b>调用方在进入本方法前的入参与授权判定，以及本方法返回后的登录链路
+     * （设备信任签发、会话建立）。生产环境该分支恒不生效（{@link SmsConfigGuard} 启动期 fail-fast 双保险）。
      */
     private void verifySmsCode(SmsScene scene, String identifier, String code) {
+        if (SmsUniversalCodePolicy.isActive(smsProperties.getDevUniversalCode(),
+                SmsConfigGuard.isProd(environment), code)) {
+            // 仅记录场景，不回显码值 / 手机号 / 员工标识（验证码红线）
+            log.warn("测试环境万能验证码校验通过（未读取、未消耗验证码），场景={}", scene.name());
+            return;
+        }
         String expected = smsCodeStore.getCode(scene, identifier);
         if (expected == null) {
             throw new BusinessException(ErrorCode.SMS_CODE_INVALID);

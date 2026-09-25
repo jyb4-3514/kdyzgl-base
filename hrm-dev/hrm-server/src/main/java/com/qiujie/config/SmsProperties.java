@@ -82,6 +82,22 @@ public class SmsProperties {
      */
     private String devFixedCode = "000000";
 
+    /**
+     * 测试环境「万能验证码」。默认 <b>空串 = 关闭</b>（不改变任何既有行为）。
+     * <p>
+     * <b>语义</b>：空串关闭；非空时，若<b>同时</b>满足「非生产环境」且「请求提交的 code 与该值恒等」，
+     * 则在 {@code /auth/device/verify}、{@code /auth/sms/login} 两处校验入口<b>直接判定通过</b>——
+     * 跳过 Redis 取码与比对，也<b>不消耗</b>任何验证码或尝试计数；但设备信任签发、会话建立、
+     * 端准入（1110）、账号状态（1002）等授权判定与登录链路<b>一律照常</b>。
+     * <p>
+     * 与 {@link #devFixedCode} 的区别：{@code dev-fixed-code} 只决定「降级通道生成出来的验证码是什么」，
+     * 仍必须<b>先发码</b>再比对；本键是「不用先发码也能过的放行码」。
+     * <p>
+     * <b>生产禁止</b>：prod profile 下本键非空即启动失败（{@code SmsConfigGuard} fail-fast）。
+     * <b>红线</b>：该值绝不写入任何日志 / 响应体 / 异常信息（启动 WARN 只说明「已启用」，不回显码值）。
+     */
+    private String devUniversalCode = "";
+
     /** 阿里云短信通道参数（占位符，真实值由主智能体托管下发） */
     @Data
     public static class Aliyun {

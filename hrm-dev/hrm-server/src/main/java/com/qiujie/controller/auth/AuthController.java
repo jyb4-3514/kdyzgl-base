@@ -57,7 +57,8 @@ public class AuthController {
     public Result<LoginVO> login(@Valid @RequestBody LoginRequest request,
                                  HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
         // IP 与 UA 取自请求头（Nginx 反代透传 X-Forwarded-For），写入登录日志；
-        // X-Client-Type / X-Device-Id 为既有可选头（请求体未提供时回退），均不参与鉴权。
+        // X-Client-Type 为端类型新契约（取值 ADMIN/BOSS/STAFF；非空优先于请求体 clientType，缺省/非法即 1110）；
+        // X-Device-Id 为设备标识回退头。两者均不参与鉴权（权限恒以会话 role 为准）。
         LoginVO vo = authService.login(request, toContext(httpRequest),
                 httpRequest.getHeader("X-Client-Type"), httpRequest.getHeader("X-Device-Id"));
         writeDeviceCookieIfPresent(httpResponse, httpRequest, vo);
@@ -99,7 +100,8 @@ public class AuthController {
     @PostMapping("/sms/login")
     public Result<LoginVO> smsLogin(@RequestBody SmsLoginRequest request,
                                     HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
-        LoginVO vo = authService.smsLogin(request, toContext(httpRequest));
+        // 端准入与密码路径同源：X-Client-Type 头优先、请求体 clientType 回退（缺省/非法即 1110）
+        LoginVO vo = authService.smsLogin(request, toContext(httpRequest), httpRequest.getHeader("X-Client-Type"));
         writeDeviceCookieIfPresent(httpResponse, httpRequest, vo);
         return Result.ok(vo);
     }

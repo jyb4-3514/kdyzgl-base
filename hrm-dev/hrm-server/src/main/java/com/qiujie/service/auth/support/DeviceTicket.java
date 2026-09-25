@@ -40,7 +40,7 @@ public class DeviceTicket {
     /** 壳版本（弱信号快照） */
     private String appVersion;
 
-    /** 端类型（WEB / H5；用于端准入复判与平台归类） */
+    /** 端类型（{@code ClientType} 规范名 ADMIN/BOSS/STAFF/WEB；用于端准入复判与平台归类） */
     private String clientType;
 
     /** 入口视角参数（如 boss；用于管理端准入复判） */

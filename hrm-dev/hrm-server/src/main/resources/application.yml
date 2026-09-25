@@ -91,7 +91,9 @@ hrm:
   #   device-ticket-ttl-seconds    新设备二次验证票据有效期(秒，300)
   #   max-trusted-devices-per-employee 单员工可信任设备数上限(超限淘汰最久未活跃)
   #   device-fingerprint-salt      设备指纹 HMAC 盐(服务端秘密；仓库只允许 change_me_* 占位，生产未配置即启动失败)
-  #   pc-allowed-roles             PC 管理端允许登录的角色集合(逗号分隔，默认 ADMIN)
+  #   pc-allowed-roles             PC 端(端 ADMIN=pc.html / 端 WEB=旧网页端)允许登录的角色集合(逗号分隔，默认 ADMIN)
+  #   boss-allowed-roles           管理端 H5(端 BOSS=驿站精灵)允许登录的角色集合(逗号分隔，默认 ADMIN)
+  #   staff-allowed-roles          员工端 H5(端 STAFF=驿站助手)允许登录的角色集合(逗号分隔，默认 STAFF,STATION_ADMIN)
   auth:
     session-ttl-seconds: 259200        # 3 天
     max-sessions-per-employee: 5       # 超限淘汰最旧
@@ -105,11 +107,18 @@ hrm:
     max-trusted-devices-per-employee: 5
     # 设备指纹 HMAC 盐：占位符；真实值由主智能体托管下发到服务器外置配置（600 权限、不入库）
     device-fingerprint-salt: change_me_device_fingerprint_salt
-    # PC 管理端（X-Client-Type=ADMIN / 请求体 clientType=WEB）允许登录的角色集合（逗号分隔，全 ASCII；默认仅 ADMIN）。
+    # 端准入：三端允许角色集合（各端独立可配，逗号分隔，全 ASCII）。
+    # 端类型唯一真源 ClientType，取值域 ADMIN/BOSS/STAFF/WEB；端 → 键映射（解析见 ClientAdmissionPolicy）：
+    #   ADMIN（PC 管理端 pc.html） / WEB（旧网页端、缺省值）→ pc-allowed-roles
+    #   BOSS （管理端 H5 驿站精灵 ?as=boss）              → boss-allowed-roles
+    #   STAFF（员工端 H5 驿站助手）                        → staff-allowed-roles
+    # 缺省 / 未知 / 非法端：fail-closed 直接拒登（1110），不再回落 WEB 放行（旧「不约束」分支已删除）。
     # 为什么标量而非 YAML 列表：与 dispatch 同因——非 ASCII 的配置键会被 ConfigurationPropertyName.adapt()
-    #   静默归并（见 hrm.algo.dispatch 注释）；本键键名与值均全 ASCII，单标量、逗号分隔，不受该问题影响。
-    # 未配置/未上报端类型时：命中默认值 ADMIN，但端回落 WEB 且不做角色约束（行为与改造前一致）。
+    #   静默归并（见 hrm.algo.dispatch 注释）；本组键名与值均全 ASCII，单标量、逗号分隔，不受该问题影响。
+    # 显式配置为空 = 该端任何角色均不得登录（fail-closed）；键缺失则回落 AuthProperties 各类默认值。
     pc-allowed-roles: ADMIN
+    boss-allowed-roles: ADMIN
+    staff-allowed-roles: STAFF,STATION_ADMIN
 
   # ---------- 短信通道（M2 新增命名空间 hrm.sms.*；凭据只允许 change_me_* 占位符） ----------
   # 逐键：provider 供应商(aliyun|none，默认 none 降级；生产必须 aliyun 否则启动失败)
@@ -118,6 +127,7 @@ hrm:
   #      / daily-limit-per-phone 同号每日上限 / ip-hourly-limit 同 IP 每小时上限
   #      / device-hourly-limit 同设备每小时上限 / account-daily-limit 同账号每日上限
   #      / max-verify-attempts 单码最大尝试次数
+  #      / dev-fixed-code 降级通道固定码 / dev-universal-code 测试环境万能码(默认空=关闭,生产非空即启动失败)
   sms:
     provider: none                     # 生产外置配置须覆盖为 aliyun 并配置 Key，否则 fail-fast
     aliyun:
@@ -138,6 +148,10 @@ hrm:
     # 降级通道（provider=none，仅非生产）使用的开发固定验证码；生产必须 aliyun（否则启动失败），本值不会生效。
     # 与前端演示资产固定码一致，便于联调；绝不打印到日志/响应体。
     dev-fixed-code: "000000"
+    # 测试环境万能验证码（默认空 = 关闭）：非空且非生产且请求 code 恒等时，登录/设备验证直接放行，
+    # 跳过 Redis 取码与比对、不消耗验证码与尝试计数；但仍完整走授权判定与登录链路。
+    # 生产 profile 下该键非空即启动失败（SmsConfigGuard fail-fast）；码值绝不打印。
+    dev-universal-code: ""
 
   # ---------- 地理定位（M2 新增命名空间 hrm.geo.*；Key 只允许 change_me_* 占位符） ----------
   # 逐键：provider 供应商(amap|haversine，默认 haversine 降级) / amap.key 与 security-code(占位)
@@ -181,11 +195,22 @@ hrm:
       weightSumTarget: 100
       weightSumTolerance: 0
     payroll:
-      attendanceFieldMap: { LATE: lateCount, EARLY_LEAVE: earlyLeaveCount, ABSENT: absentCount, ABNORMAL: abnormalCount, LEAVE: leaveCount }
+      attendanceFieldMap: { LATE: lateCount, EARLY_LEAVE: earlyLeaveCount, ABSENT: absentCount, ABNORMAL: abnormalCount, LEAVE: leaveCount, ABSENT_OR_LEAVE: absentOrLeaveCount }
       defaultCapRatio: 1.0
       unknownSourcePolicy: ZERO
-      allowNegativeNet: true             # Q3 未裁定：保持与 Mock 一致（允许负净额）；裁定后改 false 即「净额下限置 0」
+      allowNegativeNet: false            # T3 已裁定：实发不低于 0（封顶链级 3）；置 true 则允许负净额（与旧 Mock 等价）
       itemCapSemantics: ZERO_MEANS_NO_CAP
+      # ===== S2b 班次制算薪（方案 algo-payroll-shift.md v2.0 §7；键名/默认值逐键照抄，全 ASCII 键） =====
+      shiftModelFromMonth: "2026-10"     # 班次制生效账期：month < 该值走旧「按天」路径（历史零突变）
+      middayBoundaryMinute: 720          # start_time 分钟数 < 720 → 早班(0)，否则晚班(1)；删中班后须校验无 12:00 起始班次
+      legacyPeriodSentinel: "全天班"      # 单班制历史记录哨兵：命中则覆盖当日全部排班班次
+      proratedFields: [ basicSalary ]    # 按出勤班次折算的定薪字段（T2：仅基本工资；扩充须用户再裁定）
+      absentFinePerShift: 100            # 旷工罚款单价（元/班次）默认值；实际以规则项 params.amount 为准
+      absentFineCap: 0                   # 规则项级绝对额封顶默认值；<=0 按 itemCapSemantics 解读（不封顶）
+      absentFineCapRatio: 0              # 配置级比例封顶 = 折算后基本工资 × 系数；<=0 = 本级不封顶
+      zeroSchedulePolicy: FULL_BASIC     # 应出班次为 0 时兜底：FULL_BASIC（不克扣）/ ZERO
+      fullAttendMetric: ABSENT_OR_LEAVE  # T1：全勤奖指标，请假算缺勤；旧口径可配 ABSENT（仅旷工）
+      lateGranularity: PER_CARD          # T5：迟到保持按次（= 现状）；PER_DAY 为口径变更，须用户再裁定
     schedule:
       minPerShift: 2
       maxConsecutiveWork: 5

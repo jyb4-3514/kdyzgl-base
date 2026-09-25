@@ -34,6 +34,6 @@ public class SmsSendRequest {
     /** 图形验证码（captcha 开启时必填） */
     private String captchaCode;
 
-    /** 端类型（WEB / H5；仅审计用途，A1 不做端准入） */
+    /** 端类型（{@code ADMIN}/{@code BOSS}/{@code STAFF}；各场景仅作设备/审计维度，DEVICE_VERIFY 场景的端准入以票据内的端类型为准） */
     private String clientType;
 }

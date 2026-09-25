@@ -18,7 +18,11 @@ public class SmsLoginRequest {
     /** 短信验证码（必填） */
     private String code;
 
-    /** 端类型：WEB / H5（缺省不校验端准入，与既有调用方一致） */
+    /**
+     * 端类型：{@code ADMIN}=PC 管理端 / {@code BOSS}=管理端 H5 / {@code STAFF}=员工端 H5；
+     * 旧前端仍可上报 {@code WEB}（按 PC 口径）或 {@code H5}（按 {@code as} 派生端）。
+     * <b>缺省 / 未知 / 非法即 1110</b>（fail-closed；短信登录不携带 {@code X-Client-Type} 头）。
+     */
     private String clientType;
 
     /** 入口视角参数（前端 {@code ?as=boss|staff|station}）。Java 关键字不可作字段名，JSON 键仍为 {@code as} */

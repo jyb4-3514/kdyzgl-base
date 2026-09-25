@@ -67,9 +67,12 @@ public enum ErrorCode {
     /** 该账号未绑定手机号，无法短信验证 */
     PHONE_NOT_BOUND(1109, "该账号未绑定手机号，无法短信验证"),
     /**
-     * 该账号无权登录此端（端维度角色约束）。
-     * 触发场景：① {@code clientType=WEB}（PC 网页端）而角色不在 {@code hrm.auth.pc-allowed-roles}（默认 ADMIN）；
-     * ② {@code clientType=H5} 且入口声明 {@code as=boss}（管理端视角）而角色既非 ADMIN 也非 STATION_ADMIN。
+     * 该账号无权登录此端（端准入约束，fail-closed）。
+     * 触发场景（端类型优先取请求头 {@code X-Client-Type}，其次请求体 {@code clientType}；映射见 {@code ClientAdmissionPolicy}）：
+     * ① 端 {@code ADMIN}（PC 管理端）/ {@code WEB}（旧网页端）而角色不在 {@code hrm.auth.pc-allowed-roles}（默认 ADMIN）；
+     * ② 端 {@code BOSS}（管理端 H5 / {@code ?as=boss}）而角色不在 {@code hrm.auth.boss-allowed-roles}（默认 ADMIN）；
+     * ③ 端 {@code STAFF}（员工端 H5）而角色不在 {@code hrm.auth.staff-allowed-roles}（默认 STAFF + STATION_ADMIN）；
+     * ④ <b>缺省 / 未知 / 非法端</b>（未上报端类型或取值不在 {@code ADMIN/BOSS/STAFF/WEB} 之内）。
      * <p>
      * 为什么落 11xx 而非 10xx：11xx 是架构为「认证增强」预留的段（multi-client-architecture §4.1.1），
      * 与 10xx（登录/账号基础错误）互不重叠。
