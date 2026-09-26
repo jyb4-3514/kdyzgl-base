@@ -2,12 +2,13 @@
 
 | 项目 | 内容 |
 | ---- | ---- |
-| 文档版本 | v1.1 |
+| 文档版本 | v1.2 |
 | 编写日期 | 2026-09-06 |
+| 最近修订 | 2026-09-26（B1-C1 人事 / 入离职补录 + 注册域契约定稿） |
 | 状态 | 待评审 |
 | 服务前缀 | `/api/v1`（生产经 Nginx 同域反代，本地经 Vite proxy） |
-| 接口总数 | 46 |
-| 关联文档 | [requirement.md](requirement.md)、[db.md](db.md) |
+| 接口总数 | 65（= §4.0 概览行数；含 3 条「契约先行」行） |
+| 关联文档 | [requirement.md](requirement.md)、[db.md](db.md)、[registration-design.md](registration-design.md) |
 
 ***
 
@@ -90,7 +91,7 @@
 | 95xx | 同步配置中心 |
 | 96xx | 请假 |
 
-> 段位与后端 `ErrorCode` 枚举一致，本表为**全域分段总表**。已展开明细的段位：通用 + 10xx~50xx + 91xx（见 2.2）、96xx（见 7.2）；其余段位为后端 `ErrorCode` 已定义、本文档尚未展开。
+> 段位与后端 `ErrorCode` 枚举一致，本表为**全域分段总表**。已展开明细的段位：通用 + 10xx~50xx + 91xx + 93xx（见 2.2）、96xx（见 7.2）；其余段位为后端 `ErrorCode` 已定义、本文档尚未展开。
 
 ### 2.2 错误码明细
 
@@ -139,6 +140,12 @@
 | 9107 | 打卡时段不存在 | 时段缺失 / 规则时段配置非法（同码两语义，前端按接口区分） |
 | 9108 | 该时段当日已有补卡申请或已正常打卡 | 补卡重复 |
 | 9109 | 补卡申请状态不允许该操作 | 补卡状态非法 |
+| 9307 | 该手机号已有进行中的入职申请，请勿重复提交 | 注册重复提交（同 phone 存在 `SUBMITTED` 申请） |
+| 9308 | 入职申请不存在 | 申请单不存在（段位保留、一期未启用） |
+| 9309 | 申请状态不允许该操作 | 注册审批 / 驳回时申请状态非法 |
+| 9310 | （已废弃，不使用） | 原「手机号已注册」；注册提交对「是否已注册」响应恒定，不返回该码（详见 §4.11.2） |
+
+> **93xx 人事 / 入离职段位**：既有 `9301~9306`（人事档案 / 入离职流程，端点见 §4.10）；注册侧续号 `9307~9309`（端点见 §4.11）。手机号查重命中复用 **`2003`**（不新增 9311）；非法短信场景复用 **`400`**（不新增 1111）；`9310` 已废弃。
 
 ***
 
@@ -181,7 +188,7 @@
 
 ## 4. 接口明细
 
-### 4.0 接口概览（46 个）
+### 4.0 接口概览（65 个）
 
 | 分组 | 方法 | 路径 | 权限 | 说明 |
 | ---- | ---- | ---- | ---- | ---- |
@@ -231,8 +238,28 @@
 | 排班 | GET | /api/v1/schedules/my | ADMIN / STATION_ADMIN / STAFF | 我的排班（按周） |
 | 排班 | POST | /api/v1/schedules/batch | ADMIN | 手动批量保存排班 |
 | 排班 | POST | /api/v1/schedules/batch-by-station | ADMIN | 整站排班（手动 / 智能） |
+| 人事·入离职 | GET | /api/v1/hr/onboarding | ADMIN | 入职流程列表 |
+| 人事·入离职 | POST | /api/v1/hr/onboarding | ADMIN | 发起入职流程 |
+| 人事·入离职 | GET | /api/v1/hr/onboarding/{id} | ADMIN | 入职流程详情 |
+| 人事·入离职 | POST | /api/v1/hr/onboarding/{id}/steps/{key}/complete | ADMIN | 办理入职步骤 |
+| 人事·入离职 | POST | /api/v1/hr/onboarding/{id}/reject | ADMIN | 驳回入职流程 |
+| 人事·入离职 | GET | /api/v1/hr/offboarding | ADMIN | 离职流程列表 |
+| 人事·入离职 | POST | /api/v1/hr/offboarding | ADMIN | 发起离职流程 |
+| 人事·入离职 | GET | /api/v1/hr/offboarding/{id} | ADMIN | 离职流程详情 |
+| 人事·入离职 | POST | /api/v1/hr/offboarding/{id}/steps/{key}/complete | ADMIN | 办理离职步骤 |
+| 人事·入离职 | POST | /api/v1/hr/offboarding/{id}/reject | ADMIN | 驳回离职流程 |
+| 人事档案 | GET | /api/v1/hr/profiles | ADMIN | 人事档案列表 |
+| 人事档案 | GET | /api/v1/hr/profiles/{employeeId} | 登录（越权 403） | 人事档案详情 |
+| 人事档案 | PUT | /api/v1/hr/profiles/{employeeId} | ADMIN | 编辑人事档案 |
+| 人事档案 | GET | /api/v1/hr/salary-structures | ADMIN | 定薪列表 |
+| 人事档案 | GET | /api/v1/hr/salary-structures/{employeeId} | 登录（越权 403） | 定薪详情 |
+| 人事档案 | PUT | /api/v1/hr/salary-structures/{employeeId} | ADMIN | 保存定薪 |
+| 员工自助注册 | POST | /api/v1/registration | 公开 | 提交注册申请（R-2，契约先行） |
+| 员工自助注册 | GET | /api/v1/registration/{applyNo} | ADMIN | 申请单详情（R-3，契约先行） |
+| 员工自助注册 | POST | /api/v1/hr/onboarding/{id}/approve | ADMIN | 审批通过·聚合联动（R-6，契约先行） |
 
-> 权限列：`ADMIN` = 管理员、`STATION_ADMIN` = 站长、`STAFF` = 员工（角色码与后端 `UserContext` 一致）。考勤 / 补卡 / 班次 / 排班的查询类端点对非 ADMIN 的 `stationId` **静默收敛为本人驿站**；「本人」端点以登录身份收口，详见 §4.6~§4.9。
+> 权限列：`ADMIN` = 管理员、`STATION_ADMIN` = 站长、`STAFF` = 员工（角色码与后端 `UserContext` 一致）。考勤 / 补卡 / 班次 / 排班的查询类端点对非 ADMIN 的 `stationId` **静默收敛为本人驿站**；「本人」端点以登录身份收口，详见 §4.6~§4.9。人事 / 入离职见 §4.10（入离职 10 端点全 `ADMIN`；人事档案详情任意登录角色可达，非本人非 ADMIN → 403 越权）；员工自助注册见 §4.11（**公开仅 R-1 / R-2 两条**）。
+> **计数说明**：本表 65 = 原 46 + §4.10 人事 / 入离职 16 + 注册域 3（R-2 / R-3 / R-6）。R-1 为既有公开端点 `/api/v1/auth/sms/send` 的场景扩展（仅新增 `scene=REGISTER`），不单独计入。**标注「契约先行」者为注册域新增端点**：本批仅定稿契约，R-2 / R-3 由 B3 落地、R-6 由 B4 落地。
 
 ### 4.1 认证接口
 
@@ -1080,6 +1107,295 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 - **智能模式**（`shiftId` 缺省）：由 S3 算法（贪心构造 + 模拟退火）逐格生成班次，尊重「每日每班最少在岗 / 连续工作上限 / 轮休均衡 / 班次均衡」约束；该驿站无启用班次时快速失败（9106）；算法超参外置于 `hrm.algo.schedule.*`（`minPerShift` / `maxConsecutiveWork` / `restCycleDays` / `weights.*` / `sa.*`），失败**降级**返回贪心解 + 违规清单（不抛异常）。
 
 响应 `data` 为 `ScheduleStationResultVO`：`created` / `skipped` / `total`（= created + skipped）/ `violations[]`（仅智能模式返回，手动模式省略）/ `fallback`（是否走了失败降级）。错误码：400 / 4001 / 9106。
+
+### 4.10 人事 / 入离职接口
+
+> 端点由 `HrFlowController`（入离职流程，10 个）与 `HrProfileController`（人事档案与定薪，6 个）提供，路径前缀 `/api/v1/hr`；全部端点均需登录（`Authorization: Bearer {token}`）。
+> 角色门槛：入离职 10 端点**全部仅 `ADMIN`**；人事档案的**列表与写操作仅 `ADMIN`**，**详情端点**任意登录角色可达，但**越权（非本人且非 `ADMIN`）→ 403**（`STATION_ADMIN` 亦仅能查看本人档案 / 定薪）。
+> 状态与步骤真源（`HrConstants`）：流程状态 `IN_PROGRESS` / `COMPLETED` / `REJECTED`；**入职步骤**顺序 `SUBMIT_MATERIALS → HR_REVIEW → CREATE_ACCOUNT → ASSIGN_STATION → SET_SALARY → DONE`；**离职步骤**顺序 `MANAGER_APPROVE → HR_APPROVE → HANDOVER → ASSET_RETURN → SETTLEMENT → LEAVE`。办理步骤时目标步须为**首个待办理（`PENDING`）步**，跳步 / 重复办理 / 状态非法统一 → 9303（入职）/ 9304（离职）。
+> 错误码见 §2.2「93xx 人事 / 入离职」段（9301~9306）；入参格式 / 取值类错误统一 `400`。
+
+#### 4.10.1 入职流程列表
+
+`GET /api/v1/hr/onboarding`（ADMIN）
+
+| 入参（Query） | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| pageNum | int | 否 | 默认 1 |
+| pageSize | int | 否 | 默认 10 |
+| status | string | 否 | `IN_PROGRESS` / `COMPLETED` / `REJECTED`；其他值 400 |
+| stationId | long | 否 | 驿站过滤（精确） |
+| keyword | string | 否 | 候选人姓名 / 员工姓名 / 流程编号 模糊匹配 |
+
+排序固定 `create_time DESC, id DESC`。响应 `data` 为分页结构，`list` 元素为 `HrFlowVO`（字段见 §4.10.5 后的「`HrFlowVO` 字段」）。错误码：400。
+
+#### 4.10.2 发起入职流程
+
+`POST /api/v1/hr/onboarding`（ADMIN）
+
+| 入参 | 类型 | 必填 | 校验（违反即 400） |
+| ---- | ---- | ---- | ---- |
+| candidateName | string | 是 | 2-20 字 |
+| phone | string | 是 | `^1[3-9]\d{9}$` |
+| gender | int | 否 | 0/1/2（0=未知，1=男，2=女），缺省 0 |
+| education | string | 否 | 白名单 `MASTER` / `BACHELOR` / `COLLEGE` / `HIGH_SCHOOL` |
+| deptId | long | 否 | 部门须存在（否则 400「指定的部门不存在」） |
+| stationId | long | 否 | 驿站须存在（否则 400「指定的驿站不存在」） |
+| position | string | 否 | 岗位（自由文本） |
+| expectedEntryDate | string | 否 | `yyyy-MM-dd`，缺省今天 |
+| remark | string | 否 | ≤ 200 字 |
+
+行为：新建 `hr_flow`（`flow_type=ONBOARDING`、`role=STAFF`（恒）、`status=IN_PROGRESS`）并生成全部步骤（`PENDING`）；`operator_id / operator_name` 记当前登录人。响应 `data` 为 `HrFlowVO`。错误码：400。
+
+#### 4.10.3 入职流程详情
+
+`GET /api/v1/hr/onboarding/{id}`（ADMIN）
+
+响应 `data` 为 `HrFlowVO`。错误码：404（流程不存在或非入职类型）。
+
+#### 4.10.4 办理入职步骤
+
+`POST /api/v1/hr/onboarding/{id}/steps/{key}/complete`（ADMIN）
+
+`key` 取入职步骤键之一（非法 → 400「步骤标识非法」）。入参 `HrStepCompleteRequest` **按 `key` 取用**（未用字段忽略）：
+
+| 入参 | 类型 | 适用步骤 | 校验（违反即 400） |
+| ---- | ---- | ---- | ---- |
+| remark | string | 全部 | ≤ 200 字 |
+| expectedEntryDate | string | 全部（仅入职） | `yyyy-MM-dd` |
+| username | string | `CREATE_ACCOUNT` | 字母开头、4-30 位字母数字下划线（`^[a-zA-Z][a-zA-Z0-9_]{3,29}$`） |
+| password | string | `CREATE_ACCOUNT` | 8-20 位且含字母与数字 |
+| deptId | long | `CREATE_ACCOUNT` / `ASSIGN_STATION` | 部门须存在（3001） |
+| stationId | long | `CREATE_ACCOUNT` / `ASSIGN_STATION` | 驿站须存在（4001）且启用（4004） |
+| probationMonths | int | `CREATE_ACCOUNT` | 试用期（月） |
+| contractType | string | `CREATE_ACCOUNT` | 合同类型 |
+| position | string | `ASSIGN_STATION` | 岗位（写入 `hr_flow.position`） |
+| role | string | `ASSIGN_STATION` | 仅 `STATION_ADMIN` / `STAFF`（其他 400） |
+| basicSalary / postSalary / performanceBase | decimal | `SET_SALARY` | ≥ 0（`HrSalaryValidator`） |
+| allowances | `AllowanceItem[]` | `SET_SALARY` | 元素 `{key?, name(1-20), amount(≥0)}` |
+| effectiveDate | string | `SET_SALARY` | `yyyy-MM-dd`，缺省取流程 `expectedEntryDate` |
+| reason | string | `SET_SALARY` | 定薪原因 |
+
+行为：通过**按序守卫**后，按 `key` 执行副作用并标记该步 `DONE`、重算 `current_step_key`；全部步骤 `DONE` 且流程 `IN_PROGRESS` → 置 `COMPLETED`。副作用：`CREATE_ACCOUNT` 建员工与账号（员工先落 `status=0` 未生效）、`ASSIGN_STATION` 分配驿站 / 岗位 / 角色、`SET_SALARY` 建档定薪、`DONE` 员工转在职（`status=1`）；`SUBMIT_MATERIALS` / `HR_REVIEW` 无副作用仅标记完成。响应 `data` 为 `HrFlowVO`。错误码：400 / 404 / 1003（账号重复）/ 3001 / 4001 / 4004 / 9303。
+
+#### 4.10.5 驳回入职流程
+
+`POST /api/v1/hr/onboarding/{id}/reject`（ADMIN）
+
+| 入参 | 类型 | 必填 | 校验（违反即 400） |
+| ---- | ---- | ---- | ---- |
+| reason | string | 是 | 2-200 字 |
+
+行为：仅 `IN_PROGRESS` 可驳回（否则 9303）；置 `status=REJECTED`、记 `reject_reason / rejected_by / rejected_time`；**已建档员工一并禁用（`status=0`）**。响应 `data` 为 `HrFlowVO`。错误码：400 / 404 / 9303。
+
+> **`HrFlowVO` 字段**（入职 / 离职共用，未用字段为 `null`；`phone` 脱敏）：
+> `id, flowType, flowNo, candidateName, employeeId, employeeName, phone(脱敏), gender, education, educationLabel, deptId, stationId, stationName, position, role, expectedEntryDate, type, typeLabel, reason, lastWorkDate, settlementPayrollId, settlementPayrollNo, settlementAmount, leaveDate, remark, status, statusLabel, rejectReason, rejectedBy, rejectedTime, currentStepKey, currentStepName, progress{done,total}, steps[{key, name, order, status, statusLabel, operatorId, operatorName, operateTime, remark}], createTime, updateTime, operatorId, operatorName`
+
+#### 4.10.6 离职流程列表
+
+`GET /api/v1/hr/offboarding`（ADMIN）。入参与排序同 §4.10.1，`list` 元素为 `HrFlowVO`（离职语义字段）。错误码：400。
+
+#### 4.10.7 发起离职流程
+
+`POST /api/v1/hr/offboarding`（ADMIN）
+
+| 入参 | 类型 | 必填 | 校验（违反即 400） |
+| ---- | ---- | ---- | ---- |
+| employeeId | long | 是 | 员工须存在（404） |
+| type | string | 是 | `RESIGN` / `DISMISS` / `RETIRE` |
+| reason | string | 是 | 2-200 字 |
+| lastWorkDate | string | 是 | `yyyy-MM-dd` |
+
+行为：员工须**在职（`status=1`）**，否则 9302「该员工已离职或账号已禁用，不可发起离职」；**同一员工不得有进行中的离职流程**（否则 9304）。`station_id` 取该员工驿站；`operator_id / operator_name` 记当前登录人。响应 `data` 为 `HrFlowVO`。错误码：400 / 404 / 9302 / 9304。
+
+#### 4.10.8 离职流程详情
+
+`GET /api/v1/hr/offboarding/{id}`（ADMIN）。响应 `data` 为 `HrFlowVO`。错误码：404（流程不存在或非离职类型）。
+
+#### 4.10.9 办理离职步骤
+
+`POST /api/v1/hr/offboarding/{id}/steps/{key}/complete`（ADMIN）
+
+`key` 取离职步骤键之一（非法 → 400「步骤标识非法」）；入参仅 `remark`（≤200 字）有语义。行为：通过按序守卫后标记该步 `DONE`；`SETTLEMENT` 经跨域端口创建离职结算单（失败 → 9306），`LEAVE` 完成离岗（员工转离职）。响应 `data` 为 `HrFlowVO`。错误码：400 / 404 / 9304 / 9306。
+
+#### 4.10.10 驳回离职流程
+
+`POST /api/v1/hr/offboarding/{id}/reject`（ADMIN）。入参与行为同 §4.10.5（状态非法 → **9304**）；**不联动禁用员工**。错误码：400 / 404 / 9304。
+
+#### 4.10.11 人事档案列表
+
+`GET /api/v1/hr/profiles`（ADMIN）
+
+| 入参（Query） | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| pageNum / pageSize | int | 否 | 同 §1.1 |
+| deptId | long | 否 | 部门**精确**过滤（不做子部门展开，与 §4.3.1 不同） |
+| stationId | long | 否 | 驿站精确过滤 |
+| keyword | string | 否 | 姓名 / 登录账号 模糊匹配 |
+
+行为：**仅返回已存在人事档案**的员工行（无档案者不出现）；排序 `id ASC`。响应分页 `HrProfileVO[]`。错误码：仅 401 / 403。
+
+#### 4.10.12 人事档案详情
+
+`GET /api/v1/hr/profiles/{employeeId}`（ADMIN / STATION_ADMIN / STAFF；**越权 403**）
+
+行为：非本人且非 `ADMIN` → 403「无权查看他人人事档案」；档案不存在 → 9301。响应 `data` 为 `HrProfileDetailVO`（= `HrProfileVO` + `salary` 定薪摘要，无定薪时 `salary=null`）。错误码：403 / 9301。
+
+> **`HrProfileVO` 字段**（`phone` / `emergencyContactPhone` / `bankAccount` 一律脱敏）：
+> `employeeId, employeeName, username, phone(脱敏), deptName, stationName, entryDate, education, educationLabel, contractType, contractTypeLabel, contractStart, contractEnd, probationMonths, probationEnd, regularDate, socialSecurityBase, emergencyContactName, emergencyContactPhone(脱敏), emergencyContactRelation, bankName, bankAccount(脱敏), leaveDate, createTime, updateTime`
+
+#### 4.10.13 编辑人事档案
+
+`PUT /api/v1/hr/profiles/{employeeId}`（ADMIN）
+
+**白名单写入**：DTO 不含 `employeeId / leaveDate`（防越权改归属与伪造离职）；**仅写显式传入（非 null）字段**，空请求体不会误清空。
+
+| 入参 | 类型 | 必填 | 校验（违反即 400） |
+| ---- | ---- | ---- | ---- |
+| education | string | 否 | `MASTER` / `BACHELOR` / `COLLEGE` / `HIGH_SCHOOL` |
+| contractType | string | 否 | `FIXED_TERM` / `NON_FIXED_TERM` / `INTERN` / `DISPATCH` |
+| contractStart / contractEnd | string | 否 | `yyyy-MM-dd` |
+| probationMonths | int | 否 | 0-12 |
+| probationEnd / regularDate | string | 否 | `yyyy-MM-dd` |
+| socialSecurityBase | decimal | 否 | ≥ 0 |
+| emergencyContactName | string | 否 | 2-20 字 |
+| emergencyContactPhone | string | 否 | 手机号格式 |
+| emergencyContactRelation | string | 否 | 关系 |
+| bankName | string | 否 | 2-50 字 |
+| bankAccount | string | 否 | 12-25 位数字 |
+
+行为：档案不存在 → 9301；**已离职（`leave_date` 非空）→ 9302**。响应 `data` 为 `HrProfileVO`。错误码：400 / 9301 / 9302。
+
+#### 4.10.14 定薪列表
+
+`GET /api/v1/hr/salary-structures`（ADMIN）。入参同 §4.10.11；**仅返回已存在定薪档案**的员工行，排序 `id ASC`。响应分页 `HrSalaryVO[]`。错误码：仅 401 / 403。
+
+#### 4.10.15 定薪详情
+
+`GET /api/v1/hr/salary-structures/{employeeId}`（ADMIN / STATION_ADMIN / STAFF；**越权 403**）
+
+行为：非本人且非 `ADMIN` → 403「无权查看他人定薪档案」；定薪档案不存在 → 9305。响应 `data` 为 `HrSalaryDetailVO` = `{ current: HrSalaryVO, histories: HrSalaryLogVO[] }`（留痕按 `effective_date DESC, id DESC`）。错误码：403 / 9305。
+
+> **`HrSalaryVO` 字段**：`employeeId, employeeName, basicSalary, postSalary, performanceBase, allowances[{key, name, amount}], allowancesTotal, totalSalary, effectiveDate, updateTime`
+> **`HrSalaryLogVO` 字段**：`id, effectiveDate, changeType(ENTRY/ADJUST), changeTypeLabel, basicSalary, postSalary, performanceBase, allowances[], allowancesTotal, totalSalary, reason, operatorId, operatorName, createTime`
+
+#### 4.10.16 保存定薪
+
+`PUT /api/v1/hr/salary-structures/{employeeId}`（ADMIN）
+
+| 入参 | 类型 | 必填 | 校验（违反即 400） |
+| ---- | ---- | ---- | ---- |
+| basicSalary / postSalary / performanceBase | decimal | 否 | ≥ 0 |
+| allowances | `AllowanceItem[]` | 否 | 传数组则整表替换；元素 `{key?, name(1-20), amount(≥0)}` |
+| effectiveDate | string | 否 | `yyyy-MM-dd`，缺省今天 |
+| reason | string | 否 | 2-50 字 |
+
+行为：**覆盖当前档案 + 追加一条调薪留痕**（`changeType=ADJUST`）；未传字段保持现值；定薪档案不存在 → 9305；已离职（`leave_date` 非空）→ 9302；操作人记当前登录人。响应 `data` 为 `HrSalaryDetailVO`。错误码：400 / 9302 / 9305。
+
+### 4.11 员工自助注册接口
+
+> 本节为**注册域契约定稿**（依据 [registration-design.md](registration-design.md) v1.3，技术评审复评结论「通过（工程面）」）。R-1 复用既有公开端点，R-2 / R-3 / R-6 为新增端点（R-2 / R-3 由 B3 落地、R-6 由 B4 落地，见 §4.0「契约先行」标注）。
+> **公开端点仅 2 个**：R-1（复用 `POST /api/v1/auth/sms/send`，仅新增 `scene=REGISTER`；路径**既已在白名单**，净新增 0 条）+ R-2（`POST /api/v1/registration`，`PublicEndpoints` **净新增 1 条**）。R-3 为 **ADMIN-only**；R-6 为 **ADMIN**。
+> **越权口径**：申请人**无自助端点**（不做自助撤回 / 进度查询）；R-2 提交仅凭短信验证码（须持有该手机号）；R-3 / R-6 仅 `ADMIN`（站长 `STATION_ADMIN` 不可审）；**不得以手机号单独查询**（防遍历）。未过审数据由超时清理 + ADMIN 驳回处置。
+
+#### 4.11.1 R-1 注册验证码下发（复用 `POST /api/v1/auth/sms/send`）
+
+`POST /api/v1/auth/sms/send`（公开）。**本场景仅新增入参取值 `scene=REGISTER`**；端点及其余入参 / 出参沿用既有短信下发契约。
+
+| 入参 | 类型 | 必填 | 校验 |
+| ---- | ---- | ---- | ---- |
+| scene | string | 否 | `REGISTER`（本方案新增）；**缺省（空 / 空白）按 `LOGIN`**；**非空非法值 → 400「不支持的短信场景」**（不再回落 `LOGIN`） |
+| phone | string | 是 | `^1[3-9]\d{9}$` |
+| deviceId | string | 否 | 弱信号（参与同设备维度限频） |
+| captchaTicket / captchaCode | string | 否 | `captcha-enabled=true` 时必填（1106） |
+
+行为（**定稿**）：注册场景**不要求手机号已存在**，发码前**不判定「是否已注册」**（防枚举）；频控 4 维复用，`identifier = phone`。
+
+**发码恒定性（本方案定稿，同时覆盖 `LOGIN` 与 `REGISTER` 两场景）**：对**任意手机号**（已注册 / 未注册 / 未绑定）返回体 `{code, message, data}`、HTTP 状态与业务码、**耗时量级逐字段一致**；未注册号作**静默成功**（不真发码）。**发码路径不再返回 1109**（消除「是否注册」的枚举差异面）。
+
+响应（`SmsSendVO`）：`{ sent, expireIn, nextAllowedIn, requireCaptcha }`；**绝不包含验证码**。验证码存储键 `hrm:sms:code:REGISTER:{phone}`（沿用短信域键命名，前缀 `hrm:`）。
+
+错误码：400 / 1101 / 1105 / 1106（**不出现 1109**）。
+
+#### 4.11.2 R-2 提交注册申请
+
+`POST /api/v1/registration`（公开，本方案唯一净新增公开端点）
+
+| 入参（白名单，`intent*` 表「意向」） | 类型 | 必填 | 校验（违反即 400） |
+| ---- | ---- | ---- | ---- |
+| realName | string | 是 | 2-20 字 |
+| phone | string | 是 | `^1[3-9]\d{9}$` |
+| smsCode | string | 是 | 6 位；走 `REGISTER` 场景校验（1102 / 1103，校验成功一次性作废） |
+| intentStationId | long | 是 | **仅意向**；须存在（4001）且启用（4004）；**不落 `employee.station_id`** |
+| intentPosition | string | 否 | ≤ 50 字（自由文本，**仅意向**） |
+| password | string | 否 | 8-20 位且含字母与数字（**合规留痕，不作为员工口令**） |
+| agreementVersion | string | 是 | 服务条款版本（合规留痕） |
+
+> **硬约束（防注册注入）**：DTO **不含** `role / deptId / stationId(事实) / basicSalary / postSalary / performanceBase / allowances / status / pwdChanged`；全局 `FAIL_ON_UNKNOWN_PROPERTIES=true`，夹带未知字段 → 400。数据采集字段与审批赋值字段**严格分离**（完整字段分离表见 `registration-design.md` §11.5）。
+
+行为（**单事务**）：
+
+1. 校验 `REGISTER` 场景验证码（1102 / 1103）；
+2. **重复提交判定**：同 `phone` 存在 `SUBMITTED` → 9307；
+3. **已注册判定（响应恒定）**：即使 `employee.phone` 活跃命中，**仍按正常流程建单**（受理外观恒定），由 ADMIN 审批台识别（命中在审批台提示 + 唯一约束兜底）；**不返回 9310**；
+4. 建 `employee_registration`（`status=SUBMITTED`；`password_hash=BCrypt(password)` 仅留痕；生成 `apply_no`）；
+5. 建 `hr_flow`（`flow_type=ONBOARDING`、`role=STAFF`（恒）、`status=IN_PROGRESS`、`operator_id / operator_name=null`、`source=SELF_REGISTER`）；
+6. 回填 `registration.flow_id`；返回 `{ applyNo, status, createTime }`。
+
+```json
+// 请求（无 role / 薪资 / deptId）
+{ "realName": "李四", "phone": "13912345678", "smsCode": "123456",
+  "intentStationId": 3, "intentPosition": "分拣员", "password": "Init1234", "agreementVersion": "v1.0" }
+
+// 响应（HTTP 200，对「已注册 / 未注册」逐字段一致）
+{ "code": 200, "message": "success",
+  "data": { "applyNo": "RG-20260926-0001", "status": "SUBMITTED", "createTime": "2026-09-26 10:00:00" } }
+```
+
+错误码：400 / 9307 / 4001 / 4004 / 1102 / 1103（**无 9310**）。
+
+#### 4.11.3 R-3 申请单详情
+
+`GET /api/v1/registration/{applyNo}`（ADMIN）
+
+行为：按 `applyNo` 查申请单；出参**脱敏**（`phone` 掩码），**不返回** `password_hash / query_token_hash`。
+
+响应 `data`：`{ applyNo, realName, phone(脱敏), intentStationId, stationName, intentPosition, status, statusLabel, rejectReason, createTime, approveTime, source, clientIp(脱敏) }`（与 §4.11.5 R-8 的 `registration` 子对象**同构**）。错误码：400 / 404（`9308` 段位保留、一期未启用）。
+
+#### 4.11.4 R-6 注册审批通过（聚合联动）
+
+`POST /api/v1/hr/onboarding/{id}/approve`（ADMIN）
+
+| 入参（**ADMIN 赋值字段**） | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| username | string | 否 | 登录账号；缺省按 `u` + 手机号生成；活跃唯一（1003） |
+| initialPassword | string | 是 | **ADMIN 一次性初始口令**（**不复用注册密码**）；8-20 位含字母数字 |
+| deptId | long | 是 | 部门（注册不采集，审批必填）；不存在 → 3001 |
+| stationId | long | 否 | 缺省取 `hr_flow.station_id`（意向）；停用 → 4004 |
+| role | string | 否 | 缺省 `STAFF`；仅 `STATION_ADMIN` / `STAFF` |
+| position | string | 否 | 缺省取 `hr_flow.position`（意向）；**定岗时双写 `hr_flow.position` + `employee.position`**（以 `employee.position` 为权威事实） |
+| probationMonths | int | 否 | 缺省取 `hrm.hr.default-probation-months` |
+| contractType | string | 否 | 缺省 `FIXED_TERM` |
+| basicSalary / postSalary / performanceBase / allowances | decimal / `AllowanceItem[]` | 是 | 定薪（**必填**，防工资单静默为 0） |
+| effectiveDate | string | 否 | 缺省取流程 `expectedEntryDate` |
+| remark | string | 否 | 0-200 字 |
+
+行为（**单事务，仅前三步副作用——审批不自动激活**）：
+
+1. 事务首条 `SELECT ... FOR UPDATE` 锁 `hr_flow` 单行；
+2. 按序推进 5 步 `SUBMIT_MATERIALS → HR_REVIEW → CREATE_ACCOUNT → ASSIGN_STATION → SET_SALARY`（复用既有 `completeOnboardingStep`，**不含 `DONE`**）；
+3. 同步 `registration.status=APPROVED` + 回填 `approved_employee_id` + 清空凭据列；
+4. **不置 `COMPLETED`**：`hr_flow` 保持 `IN_PROGRESS`、`employee.status=0`、`pwd_changed=0`（**待激活**）。
+
+**激活口径（`status=0` 不激活）**：审批通过后员工 `status=0`（**不可登录**）；须由 ADMIN 在末步 `DONE` **二次显式确认**（`completeOnboardingStep(DONE)`）方转 `status=1`。**前置不变式**：前 5 步已 `DONE`、`DONE` 为唯一 `PENDING`（`current_step_key=='DONE'`），否则 `completeOnboardingStep(DONE)` 被按序守卫拒（9303）。
+
+错误码：400 / 404 / 3001 / 4001 / 4004 / 1003 / 9303 / 9305 / 9309。
+
+#### 4.11.5 R-7 ~ R-9 既有端点扩展
+
+- **R-7** 审批列表：`GET /api/v1/hr/onboarding`（ADMIN），行为不变（见 §4.10.1）。
+- **R-8** 审批详情：`GET /api/v1/hr/onboarding/{id}`（ADMIN），出参**新增** `registration` 子对象（`applyNo / intentPosition / agreementVersion / source / status / createTime`）+ 展示 `employee.position`（见 §4.10.3）。
+- **R-9** 驳回：`POST /api/v1/hr/onboarding/{id}/reject`（ADMIN），行为**扩展**：同事务回写 `registration.status=REJECTED` + `reject_reason` + 清空凭据列（见 §4.10.5）。
 
 ***
 

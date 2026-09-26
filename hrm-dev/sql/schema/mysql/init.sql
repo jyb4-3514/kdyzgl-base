@@ -1,7 +1,7 @@
 -- ----------------------------------------------------------------
 -- 快递驿站智汇系统 · 当前结构快照（MySQL 8）
 -- 依据：docs/db.md §5.3（sql/schema 快照同步约定）、server-architecture.md §4.5
--- 内容：== Flyway V1 + V2(种子) + V3..V15 的最终结构态；仅 DDL、无业务数据。
+-- 内容：== Flyway V1 + V2(种子) + V3..V19 的最终结构态；仅 DDL、无业务数据。
 --   V1  department / station / employee / login_log          4 表（一期）
 --   V3  client_log                                           1 表（P1）
 --   V4  notification                                         1 表（P2）
@@ -16,6 +16,10 @@
 --   V13 parcel 1 表（20 万级大表）                              P10
 --   V14 hr_flow 补 2 列（operator_id / operator_name）          登录改造前置修复
 --   V15 auth_trusted_device 1 表（服务端持有设备信任态）        登录体系改造
+--   V16 employee 补生成列 phone_active + 唯一索引（活跃唯一）   注册前置缺陷修复 M-5
+--   V17 employee_registration 1 表（注册事实与凭据载体）        员工自助注册
+--   V18 hr_flow 补 source 列（NOT NULL DEFAULT 'ADMIN'）        来源留痕 M-9
+--   V19 employee 补 position 列（岗位进档案）                   方案乙 U-07
 -- 用途：供评审与 DBA 查看；执行来源唯一为 Flyway 目录，
 --       请勿直接以本快照为起点做增量变更。
 -- 变更纪律：后续 Flyway 新增 Vn 结构脚本时，必须同步刷新本快照；已执行脚本永不修改。
@@ -79,12 +83,15 @@ CREATE TABLE `employee` (
   `is_deleted`      TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除：0=否，1=是',
   `create_time`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '更新时间（应用层维护）',
+  `phone_active`    VARCHAR(20)  GENERATED ALWAYS AS (IF(`is_deleted` = 0, `phone`, NULL)) STORED COMMENT '活跃手机号生成列：is_deleted=0 取 phone，否则 NULL；仅活跃行唯一（V16）',
+  `position`        VARCHAR(50)  DEFAULT NULL COMMENT '岗位（员工档案属性，权威事实；自由文本，与 hr_flow.position 双写；存量未登记为 NULL；V19）',
   PRIMARY KEY (`id`),
   KEY `idx_employee_username` (`username`),
   KEY `idx_employee_phone` (`phone`),
   KEY `idx_employee_dept_id` (`dept_id`),
   KEY `idx_employee_station_id` (`station_id`),
-  KEY `idx_employee_create_time` (`create_time`)
+  KEY `idx_employee_create_time` (`create_time`),
+  UNIQUE KEY `uk_employee_phone_active` (`phone_active`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='员工表（员工即账号）';
 
 CREATE TABLE `login_log` (
@@ -409,6 +416,7 @@ CREATE TABLE `hr_flow` (
   `update_time`           DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '更新时间（应用层维护）',
   `operator_id`           BIGINT        DEFAULT NULL COMMENT '创建人（逻辑外键 employee.id；V14 补列）',
   `operator_name`         VARCHAR(50)   DEFAULT NULL COMMENT '创建人姓名快照（V14 补列）',
+  `source`                VARCHAR(16)   NOT NULL DEFAULT 'ADMIN' COMMENT '业务来源：ADMIN=后台创建，SELF_REGISTER=员工自助注册（M-9 来源留痕；V18 补列）',
   PRIMARY KEY (`id`),
   KEY `idx_hr_flow_no` (`flow_no`),
   KEY `idx_hr_flow_type_status` (`flow_type`, `status`),
@@ -837,3 +845,41 @@ CREATE TABLE `auth_trusted_device` (
   KEY `idx_auth_trusted_device_fp` (`device_fingerprint`),
   KEY `idx_auth_trusted_device_token` (`device_token_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='受信设备（服务端持有信任态；登录体系改造 V15）';
+
+-- ================================================================
+-- 员工自助注册（V17__employee_registration.sql）
+-- 注册事实与凭据载体；审批载体仍复用 hr_flow（1:1，registration.flow_id ↔ hr_flow.id）。
+-- 唯一索引例外：uk_employee_registration_apply_no（U-17）；phone 走 Service 查重 + 普通索引。
+-- 凭据卫生：password_hash / query_token_hash 终态置 NULL；query_token_hash 一期恒不写入。
+-- 说明：V16（employee 活跃唯一）、V18（hr_flow.source）、V19（employee.position）为既有表增量，
+--       对应列/唯一键已在各表内联（见 employee / hr_flow 定义），本节仅新增表。
+-- ================================================================
+
+CREATE TABLE `employee_registration` (
+  `id`                   BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `apply_no`             VARCHAR(32)  NOT NULL COMMENT '申请编号（唯一，形如 RG-YYYYMMDD-0001；两段式生成）',
+  `flow_id`              BIGINT       DEFAULT NULL COMMENT '关联审批单（逻辑外键 hr_flow.id，提交时写入）',
+  `real_name`            VARCHAR(50)  NOT NULL COMMENT '姓名（2-20，对齐既有 onboarding 校验口径）',
+  `phone`                VARCHAR(20)  NOT NULL COMMENT '手机号 ^1[3-9]\\d{9}$（活跃唯一由 employee/hr_flow 侧收口）',
+  `password_hash`        VARCHAR(100) DEFAULT NULL COMMENT '注册自设密码 BCrypt 散列（cost=10；仅合规留痕、非初始口令；终态置 NULL）',
+  `apply_station_id`     BIGINT       DEFAULT NULL COMMENT '意向驿站（逻辑外键 station.id；仅意向）',
+  `apply_position`       VARCHAR(50)  DEFAULT NULL COMMENT '意向岗位（自由文本，对齐 hr_flow.position；仅意向）',
+  `source`               VARCHAR(16)  NOT NULL DEFAULT 'STAFF_H5' COMMENT '注册渠道来源（审计；一期仅 STAFF_H5）',
+  `agreement_version`    VARCHAR(20)  DEFAULT NULL COMMENT '已同意的服务条款版本（合规留痕）',
+  `query_token_hash`     VARCHAR(64)  DEFAULT NULL COMMENT '查询凭据 SHA-256（一期不启用，恒不写入；列保留供后续自助查询）',
+  `status`               VARCHAR(16)  NOT NULL DEFAULT 'SUBMITTED' COMMENT '状态：SUBMITTED/APPROVED/REJECTED/EXPIRED（CANCELLED 保留不用）',
+  `reject_reason`        VARCHAR(200) DEFAULT NULL COMMENT '驳回原因快照',
+  `approved_employee_id` BIGINT       DEFAULT NULL COMMENT '通过后生成的员工（逻辑外键 employee.id）',
+  `approve_time`         DATETIME     DEFAULT NULL COMMENT '通过时间',
+  `cancel_time`          DATETIME     DEFAULT NULL COMMENT '取消时间（一期不用，随 R-4 取消而保留列）',
+  `expire_time`          DATETIME     DEFAULT NULL COMMENT '失效判定基准（create_time + 7 天，惰性判定）',
+  `client_ip`            VARCHAR(50)  DEFAULT NULL COMMENT '提交来源 IP（审计；口径对齐 login_log.login_ip；出参脱敏）',
+  `is_deleted`           TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除：0=否，1=是',
+  `create_time`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '更新时间（应用层维护）',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_employee_registration_apply_no` (`apply_no`),
+  KEY `idx_employee_registration_phone` (`phone`),
+  KEY `idx_employee_registration_flow` (`flow_id`),
+  KEY `idx_employee_registration_status` (`status`, `create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='员工自助注册申请单（注册事实与凭据载体；V17）';

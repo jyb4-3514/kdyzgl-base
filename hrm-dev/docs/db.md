@@ -1,14 +1,14 @@
-# 快递驿站智汇系统 · 数据库设计文档（一期 4 表 → 145 接口 38 表）
+# 快递驿站智汇系统 · 数据库设计文档（一期 4 表 → 145 接口 39 表）
 
 | 项目 | 内容 |
 | ---- | ---- |
-| 文档版本 | v2.1（v1.0 = 一期 4 表；v2.0 = 第 8 章 P1~P10 共 33 表；v2.1 = 第 10 章 登录体系改造 1 表 + `hr_flow` 补列） |
-| 编写日期 | 2026-09-06（v1.0）/ 2026-09-24（v2.0）/ 2026-09-24（v2.1） |
-| 状态 | 第 1~7 章（一期）已评审；第 8 章（二期扩展）已落库（V3~V13 全部执行成功）；第 10 章（登录改造）待主智能体 Review |
+| 文档版本 | v2.2（v1.0 = 一期 4 表；v2.0 = 第 8 章 P1~P10 共 33 表；v2.1 = 第 10 章 登录体系改造 1 表 + `hr_flow` 补列；v2.2 = 第 11 章 员工自助注册 1 表 + `employee` 活跃唯一/岗位 + `hr_flow` 来源列） |
+| 编写日期 | 2026-09-06（v1.0）/ 2026-09-24（v2.0）/ 2026-09-24（v2.1）/ 2026-09-26（v2.2） |
+| 状态 | 第 1~7 章（一期）已评审；第 8 章（二期扩展）已落库（V3~V13 全部执行成功）；第 10 章（登录改造）待主智能体 Review；第 11 章（员工自助注册 V16~V19）静态产出，待技术评审/报审 |
 | 数据库 | **MySQL 8.0 单库**（决策：`postgresql/` 目录冻结不再维护，保留不删避免历史引用断裂） |
 | 库名 | `kdyzgl`（utf8mb4 / utf8mb4_0900_ai_ci） |
-| 关联文档 | [requirement.md](requirement.md)、[api.md](api.md)、[plan.md](plan.md)、[server-architecture.md](server-architecture.md)、[algo-hrm-server.md](algo-hrm-server.md)、[multi-client-architecture.md](multi-client-architecture.md)、[security-auth-review.md](security-auth-review.md) |
-| 迁移落位 | `hrm-server/src/main/resources/db/migration/mysql/V1..V15`；快照 `sql/schema/mysql/init.sql` |
+| 关联文档 | [requirement.md](requirement.md)、[api.md](api.md)、[plan.md](plan.md)、[server-architecture.md](server-architecture.md)、[algo-hrm-server.md](algo-hrm-server.md)、[multi-client-architecture.md](multi-client-architecture.md)、[security-auth-review.md](security-auth-review.md)、[registration-design.md](registration-design.md) |
+| 迁移落位 | `hrm-server/src/main/resources/db/migration/mysql/V1..V19`；快照 `sql/schema/mysql/init.sql` |
 
 > **v2.0 变更范围**：第 1~7 章为一期权威基准，**字段与语义保持冻结不改**；第 8 章按
 > `server-architecture.md` §4（表清单/字段与索引策略/Flyway 版本规划/P10 大表策略）与
@@ -20,6 +20,13 @@
 > （设备信任模型）与 `security-auth-review.md` §3/§4.2（服务端持有信任态）产出 **V14**（`hr_flow` 补
 > `operator_id` / `operator_name` 两列）与 **V15**（`auth_trusted_device` 1 表）。**V1~V13 未改动**；
 > 表总数 37 → **38**。本章同时登记「哪些敏感数据不建表（走 Redis）」的取舍（§10.4）。
+>
+> **v2.2 变更范围**：新增第 11 章「员工自助注册表结构设计」，按 `registration-design.md`（v1.3，技术评审复评
+> 「通过」）§2/§7/§11.6/§11.9 产出 **V16**（`employee.phone` 活跃唯一，注册前置缺陷修复 M-5）、**V17**
+> （`employee_registration` 1 表，注册事实与凭据载体）、**V18**（`hr_flow.source` 来源留痕 M-9）、**V19**
+> （`employee.position` 方案乙 U-07）。**V1~V15 未改动**；表总数 38 → **39**。**仅同步 `sql/schema/mysql/init.sql`**
+> （`postgresql/` 自 V2 起冻结，本期不产出 pg 脚本与 pg 快照，见 §5.3）。**V16 执行前须预检 0 行**、
+> 全部脚本**属 C 档（未执行）**。
 
 ***
 
@@ -172,9 +179,11 @@ department（部门，自关联树）           station（驿站）
 | entry_date | DATE | DATE | 是 | NULL | 入职日期 |
 | last_login_time | DATETIME | TIMESTAMP | 是 | NULL | 最后成功登录时间 |
 | remark | VARCHAR(255) | VARCHAR(255) | 是 | NULL | 备注 |
+| position | VARCHAR(50) | VARCHAR(50) | 是 | NULL | 岗位（员工档案属性，**权威事实**；自由文本，与 `hr_flow.position` 双写；存量未登记为 NULL；**V19 补列**，方案乙 U-07） |
 | is_deleted | TINYINT | SMALLINT | 否 | 0 | 逻辑删除：0=否，1=是 |
 | create_time | DATETIME | TIMESTAMP | 否 | CURRENT_TIMESTAMP | 创建时间 |
 | update_time | DATETIME | TIMESTAMP | 否 | CURRENT_TIMESTAMP | 更新时间（应用层维护） |
+| phone_active | VARCHAR(20) | — | 是 | 生成列 | **MySQL 生成列**（`IF(is_deleted=0, phone, NULL) STORED`）：仅活跃行取 phone，否则 NULL；承载「手机号活跃唯一」（**V16**，PG 目录冻结不产出对应定义） |
 
 **索引**：
 
@@ -185,8 +194,11 @@ department（部门，自关联树）           station（驿站）
 | idx_employee_dept_id | dept_id | 部门归属统计、部门删除前校验 |
 | idx_employee_station_id | station_id | 驿站归属统计、驿站删除前校验、二期包裹关联员工维度 |
 | idx_employee_create_time | create_time | 默认排序（创建时间倒序） |
+| **uk_employee_phone_active** | phone_active | **UNIQUE**，手机号**活跃唯一**（`is_deleted=0` 行唯一；NULL 可重复 → 已删号可复用；**V16** 新增，D7 显式例外） |
 
 **为什么不再多建索引**：员工表 < 5000 行，任何组合条件在现有索引下都是毫秒级；`keyword` 为前模糊 `LIKE '%x%'` 不走索引（这是主动取舍，量级小可全扫，不为模糊搜索引入全文索引的复杂度）；`status` 单列区分度低，由其他条件组合过滤即可。索引克制是为写入性能与维护成本让路。
+
+**D7 唯一性例外（V16，M-5）**：`phone` 原按决策 D7 仅由 Service 层「活跃查重」保证（无 DB 唯一索引）。注册为**公开端点**、并发高于后台，且 `phone` 为**登录标识**，重复号后果为按 phone `selectOne` 命中多行 → 目标账号登录/短信登录 **DoS**（非仅脏数据），故增设**活跃唯一**约束（生成列 `phone_active` + `uk_employee_phone_active`）——此为 D7 的**显式例外**（登记同 §10.2 体例）。DB 唯一约束为最终防线，Service 查重仅为友好报错；**迁移前须跑存量重复号预检且返回 0 行**（见第 11 章）。
 
 **业务规则（Service 层）**：
 - 新增/编辑：`username`、`phone` 活跃唯一（编辑排除自身）；归属部门须存在且未删除，归属驿站须存在、未删除且启用（停用驿站不可新归属，存量归属保留）；
@@ -398,9 +410,9 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 
 `hrm-dev/sql/schema/mysql/init.sql` 存放「当前最新结构的完整快照（含注释）」，供评审与 DBA 查看；**执行来源唯一为 Flyway 目录**。约束：任何 Flyway 新增结构脚本（V3+）必须同步刷新快照（一期由任务 A05 落实，后续变更沿用）。
 
-- **当前状态（v2.0）**：`mysql/init.sql` == Flyway `V1 + V2(种子) + V3..V13` 的最终结构态（共 37 张表）；V3~V13 已随第 8 章同步落库。
-- **`postgresql/init.sql` 冻结**：不再维护、不再随变更刷新，仅保留避免历史引用断裂（`spring.flyway.locations={vendor}` 只会选中 `mysql/`）。
-- **快照与迁移一致性核对结论（v2.0）**：`mysql/init.sql` 既有 4 表与 `V1__init_schema.sql` 逐列一致，无差异；未发现既有快照与 V1/V2 的不一致处。
+- **当前状态（v2.2）**：`mysql/init.sql` == Flyway `V1 + V2(种子) + V3..V19` 的最终结构态（共 **39** 张表）；V3~V13 已随第 8 章落库，V14/V15 随第 10 章落库，V16~V19 随第 11 章产出（**尚未执行，C 档**）。
+- **`postgresql/init.sql` 冻结**：不再维护、不再随变更刷新，仅保留避免历史引用断裂（`spring.flyway.locations={vendor}` 只会选中 `mysql/`）；**本期 V16~V19 不产出 pg 脚本与 pg 快照**（与 `registration-design.md` §0.4/§7 一致）。
+- **快照与迁移一致性核对结论（v2.2）**：`mysql/init.sql` 与 `V1 + V3..V19` 表/列/索引逐项比对一致——含 `employee` 新列 `phone_active`（生成列）/ `position` + 唯一键 `uk_employee_phone_active`、`hr_flow` 新列 `source`（`NOT NULL DEFAULT 'ADMIN'`）、新表 `employee_registration`（21 列 + 1 唯一 + 3 普通索引）。
 
 ***
 
@@ -781,12 +793,14 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 | remark | VARCHAR(255) | 是 | NULL | 备注 |
 | operator_id | BIGINT | 是 | NULL | 创建人（逻辑外键 employee.id；**V14 补列**） |
 | operator_name | VARCHAR(50) | 是 | NULL | 创建人姓名快照（**V14 补列**） |
-| is_deleted / create_time / update_time | — | — | — | 通用约定；V14 两列以列尾追加，列序在 `update_time` 之后 |
+| source | VARCHAR(16) | 否 | 'ADMIN' | 业务来源：`ADMIN`=后台创建，`SELF_REGISTER`=员工自助注册（**V18 补列**，M-9 来源留痕） |
+| is_deleted / create_time / update_time | — | — | — | 通用约定；V14 两列以列尾追加（列序在 `update_time` 之后），V18 `source` 再列尾追加 |
 
 **索引**：`idx_hr_flow_no (flow_no)`、`idx_hr_flow_type_status (flow_type, status)`、`idx_hr_flow_employee (employee_id)`。
 **逻辑关系**：`employee_id` / `dept_id` / `station_id` → 相应 id；`settlement_payroll_id` → `payroll.id`（逻辑外键，结算单由领域事件创建）；`operator_id` → `employee.id`（创建人，逻辑外键）。
 **查询走索引**：入职/离职列表按 `(flow_type, status)` + 编号/姓名关键字；员工查在职流程按 `employee_id`。
 **V14 变更（表结构缺口修复）**：V7 建表漏建创建人两列，`HrFlow.operatorId/operatorName` 原以 `@TableField(exist = false)` 规避（见 `docs/update-log.md`「服务端编译修复」条目）。V14 `ALTER TABLE ... ADD COLUMN` 可空补列（INSTANT，无锁无重建），语义对齐 `hr_flow_step.operator_id/operator_name` 与 Mock `hrStore.js`（`createOnboarding/createOffboarding` 写入 `operator.id`/`operator.real_name`，`toFlowVO` 回填出参）。**联动项**：补列后由后端工程师移除 `HrFlow` 两字段的 `exist = false`（含 2 处 `TODO(扩展)` 注释），本角色不改 Java 源码。
+**V18 变更（来源留痕 M-9）**：`ALTER TABLE hr_flow ADD COLUMN source VARCHAR(16) NOT NULL DEFAULT 'ADMIN'`（列尾追加、INSTANT）。存量行（全部为后台创建）由 `DEFAULT` 一次性回填为 `ADMIN`，与业务事实一致、无需额外 UPDATE；**不加索引**（低基数）。`source` 为**业务来源**（`ADMIN`/`SELF_REGISTER`），与 `employee_registration.source` 的**注册渠道**（`STAFF_H5`）语义不同、并存。
 
 #### 8.5.5 `hr_flow_step`（V7）— 流程步骤（子表）
 
@@ -1062,10 +1076,14 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 | V13 | [V13__parcel.sql](../../hrm-server/src/main/resources/db/migration/mysql/V13__parcel.sql) | parcel |
 | V14 | [V14__hr_flow_operator_columns.sql](../../hrm-server/src/main/resources/db/migration/mysql/V14__hr_flow_operator_columns.sql) | hr_flow（补 operator_id / operator_name 两列） |
 | V15 | [V15__auth_trusted_device.sql](../../hrm-server/src/main/resources/db/migration/mysql/V15__auth_trusted_device.sql) | auth_trusted_device |
+| V16 | [V16__employee_phone_unique.sql](../../hrm-server/src/main/resources/db/migration/mysql/V16__employee_phone_unique.sql) | employee（补生成列 phone_active + 唯一键 uk_employee_phone_active，活跃唯一 M-5） |
+| V17 | [V17__employee_registration.sql](../../hrm-server/src/main/resources/db/migration/mysql/V17__employee_registration.sql) | employee_registration |
+| V18 | [V18__hr_flow_source.sql](../../hrm-server/src/main/resources/db/migration/mysql/V18__hr_flow_source.sql) | hr_flow（补 source 列，M-9） |
+| V19 | [V19__employee_position.sql](../../hrm-server/src/main/resources/db/migration/mysql/V19__employee_position.sql) | employee（补 position 列，方案乙 U-07） |
 
 - **回滚**：每个脚本尾部自带 `-- 回滚:` 注释段（`DROP TABLE` / `DROP COLUMN` / `DROP INDEX`），人工执行；不使用 Flyway undo（社区版不支持）。
-- **版本单调性**：V3 < V4 < … < V15；V3~V13 与批次 P1~P10 顺序一致（未发生**版本顺延**，`employee` 无需补索引，见 §9.2）；V14/V15 为登录体系改造（M3）与前置修复，不与 P 批次冲突。
-- **迁移执行**：属 C 档（结构变更），须主智能体三步授权后由运维执行；上线前备份库。
+- **版本单调性**：V3 < V4 < … < V19；V3~V13 与批次 P1~P10 顺序一致（未发生**版本顺延**，`employee` 无需补索引，见 §9.2）；V14/V15 为登录体系改造（M3）与前置修复，V16~V19 为员工自助注册批次（registration-design.md §7 定稿：V16 前置修复 → V17 新表 → V18 来源 → V19 岗位），无跳号/回填/复用。
+- **迁移执行**：属 C 档（结构变更），须主智能体三步授权后由运维执行；上线前备份库。**V16 执行前须先跑存量重复手机号预检（第 11 章）并返回 0 行**，否则迁移以 1062 失败。
 
 ***
 
@@ -1102,16 +1120,16 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 | 检查项 | 方法 | 结论 |
 | ---- | ---- | ---- |
 | MySQL 8 语法 | 逐脚本核对：`CREATE TABLE ... ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`、注释 `COMMENT`、JSON 列可空、`CREATE INDEX ... DESC`（8.0 支持降序索引） | 通过（未实跑） |
-| 表名 / 索引名唯一性 | 全库检索：**38** 表名无重复；索引名全局无跨表冲突（V14/V15 新增索引均带表名前缀，与既有 37 表索引名无交集） | 通过 |
-| 字段名唯一性（表内） | 逐表核对无重复列；`hr_flow` 补列后表内 31 列无重名；`auth_trusted_device` 18 列无重名 | 通过 |
+| 表名 / 索引名唯一性 | 全库检索：**39** 表名无重复；索引名全局无跨表冲突（V14/V15 及 V16~V19 新增索引均带表名前缀，与既有索引名无交集） | 通过 |
+| 字段名唯一性（表内） | 逐表核对无重复列；`hr_flow` 补列后表内 32 列无重名；`employee` 补 `phone_active`/`position` 后表内 19 列无重名；`auth_trusted_device` 18 列、`employee_registration` 21 列无重名 | 通过 |
 | 枚举取值与 Mock 一致 | 对照 `dict.js`：notification.type 1-6、parcel.status 0-4、sync.status 0-3、work_order.type/status/priority、payroll.status 6 态、hr.flow/step、leave.status/leave_type/action、kpi 类型/等级、attendance.status/source/check_type 等；V15 `platform` 取值对照架构 §4.1.3（ANDROID/IOS/H5/WEB） | 通过（逐条比对 store 与 dict） |
-| 批次 / 版本号单调 | V3→V15；V3~V13 与 P1→P10 一致，V14/V15 为登录改造批次，无跳号/回填/复用 | 通过 |
-| 索引变更附回滚 | V13 `CREATE INDEX` 附 `DROP INDEX` 回滚注释；V14 附 `DROP COLUMN`；V15 附 `DROP TABLE`（内联索引随表删）；其余脚本附 `DROP TABLE` 回滚段 | 通过 |
-| 未改历史脚本 | `V1`~`V13` 未触碰（git 校验）；V14 仅 `ALTER TABLE hr_flow ADD COLUMN`，未 `DROP`/`MODIFY` 既有列 | 通过 |
-| 新增列可空 / 带默认值 | V14 两新列均可空（`DEFAULT NULL`）；V15 非空列均带 `DEFAULT` 或为业务必填（`employee_id`/`device_fingerprint`/`device_token_hash`/`platform`/`first_seen_time`/`last_seen_time`），无「无默认 NOT NULL 新列」误用 | 通过 |
-| 敏感值不落库 | V15 全文检索无 `token` 明文列、无正则/验证码列；仅存 `device_token_hash`（摘要）；`last_ip` 出参脱敏由应用层实现 | 通过（静态检索） |
+| 批次 / 版本号单调 | V3→V19；V3~V13 与 P1→P10 一致，V14/V15 为登录改造批次，V16~V19 为员工自助注册批次（V16→V17→V18→V19），无跳号/回填/复用 | 通过 |
+| 索引变更附回滚 | V13 `CREATE INDEX` 附 `DROP INDEX` 回滚注释；V14/V19 附 `DROP COLUMN`；V15/V17 附 `DROP TABLE`（内联索引随表删）；V16 附 `DROP INDEX` + `DROP COLUMN`（先删索引后删列）；V18 附 `DROP COLUMN` | 通过 |
+| 未改历史脚本 | `V1`~`V13` 未触碰（git 校验）；V14 仅 `ALTER TABLE hr_flow ADD COLUMN`，未 `DROP`/`MODIFY` 既有列；**V16~V19 均为新增文件，未触碰 V1~V15** | 通过 |
+| 新增列可空 / 带默认值 | V14 两新列均可空（`DEFAULT NULL`）；V15 非空列均带 `DEFAULT` 或为业务必填（`employee_id`/`device_fingerprint`/`device_token_hash`/`platform`/`first_seen_time`/`last_seen_time`）；V16 `phone_active` 为生成列、V19 `position` 可空、V18 `source` 非空带 `DEFAULT 'ADMIN'`；V17 非空列均带 `DEFAULT` 或为业务必填（`apply_no`/`real_name`/`phone`/`source`/`status`），无「无默认 NOT NULL 新列」误用 | 通过 |
+| 敏感值不落库 | V15 全文检索无 `token` 明文列、无正则/验证码列；仅存 `device_token_hash`（摘要）；`last_ip` 出参脱敏由应用层实现。V17 仅存 `password_hash`（BCrypt 摘要）/`query_token_hash`（SHA-256 摘要，一期恒不写入），无明文口令/查询凭据列 | 通过（静态检索） |
 | 无存储过程 / 触发器 / 物理外键 | 全文检索 `PROCEDURE` / `TRIGGER` / `FOREIGN KEY` | 通过（0 命中） |
-| 快照与迁移一致 | `init.sql` == V1+V3..V15 表/列/索引逐项比对（含 `hr_flow` 两新列、`auth_trusted_device` 表与 3 索引） | 通过（表 **38**、逐列核对） |
+| 快照与迁移一致 | `init.sql` == V1+V3..V19 表/列/索引逐项比对（含 `hr_flow` 新列 `source`、`employee` 新列 `phone_active`/`position` + `uk_employee_phone_active`、`auth_trusted_device` 表与 3 索引、`employee_registration` 表与 4 索引） | 通过（表 **39**、逐列核对） |
 | 无真实数据 / 凭据 | 脚本仅 DDL 与中文注释；无 INSERT（业务数据）、无 IP / 口令 / 密钥 / 令牌明文 | 通过 |
 | 中文注释覆盖 | 每列均有 `COMMENT`，每表均有表注释与设计说明头 | 通过 |
 
@@ -1119,7 +1137,7 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 
 | # | 项 | 复核方法 | 通过标准 |
 | - | -- | ---- | ---- |
-| U-1 | Flyway 迁移可执行性 | 服务器 `mvn` 启动触发 V3~V15，`flyway_schema_history` 逐条 success | V1~V15 共 15 条迁移无失败；checksum 稳定；V14/V15 为新增最新两条 |
+| U-1 | Flyway 迁移可执行性 | 服务器 `mvn` 启动触发 V3~V19，`flyway_schema_history` 逐条 success | V1~V19 共 19 条迁移无失败；checksum 稳定；V16~V19 为新增最新四条（V16 须预检 0 行后执行） |
 | U-2 | 表 / 索引真实结构 | `SHOW CREATE TABLE` 逐表比对快照 | 与 `init.sql` 一致 |
 | U-3 | `parcel` 索引命中 | `EXPLAIN` 列表查询（按驿站+状态，入库时间倒序） | `type=range/ref`，无 `Using filesort`，命中 `idx_parcel_station_status_inbound` |
 | U-4 | `parcel` 分页性能 | 首页 / 第 1000 页 `EXPLAIN ANALYZE` | 游标首页 <20 ms；深分页不达标签发 TODO-1（算法 §12.3） |
@@ -1229,11 +1247,148 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 | 时效字段 | 任务列的 `trusted_at` / `last_seen_at` | 沿用架构 `first_seen_time` / `last_seen_time`（语义一一对应）；并按安全报告 §4.2「设有效期」补 `expires_at` | 命名以架构为准 + 必要补充 |
 | 撤销字段 | 任务列 `revoked_at`（或 status）；架构 §4.2.1 列 `trusted` / `revoked` | 沿用 `trusted` / `revoked`，并补 `revoked_at`（审计时间） | 一致 + 必要补充 |
 | 敏感值不落库 | 安全报告「指纹仅弱信号、不得作放行依据」 | `device_fingerprint` 标注弱信号/审计用；`device_token_hash` 仅摘要；验证码等走 Redis（§10.4） | 一致 |
-| `auth_sms_log` | 架构 §4.2.1 表2「可选但建议」 | 本轮**未纳入**（超出「两个变更」范围），登记为待裁定（§9.1 Q-DB-6），可另行 V16 | 已登记差异，非遗漏 |
+| `auth_sms_log` | 架构 §4.2.1 表2「可选但建议」 | 本轮**未纳入**（超出「两个变更」范围），登记为待裁定（§9.1 Q-DB-6），可另立新版本号 | 已登记差异，非遗漏 |
 
 ***
 
 > **收敛声明**：本章 DDL 与快照均为**静态产出**，本机无 MySQL，**未实跑迁移**；`SHOW CREATE TABLE` 逐表比对、
 > Flyway `flyway_schema_history` 校验、唯一键 upsert 行为验证**收敛到服务器阶段**（见 §9.4 U-1/U-2/U-11/U-12）。
 > **迁移执行属 C 档**，须主智能体三步授权后由运维执行，上线前备份库。
+
+***
+
+## 11. 员工自助注册表结构设计（V16~V19）
+
+> **权威设计**：[registration-design.md](registration-design.md)（**v1.3**，技术评审复评「通过」）§2 数据设计、§7 兼容与迁移、
+> §11.6 手机号唯一缺陷（M-5）、§11.9 岗位方案乙（U-07）；批次 §9-B2。
+> **DDL 落位**：`V16__employee_phone_unique.sql`、`V17__employee_registration.sql`、`V18__hr_flow_source.sql`、
+> `V19__employee_position.sql`；快照 `sql/schema/mysql/init.sql`。**仅 MySQL**（`postgresql/` 自 V2 冻结，
+> 本期**不产出 pg 脚本与 pg 快照**，见 §0.4/§7 与 §5.3）。
+
+### 11.1 本章新增概览
+
+| 版本 | 变更 | 域 | 增量 |
+| ---- | ---- | ---- | ---- |
+| **V16** | `employee` 补生成列 `phone_active` + 唯一键 `uk_employee_phone_active`（活跃唯一） | 员工/账号 | +0 表，+1 列，+1 唯一索引 |
+| **V17** | 新建 `employee_registration`（注册事实与凭据载体） | 员工自助注册 | +1 表 |
+| **V18** | `hr_flow` 补 `source` 列（`NOT NULL DEFAULT 'ADMIN'`） | 人事域（M-9 来源留痕） | +0 表，+1 列 |
+| **V19** | `employee` 补 `position` 列（岗位进档案，方案乙） | 员工档案（U-07） | +0 表，+1 列 |
+
+- 表总数 **38 → 39**；`V1`~`V15` 未改动；`init.sql` 快照随之刷新（== V1+V3..V19）。
+- **迁移顺序与依赖**：V16（既有缺陷修复，**与注册解耦、可先行**）→ V17（新表）→ V18（来源）→ V19（岗位）。**V16 为注册上线前置**（M-5）。
+- 各脚本**一文件一职责**、**注释附回滚语句**；全部**属 C 档（结构变更）**，须主智能体 §10.3 三步授权后执行，执行前备份。
+
+### 11.2 `employee` 活跃唯一（V16）— 手机号缺陷修复（M-5 / REG-04）
+
+**用途**：消除既有缺口——`createEmployeeForFlow` 仅校验 `username`、不校验 `phone`，`employee.phone` 无 DB 唯一索引，
+重复号会使按 phone `selectOne` 命中多行抛异常 → 目标账号登录/短信登录 **DoS**。
+
+**实现（U-05 定稿，仅 mysql）**：
+
+```sql
+ALTER TABLE `employee`
+  ADD COLUMN `phone_active` VARCHAR(20)
+      GENERATED ALWAYS AS (IF(`is_deleted` = 0, `phone`, NULL)) STORED
+      COMMENT '活跃手机号生成列：is_deleted=0 取 phone，否则 NULL；仅活跃行唯一（V16）',
+  ADD UNIQUE KEY `uk_employee_phone_active` (`phone_active`);
+```
+
+- **仅活跃行唯一**：`is_deleted=1` 行 `phone_active=NULL`，`UNIQUE` 对 NULL 不去重 → **已删号可复用**；无需 PG 式部分索引。
+- **硬性断言**：若活跃行存在重复 `phone`，**本 ALTER 自身以 1062 报错、迁移失败**（MySQL 8 单条 DDL 原子，失败不残留半成品）——即「预检非 0 行 → 迁移失败」。
+- **D7 显式例外**：理由为公开端点并发 + `phone` 为登录标识（重复号后果为登录 DoS，非仅脏数据），登记同 §10.2 体例。
+- **生成列须重建表**（ALGORITHM=COPY/INPLACE）；`employee` < 5000 行、非大表，**不触发**「大表变更须数据库+算法联评」。
+- 不删既有 `idx_employee_phone`（仍服务查重/筛选），不改既有列、不回填数据。
+- 回滚：`DROP INDEX uk_employee_phone_active` → `DROP COLUMN phone_active`（先索引后列）。
+
+**执行前置 · 存量重复手机号预检 SQL（必须返回 0 行）**：
+
+```sql
+-- MySQL：活跃员工中重复手机号（必须含 AND phone IS NOT NULL，
+-- 否则 is_deleted=0 且 phone IS NULL 的多行会被 GROUP BY 归为一组误报）
+SELECT phone,
+       COUNT(*)                     AS cnt,
+       GROUP_CONCAT(id ORDER BY id) AS ids,
+       GROUP_CONCAT(real_name)       AS names
+FROM employee
+WHERE is_deleted = 0
+  AND phone IS NOT NULL
+GROUP BY phone
+HAVING COUNT(*) > 1;
+```
+
+> 预检**非 0 行 → 先人工去重**（保留哪条属**数据变更**，须 C 档授权 + 人工确认，安全 R-5），去重后再执行 V16；禁止未去重强跑。
+
+### 11.3 `employee_registration`（V17）— 员工自助注册申请单
+
+**用途**：注册事实与**凭据载体**（密码散列、查询凭据、来源审计）；审批载体仍为 `hr_flow`（复用步骤机/权限/PC 审批台），
+两表以 `registration.flow_id ↔ hr_flow.id` **1:1** 关联，职责单一、互不污染（registration-design.md §2.1 结论③）。
+
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| apply_no | VARCHAR(32) | 否 | - | 申请编号（`UNIQUE`，形如 `RG-YYYYMMDD-0001`，两段式生成） |
+| flow_id | BIGINT | 是 | NULL | 关联审批单（逻辑外键 `hr_flow.id`，提交时写入） |
+| real_name | VARCHAR(50) | 否 | - | 姓名（2-20，对齐既有 onboarding 校验口径） |
+| phone | VARCHAR(20) | 否 | - | 手机号（`^1[3-9]\d{9}$`；活跃唯一由 employee/hr_flow 侧收口） |
+| password_hash | VARCHAR(100) | 是 | NULL | 注册自设密码 BCrypt 散列（cost=10；**仅合规留痕、非初始口令**；终态置 NULL） |
+| apply_station_id | BIGINT | 是 | NULL | 意向驿站（逻辑外键 `station.id`；**仅意向**，M-3） |
+| apply_position | VARCHAR(50) | 是 | NULL | 意向岗位（自由文本，对齐 `hr_flow.position`；**仅意向**，M-3） |
+| source | VARCHAR(16) | 否 | 'STAFF_H5' | 注册渠道来源（审计；一期仅 `STAFF_H5`） |
+| agreement_version | VARCHAR(20) | 是 | NULL | 已同意的服务条款版本（合规留痕） |
+| query_token_hash | VARCHAR(64) | 是 | NULL | 查询凭据 SHA-256（**一期不启用、恒不写入**，R-3/U-06；列保留供后续自助查询） |
+| status | VARCHAR(16) | 否 | 'SUBMITTED' | `SUBMITTED`/`APPROVED`/`REJECTED`/`EXPIRED`（`CANCELLED` 保留不用） |
+| reject_reason | VARCHAR(200) | 是 | NULL | 驳回原因快照 |
+| approved_employee_id | BIGINT | 是 | NULL | 通过后生成的员工（逻辑外键 `employee.id`） |
+| approve_time | DATETIME | 是 | NULL | 通过时间 |
+| cancel_time | DATETIME | 是 | NULL | 取消时间（一期不用，随 R-4 取消而保留列） |
+| expire_time | DATETIME | 是 | NULL | 失效判定基准（`create_time + 7` 天，惰性判定） |
+| client_ip | VARCHAR(50) | 是 | NULL | 提交来源 IP（审计；口径对齐 `login_log.login_ip`；出参脱敏） |
+| is_deleted | TINYINT | 否 | 0 | 逻辑删除：0=否，1=是 |
+| create_time / update_time | DATETIME | 否 | CURRENT_TIMESTAMP | 应用层填充（D8） |
+
+**索引**：
+
+| 索引名 | 类型 | 字段 | 用途 |
+| ---- | ---- | ---- | ---- |
+| uk_employee_registration_apply_no | **UNIQUE** | apply_no | 申请编号唯一（U-17，公开端点并发高、无逻辑删除复用语义） |
+| idx_employee_registration_phone | 普通 | phone | 重复提交查重 |
+| idx_employee_registration_flow | 普通 | flow_id | 审批单 ↔ 申请单回关联 |
+| idx_employee_registration_status | 普通 | status, create_time | 列表（按状态 + 时间倒序） |
+
+**逻辑关系**：`flow_id` → `hr_flow.id`；`apply_station_id` → `station.id`；`approved_employee_id` → `employee.id`（均逻辑外键，D6）。
+**凭据卫生**：`password_hash` / `query_token_hash` 在进入任一终态（`APPROVED`/`REJECTED`/`EXPIRED`）时**由 Service 同事务置 NULL**（应用层实现，非 DB 约束）。
+**唯一索引例外**：`apply_no` 增设 `UNIQUE`（U-17）；`phone` 仍走 Service 查重 + 普通索引，与 D7 不矛盾（§2.4）。
+**`TODO(扩展)`**：M-8 清理任务若按 `status + expire_time` 过滤，可后续补 `idx_employee_registration_expire (status, expire_time)`；本期按批次口径仅落 3 普通索引。
+**回滚**：`DROP TABLE IF EXISTS employee_registration`（索引内联，随表删）。
+
+### 11.4 `hr_flow` 补列（V18 / M-9）
+
+见 §8.5.4「V18 变更」。要点：`ALTER TABLE hr_flow ADD COLUMN source VARCHAR(16) NOT NULL DEFAULT 'ADMIN'`（列尾追加、INSTANT）。
+存量行由 `DEFAULT` 一次性回填 `ADMIN`（与业务事实一致、无需 UPDATE）；**不加索引**（低基数）。
+`source` 为**业务来源**（`ADMIN`/`SELF_REGISTER`），与 §11.3 `employee_registration.source` 的**注册渠道**（`STAFF_H5`）语义不同、并存。
+**回滚**：`DROP COLUMN source`（数据丢失范围 = 补列后写入的来源标识）。
+
+### 11.5 `employee` 补列（V19 / 方案乙 U-07）
+
+见 §3.3「position」行。要点：`ALTER TABLE employee ADD COLUMN position VARCHAR(50) DEFAULT NULL`（列尾追加、INSTANT）。
+**存量不回填**（NULL 表示未登记，不以历史 `flow.position` 伪造档案事实；如需回填另立 C 档脚本，T10/E7）；**不加索引**（低基数）；
+**不字典化**（最小形态，`TODO(扩展): 岗位字典 T9`）。`employee.position` 为**权威事实**，`hr_flow.position` 为该次流程**过程值与留痕**，
+双写点唯一（`assignForFlow` 同方法同事务内双写，禁止他处单独写）。**回滚**：`DROP COLUMN position`。
+
+### 11.6 与方案 / 上游的一致性核对（守契约）
+
+| 核对项 | 依据口径 | 本章处置 | 结论 |
+| ---- | ---- | ---- | ---- |
+| V16 形态 | registration-design.md §11.6（仅 mysql） | 生成列 `phone_active` + `UNIQUE(phone_active)`，NULL 可重复 | 一致 |
+| V17 字段 / 索引 | §2.2 字段级设计表 | 逐列落库；`apply_no` UNIQUE（U-17）+ 3 普通索引 | 一致 |
+| V18 / V19 | §7 / §11.9 | 加列（`NOT NULL DEFAULT 'ADMIN'` / `NULL`），不加索引 | 一致 |
+| 表总数 | §7 同步项「38 → 39」 | 38 → 39（仅新增 1 表） | 一致 |
+| pg 冻结 | §0.4/§7、db.md:8/401 | 仅 mysql 脚本 + mysql 快照，不产出 pg | 一致 |
+| C 档 | §7 / §9-B2 / §11.6④ | 全部脚本未执行，须主智能体三步授权 | 一致（未执行） |
+
+> **收敛声明**：本章 DDL 与快照均为**静态产出**，本机无 MySQL，**未实跑迁移**；`SHOW CREATE TABLE` 逐表比对、
+> Flyway `flyway_schema_history` 校验、V16 预检实跑、唯一约束行为验证**收敛到服务器阶段**（见 §9.4 U-1/U-2）。
+> **迁移执行属 C 档**，须主智能体三步授权后由运维执行；**执行前须先跑 §11.2 预检返回 0 行并备份库**。
 
