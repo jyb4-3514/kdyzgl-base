@@ -1,5 +1,28 @@
 # 变更日志
 
+## 2026-09-26 · 驿站精灵可编辑 WiFi 白名单 + 新增站点管理页（UI/UX + 前端 + B 档部署）
+
+**一、需求（用户）**：① 移动端**驿站精灵可以设置 WiFi**（现场维护白名单，用于指定员工在该 WiFi 打卡）；② **新增站点管理**，给员工设置站点（本轮先做只读骨架）。
+
+**二、关键事实核查（推翻两处既有认知）**：
+- **驿站精灵是 ADMIN 专用端**（`apps/boss-h5` 的 `BOSS_ROLES = [ROLE.ADMIN]`，端准入 fail-closed 拒其它角色；站长实际走 `apps/staff-h5`）→ 后端 `PUT /attendance/rule` **仅 ADMIN 可写**与端准入**天然一致**，本批**不涉权限放宽、无需安全评估**。截图中「改白名单请走 PC 端」是**旧文案**而非权限限制。
+- 后端 `wifiList` 校验**极宽松**（仅"数组 + `ssid` 非空"，见 `AttendanceRuleServiceImpl.java:185-188`，**无长度/MAC/重复校验**）→ 前端校验属**先行约束**，与后端**不对称**，已登记遗留。
+
+**三、设计交付**（UI/UX 设计师）：`docs/boss-wifi-and-station-design.md`（702 行，commit `cbd02f2`）—— 含入口决策（「我的·管理与配置」，人事管理之后）、权限分支、**降级三件套**（「读取当前 WiFi」可点 + 明确拒绝 + 不预填）、四态矩阵、**Tokens 零新增**、文案 49 条、可访问性 11 项对比度实测、视觉走查 45 项。
+
+**四、实现**（前端工程师，commit `81e2eb0`，7 文件）：
+- **打卡规则页白名单改为可编辑**（增/删/改 SSID+BSSID，单行编辑态）；**关键修复：原 payload 不含 `wifiList`**，不提交则保存后不生效 —— 现显式提交（本地 `key` 不外发）。
+- 校验纯函数抽离 `utils/wifiWhitelist.js`（`ssid` 必填/≤32、`bssid` 选填验 MAC、**重复判定区分大小写**、`isWifiEditable`、`canAutoFillWifi` 判据为 `getWifiInfo().mock === false`）+ **17 条单测**锁口径。
+- **降级态不得伪装能力**：按钮可点即明确告知需手动输入，**不发起读取、不预填**（沿用项目硬约束）。
+- **新增站点管理页** `station.vue`（只读骨架）：`StationPicker` + `GET /employees?stationId=`（`pageNum/pageSize` + `van-list` 触底加载）+ `PageState` 四态；**零写控件**，写操作与前置条件标注 `TODO(扩展)`；入口落「我的·管理与配置」；路由 `/boss/station`。
+- 主智能体裁定三项：名册数据源取 `/employees?stationId=`；**取消"20 条上限"**（设计稿取值，无后端依据）；降级形态采纳「可点+明确拒绝」。
+
+**五、验证**：`apps/boss-h5` → `lint` 0 error、`test` **125 passed**（基线 108，+17 全为新增）、`build:prod` ✓10.5s、`e2e` **11 passed**；根门禁 `verify:mock` **942/942**、`verify:tokens` 6/6、`verify:mobile -w @dyzgl/boss-h5` 20/0；产物无下架模块 chunk。**主智能体独立复跑**：`test` 125、`build` ✓、并确认 `wifiList` 已在提交体（`attendanceRule.vue:149-152`）。
+
+**六、部署（B 档·幂等替换静态产物，主智能体自决）**：仅替换 `/data/www/download/hrm-clients/boss`（旧目录 `mv` 至 `/data/backup/hrm-clients-20260926035313/boss`，**未用 `rm`**）；**未改 Nginx**。线上 `boss` 79 文件、**`.map` = 0**；`/boss/` `/boss/station` `/boss/attendance/rule` 均 **200**，`/web/` `/staff/` 不受影响 200；`.map` 404；入口 asset `index-B0lDrafA.js` 与本地构建**逐字一致**。**回滚**：把备份目录换回同名目录即可。
+
+**七、遗留**：① 安卓壳 `HrmBridge.getWifiInfo` 未实现 → 「读取当前 WiFi」恒降级（判据已落为纯函数+单测，壳实现后启用）；② 站点管理写操作待口径 + 端侧写接口 + 算法方案 + 技术评审；③ 后端未补 `wifiList` 校验（长度/MAC/重复）→ PC 端或直调 API 可绕过前端约束；④ `/employees` 缺 `hasProfile`，无档案员工点开落 9301。
+
 ## 2026-09-26 · MVP 裁剪（下架 KPI / 包裹族 / 同步 / 占位页）+ 三端重新部署上线（前端 + C 档部署，主智能体执行）
 
 **一、需求裁定（用户）**：先做**最小可用版本**——砍掉 **KPI 模块**、**包裹族整体**（`/web/parcel`、`/web/parcel/sync`、`/boss/trend`、`/boss/parcel/:id`、`/staff/parcel`、`/staff/parcel/:id`、`/staff/pickup`、`/staff/sync`）与 `/web/` 5 个疑似占位页（`performance` / `money` / `permission` / `system` / `knowledge`）；**砍掉的模块前端完全不展示**。未答复项按激进裁法执行：`/boss/rank`（驿站排行）随 KPI 族下架；`/boss/alerts`（异常预警）**保留**。
