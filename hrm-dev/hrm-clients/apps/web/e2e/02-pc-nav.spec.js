@@ -12,10 +12,10 @@ test.beforeEach(async ({ page }) => {
  * 整体平移自 hrm-demo e2e/02-pc-nav.spec.js；路径全部按 base '/web/' 归位。
  */
 
+// MVP 裁剪后：去除 KPI 考核 / 包裹管理 / 同步任务，菜单项 15 → 12
 const MENU = [
   { title: '数据看板', path: '/dashboard' },
   { title: '员工管理', path: '/employee' },
-  { title: 'KPI 考核', path: '/employee/kpi' },
   { title: '人事管理', path: '/hr' },
   { title: '入离职', path: '/onboard' },
   { title: '部门管理', path: '/department' },
@@ -23,15 +23,13 @@ const MENU = [
   { title: '考勤管理', path: '/attendance' },
   { title: '排班管理', path: '/schedule' },
   { title: '财务管理', path: '/finance' },
-  { title: '包裹管理', path: '/parcel' },
-  { title: '同步任务', path: '/parcel/sync' },
   { title: '工单管理', path: '/work-order' },
   { title: '通知中心', path: '/notification' },
   { title: '个人中心', path: '/profile' }
 ]
 
 test.describe('A2 网页端导航与深链', () => {
-  test('A2-1 侧边栏 15 个菜单项逐项跳转，路由与标题正确且页面非空', async ({ page }) => {
+  test('A2-1 侧边栏 12 个菜单项逐项跳转，路由与标题正确且页面非空', async ({ page }) => {
     const collector = attachCollector(page)
     await webLoginAs(page, ACCOUNT.boss)
 
@@ -55,7 +53,7 @@ test.describe('A2 网页端导航与深链', () => {
 
   test('A2-2 网页端深链由 dev 中间件正确回退到 /web/index.html，不落到 404', async ({ page }) => {
     // 服务端层：无扩展名路径必须回退到 web 入口（history 路由）
-    for (const path of ['/dashboard', '/parcel/sync', '/work-order']) {
+    for (const path of ['/dashboard', '/notification', '/work-order']) {
       const res = await page.request.get(`${WEB_BASE}${path}`)
       const body = await res.text()
       expect(res.status(), `深链 ${path} 的 HTTP 状态`).toBe(200)

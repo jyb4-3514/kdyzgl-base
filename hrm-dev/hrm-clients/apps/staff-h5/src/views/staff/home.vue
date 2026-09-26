@@ -4,29 +4,27 @@ import { useRouter } from 'vue-router'
 import AttendanceStatusBar from '../../components/AttendanceStatusBar.vue'
 import HomeQuickGrid from '../../components/HomeQuickGrid.vue'
 import PageState from '@kdyzgl/shared/ui/PageState.vue'
-import StatCard from '../../components/StatCard.vue'
 import { getAttendanceStatus } from '../../api/attendance.js'
-import { getKpiScoreQuiet } from '../../api/kpi.js'
-import { getParcelSummary } from '../../api/parcel.js'
 import { getWorkOrders } from '../../api/workOrder.js'
-import { KPI_CODE } from '@kdyzgl/shared/constants/errorCode.js'
 import { roleLabel } from '../../constants/accounts.js'
 import { STAFF_QUICK_ENTRIES } from '../../constants/quickEntries.js'
 import { useAuthStore } from '../../stores/auth.js'
 import { useTodoStore } from '../../stores/todo.js'
 import { attendanceProgress } from '../../utils/attendance.js'
-import { numberText, percent, recentMonths } from '../../utils/format.js'
+import { numberText } from '../../utils/format.js'
 
 /**
  * S1 工作台（STATION_ADMIN / STAFF）
  * 数据范围收敛为本站：Mock 层对非 ADMIN 强制覆盖 station_id，前端不再传、也不再过滤（避免两处口径）
- * 首屏顺序（3.2 / A3）：Hero（站名 + 角色 + 待处理总数与构成）→ 出勤状态条 + 一键打卡 →
- * 工单超时提示条 → 4 指标 → 快捷宫格 → 包裹口径行。
+ * 首屏顺序（3.2 / A3）：Hero（站名 + 角色 + 待处理总数与构成）→ 出勤状态条 + 一键打卡 → 工单超时提示条 → 快捷宫格。
  *
  * 三处刻意收敛：
  * 1. 「今日待处理」的构成（工单 / 工资单 / 补卡）统一由 stores/todo.js 给出，与消息 Tab 角标、待办子视图同源；
  * 2. 原来的「打卡提示条」被出勤状态条取代 —— 同一出勤状态不用两处表达（A1-1 原则 4）；
  * 3. 待办类取数一律独立降级为 null（显示 `···`），绝不用 0 冒充「没有待办」（B4-2 硬规则 2）。
+ *
+ * MVP 裁剪：包裹指标卡（今日入库/待取件/今日取件/异常件）、本站包裹口径行与「我的 KPI」宫格项
+ * 随包裹族 / KPI 模块下架移除，工作台只保留作业（工单）与考勤相关数据。
  */
 const auth = useAuthStore()
 const todo = useTodoStore()
@@ -35,14 +33,11 @@ const router = useRouter()
 const loading = ref(true)
 const error = ref('')
 const refreshing = ref(false)
-const summary = ref(null)
 const overdueOrders = ref(0)
-/** 今日打卡状态：不参与工作台整体三态，接口失败只让状态条降级，不打断包裹/工单数据 */
+/** 今日打卡状态：不参与工作台整体三态，接口失败只让状态条降级，不打断待办与工单数据 */
 const attStatus = ref(null)
 const attLoading = ref(true)
 const attError = ref('')
-/** 我的 KPI 本月得分：null 表示取数失败（宫格显示 `—`） */
-const kpiText = ref(null)
 
 const progress = computed(() => attendanceProgress(attStatus.value))
 
@@ -73,8 +68,7 @@ const quickData = computed(() => ({
     ? attStatus.value.hasSchedule && attStatus.value.shift
       ? attStatus.value.shift.shiftName
       : '未排班'
-    : null,
-  kpi: kpiText.value
+    : null
 }))
 
 async function loadAttendance() {
@@ -90,27 +84,13 @@ async function loadAttendance() {
   }
 }
 
-/** 9204（该月尚未算分）是业务空态而非取数失败，走 silent 取数避免首页平白弹一次失败提示 */
-async function loadKpi() {
-  try {
-    const detail = await getKpiScoreQuiet(auth.user.id, { month: recentMonths()[0] })
-    kpiText.value = `${detail.totalScore} 分`
-  } catch (e) {
-    kpiText.value = e.code === KPI_CODE.SCORE_NOT_EXISTS ? '未考核' : null
-  }
-}
-
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [parcelSummary, overduePage] = await Promise.all([
-      getParcelSummary(),
-      getWorkOrders({ overdueUnhandled: '1', pageNum: 1, pageSize: 1 })
-    ])
-    summary.value = parcelSummary
+    const overduePage = await getWorkOrders({ overdueUnhandled: '1', pageNum: 1, pageSize: 1 })
     overdueOrders.value = overduePage.total
-    await Promise.all([todo.refresh(), loadAttendance(), loadKpi()])
+    await Promise.all([todo.refresh(), loadAttendance()])
   } catch (e) {
     error.value = e.message || '加载失败'
   } finally {
@@ -155,49 +135,11 @@ onMounted(load)
           background="var(--color-danger-surface)"
           @click="router.push('/staff/workorder')"
         />
-
-        <div class="stat-grid">
-          <StatCard
-            label="今日入库"
-            :value="numberText(summary.todayInbound)"
-            unit="件"
-            tone="primary"
-            value-size="staff"
-            @click="router.push('/staff/parcel')"
-          />
-          <StatCard
-            label="待取件"
-            :value="numberText(summary.pendingPickup)"
-            unit="件"
-            tone="warning"
-            value-size="staff"
-            @click="router.push('/staff/pickup')"
-          />
-          <StatCard
-            label="今日取件"
-            :value="numberText(summary.todayPickup)"
-            unit="件"
-            tone="success"
-            value-size="staff"
-          />
-          <StatCard
-            label="异常件"
-            :value="numberText(summary.abnormalCount)"
-            unit="件"
-            tone="danger"
-            value-size="staff"
-            @click="router.push('/staff/parcel')"
-          />
-        </div>
       </PageState>
 
-      <!-- 快捷功能宫格：4 列 × 2 行共 8 项，「打卡」固定第 1 位（决策已确认），其余按待办优先排序（B1/B3）。
+      <!-- 快捷功能宫格：4 列 × 2 行，「打卡」固定第 1 位（决策已确认），其余按待办优先排序（B1/B3）。
            宫格独立于 PageState 骨架、不被整块骨架替换：项名先渲染，仅数据位随 loading 处于加载态（B4-2 · P1-3）。 -->
       <HomeQuickGrid v-if="!error" :entries="STAFF_QUICK_ENTRIES" :data="quickData" :loading="loading" />
-
-      <p v-if="summary" class="tip">
-        本站包裹总量 {{ numberText(summary.parcelTotal) }} 件 · 取件率 {{ percent(summary.pickupRate) }}
-      </p>
     </van-pull-refresh>
   </div>
 </template>

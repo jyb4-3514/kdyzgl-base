@@ -59,9 +59,10 @@ test.describe('A3 移动端导航（管理端）', () => {
     const collector = attachCollector(page)
     await bossLoginAs(page, BOSS_ACCOUNT.boss)
 
+    // MVP 裁剪：原深链的 /boss/trend、/boss/rank 已下架，改用保留的二级页（人事管理 / 打卡规则 / 异常预警）
     const deepLinks = [
-      { url: '/boss/#/boss/trend', title: '包裹趋势' },
-      { url: '/boss/#/boss/rank', title: '驿站排行' },
+      { url: '/boss/#/boss/hr', title: '人事管理' },
+      { url: '/boss/#/boss/attendance/rule', title: '打卡规则' },
       { url: '/boss/#/boss/alerts', title: '异常预警' }
     ]
     for (const link of deepLinks) {

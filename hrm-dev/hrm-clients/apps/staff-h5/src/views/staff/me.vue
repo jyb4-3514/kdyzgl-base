@@ -33,7 +33,7 @@ const heroLines = computed(() => [
       <ProfileHero :name="auth.user.realName" :role="auth.user.role" :lines="heroLines" />
     </PageState>
 
-    <MyDataGroups :show-leave-review="auth.role === 'STATION_ADMIN'" :show-sync="auth.canSeeSync" />
+    <MyDataGroups :show-leave-review="auth.role === 'STATION_ADMIN'" />
     <DemoIdentityGroup />
     <AccountSecurityGroup />
     <AboutGroup />

@@ -46,13 +46,9 @@ function resolveAction(item) {
   switch (item.bizType) {
     case 'work_order':
       return bizId ? act('work_order', '去处理工单', `/boss/workorder/${bizId}`, BOSS_ROLES) : null
-    case 'parcel':
-      return bizId ? act('parcel', '查看包裹', `/boss/parcel/${bizId}`, BOSS_ROLES) : null
+    // MVP 裁剪：parcel / sync_task 两个动作随包裹族下架移除，不再提供下钻入口（落到 default 隐藏动作区）
     case 'payroll':
       return bizId ? act('payroll', '查看工资单', `/boss/payroll/${bizId}`, BOSS_ROLES) : null
-    // 本端无「同步状态」页（属员工端站长专属）：采集异常统一落管理端预警页
-    case 'sync_task':
-      return act('sync_task', '查看同步异常', '/boss/alerts', BOSS_ROLES)
     case 'flow':
       return act('flow', '查看入离职流程', '/boss/flow', BOSS_ROLES)
     case 'leave':

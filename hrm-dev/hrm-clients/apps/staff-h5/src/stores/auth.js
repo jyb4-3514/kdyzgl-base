@@ -33,8 +33,6 @@ export const useAuthStore = defineStore('staffAuth', () => {
   const role = computed(() => (user.value && user.value.role) || '')
   /** 员工端不存在 ADMIN 身份（端准入 fail-closed 拒登），恒定 false —— 供不区分端的展示组件复用同一判据 */
   const isAdmin = computed(() => false)
-  /** STAFF 不开放同步状态页（T15 验收项），仅站长可见 */
-  const canSeeSync = computed(() => role.value === 'STATION_ADMIN')
   const stationId = computed(() => (user.value ? user.value.stationId : null))
   const homePath = computed(() => HOME_BY_ROLE[role.value] || '/login')
 
@@ -140,7 +138,6 @@ export const useAuthStore = defineStore('staffAuth', () => {
     userError,
     role,
     isAdmin,
-    canSeeSync,
     stationId,
     homePath,
     setSession,

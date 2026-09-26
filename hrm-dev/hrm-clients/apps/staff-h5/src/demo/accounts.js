@@ -8,7 +8,7 @@ import { DEMO_PASSWORD } from '@kdyzgl/mock/db.js'
  */
 export const DEMO_ACCOUNT_LIST = [
   { key: 'station', label: '站长', username: 'st001_admin', end: 'station', desc: '城东驿站 · 本站数据与作业操作' },
-  { key: 'staff', label: '员工', username: 'st001_staff', end: 'station', desc: '城东驿站 · 作业视角（无同步状态页）' }
+  { key: 'staff', label: '员工', username: 'st001_staff', end: 'station', desc: '城东驿站 · 作业视角（工单与考勤）' }
 ]
 
 export { DEMO_PASSWORD }

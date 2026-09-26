@@ -16,8 +16,7 @@ const mocks = vi.hoisted(() => ({
   getPayrolls: vi.fn(),
   getOnboardingFlows: vi.fn(),
   getOffboardingFlows: vi.fn(),
-  getLeaveList: vi.fn(),
-  getSyncOverview: vi.fn()
+  getLeaveList: vi.fn()
 }))
 
 vi.mock('../utils/authStorage.js', () => ({ readToken: mocks.readToken }))
@@ -30,7 +29,6 @@ vi.mock('../api/hr.js', () => ({
   getOffboardingFlows: mocks.getOffboardingFlows
 }))
 vi.mock('../api/leave.js', () => ({ getLeaveList: mocks.getLeaveList, getMyLeaves: vi.fn() }))
-vi.mock('../api/syncTask.js', () => ({ getSyncOverview: mocks.getSyncOverview }))
 
 const { useTodoStore } = await import('./todo.js')
 
@@ -50,7 +48,6 @@ beforeEach(() => {
   mocks.getOnboardingFlows.mockResolvedValue(emptyPage)
   mocks.getOffboardingFlows.mockResolvedValue(emptyPage)
   mocks.getLeaveList.mockResolvedValue(emptyPage)
-  mocks.getSyncOverview.mockResolvedValue({ counts: { abnormal: 0, unconfigured: 0 } })
 })
 
 describe('useTodoStore · 逐组独立降级', () => {
@@ -64,8 +61,9 @@ describe('useTodoStore · 逐组独立降级', () => {
     expect(groups.makeups.total).toBeNull()
     expect(groups.makeups.error).toBe('接口挂了')
     expect(groups.makeups.rows).toEqual([])
-    expect(groups.collect.total).toBe(0)
-    expect(groups.collect.error).toBe('')
+    // 同批成功的另一组（工资单）不受影响，仍是「确实为 0」
+    expect(groups.payrolls.total).toBe(0)
+    expect(groups.payrolls.error).toBe('')
   })
 
   it('reject 无 message 时兜底为「加载失败」，不把 undefined 透到界面', async () => {
@@ -93,8 +91,8 @@ describe('useTodoStore · null 与 0 语义不可互换', () => {
     await store.refresh()
 
     expect(store.counts.makeups).toBeNull()
-    expect(store.counts.collect).toBe(0)
-    expect(store.counts.makeups).not.toBe(store.counts.collect)
+    expect(store.counts.payrolls).toBe(0)
+    expect(store.counts.makeups).not.toBe(store.counts.payrolls)
   })
 
   it('只要有一组成功，known 即为 true（消费方可放行渲染）', async () => {
@@ -110,7 +108,6 @@ describe('useTodoStore · null 与 0 语义不可互换', () => {
     mocks.getOnboardingFlows.mockRejectedValue(new Error('x'))
     mocks.getOffboardingFlows.mockRejectedValue(new Error('x'))
     mocks.getLeaveList.mockRejectedValue(new Error('x'))
-    mocks.getSyncOverview.mockRejectedValue(new Error('x'))
 
     const store = useTodoStore()
     await store.refresh()
@@ -130,7 +127,7 @@ describe('useTodoStore · 会话与加载态', () => {
   it('counts 按分组 key 收敛，供首页宫格按 key 取角标', async () => {
     const store = useTodoStore()
     await store.refresh()
-    expect(store.counts).toEqual({ orders: 2, makeups: null, payrolls: 0, flows: 0, leaves: 0, collect: 0 })
+    expect(store.counts).toEqual({ orders: 2, makeups: null, payrolls: 0, flows: 0, leaves: 0 })
   })
 
   it('未登录时不发请求并清空快照', async () => {

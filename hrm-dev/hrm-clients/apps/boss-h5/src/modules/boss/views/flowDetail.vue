@@ -55,7 +55,7 @@ const CONFIRM_STEPS = {
   },
   DONE: {
     action: '完成入职',
-    impact: '通过后该员工转为在职状态，将进入全站统计与考核范围',
+    impact: '通过后该员工转为在职状态，将进入全站统计范围',
     confirmText: '确认完成'
   }
 }

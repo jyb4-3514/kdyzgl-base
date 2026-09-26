@@ -6,14 +6,17 @@ import { APP_NAME } from '../constants/brand.js'
  * Demo 扩展路由表（T10，页面清单见 demo-design.md 5.1）
  *
  * 与一期 router 的差异：
- * 1. 新增包裹/同步/工单/通知 4 页与 5 个一期占位页（占位页仍指向 @admin 对应视图，仅保留导航结构，不填业务内容）；
+ * 1. 新增工单/通知 2 页与若干一期占位页（占位页仍指向 @admin 对应视图，仅保留导航结构，不填业务内容）；
  * 2. 守卫复用一期的 4 条规则（登录白名单 / 未登录带 redirect / 强制改密锁定 / 越权重定向），
  *    但把「非 ADMIN 一律锁 /profile」改成按 meta.roles 白名单重定向到各自落地页——
- *    STATION_ADMIN 需要进入包裹/同步/工单，直接改一期守卫会污染一期基线（demo-design.md 10.1）。
+ *    STATION_ADMIN 需要进入考勤/工单，直接改一期守卫会污染一期基线（demo-design.md 10.1）。
+ *
+ * 本轮 MVP 裁剪：KPI 考核、包裹族（包裹管理 / 同步任务 / 包裹详情）、绩效、资金、权限、系统、知识库
+ * 整体下架——路由记录一律删除（不保留 redirect 兜底，未命中即走 404），页面源码保留在磁盘待二/三期恢复。
  */
 
-/** 各角色落地页：越权或直接访问根路径时按角色分流 */
-const ROLE_LANDING = { ADMIN: '/dashboard', STATION_ADMIN: '/parcel', STAFF: '/profile' }
+/** 各角色落地页：越权或直接访问根路径时按角色分流（包裹族下架后站长落到考勤管理） */
+const ROLE_LANDING = { ADMIN: '/dashboard', STATION_ADMIN: '/attendance', STAFF: '/profile' }
 export const landingPath = (user) => (user && ROLE_LANDING[user.role]) || '/login'
 
 const ALL_ROLES = ['ADMIN', 'STATION_ADMIN', 'STAFF']
@@ -56,14 +59,7 @@ const routes = [
         component: () => import('@admin/views/employee/index.vue'),
         meta: { title: '员工管理', icon: 'User', group: 'org', roles: ['ADMIN'] }
       },
-      // 需求7：KPI 考核与一期员工页「同级并列」而非物理合并（A11-1）——一期页面冻结，KPI 走独立挂载点
-      {
-        path: 'employee/kpi',
-        name: 'EmployeeKpi',
-        component: () => import('../views/employee/kpi/index.vue'),
-        meta: { title: 'KPI 考核', icon: 'TrendCharts', group: 'org', roles: ['ADMIN'] }
-      },
-      // 员工档案聚合页：KPI / 人事 / 入离职 / 工资单在一屏内回链，是「并入员工管理模块」的信息架构落点
+      // 员工档案聚合页：人事 / 入离职 / 工资单在一屏内回链，是「并入员工管理模块」的信息架构落点
       {
         path: 'employee/detail/:id',
         name: 'EmployeeDetail',
@@ -71,8 +67,8 @@ const routes = [
         meta: {
           title: '员工档案',
           group: 'org',
-          activeMenu: '/employee/kpi',
-          breadcrumb: ['组织人事', 'KPI 考核', '员工档案'],
+          activeMenu: '/employee',
+          breadcrumb: ['组织人事', '员工管理', '员工档案'],
           roles: ['ADMIN']
         }
       },
@@ -144,18 +140,6 @@ const routes = [
         meta: { title: '系统设置', icon: 'Tools', group: 'sys', roles: ['ADMIN'] }
       },
       {
-        path: 'parcel',
-        name: 'Parcel',
-        component: () => import('../views/parcel/index.vue'),
-        meta: { title: '包裹管理', icon: 'Box', group: 'biz', roles: STATION_ROLES }
-      },
-      {
-        path: 'parcel/sync',
-        name: 'ParcelSync',
-        component: () => import('../views/sync/index.vue'),
-        meta: { title: '同步任务', icon: 'Refresh', group: 'biz', roles: STATION_ROLES }
-      },
-      {
         path: 'work-order',
         name: 'WorkOrder',
         component: () => import('../views/workOrder/index.vue'),
@@ -172,38 +156,6 @@ const routes = [
         name: 'Profile',
         component: () => import('@admin/views/profile/index.vue'),
         meta: { title: '个人中心', icon: 'UserFilled', group: 'sys', roles: ALL_ROLES }
-      },
-      // 以下 5 个为一期占位空壳（仅 <router-view/>），Demo 只让它们路由可达，不填内容（demo-design.md 5.1 脚注）
-      // TODO(扩展): 二期规划落地后再补业务实现，届时同步更新 MENU_WHITELIST 与菜单配置
-      {
-        path: 'knowledge',
-        name: 'Knowledge',
-        component: () => import('@admin/views/knowledge/index.vue'),
-        meta: { title: '知识库', roles: ['ADMIN'] }
-      },
-      {
-        path: 'money',
-        name: 'Money',
-        component: () => import('@admin/views/money/index.vue'),
-        meta: { title: '资金', roles: ['ADMIN'] }
-      },
-      {
-        path: 'performance',
-        name: 'Performance',
-        component: () => import('@admin/views/performance/index.vue'),
-        meta: { title: '绩效', roles: ['ADMIN'] }
-      },
-      {
-        path: 'permission',
-        name: 'Permission',
-        component: () => import('@admin/views/permission/index.vue'),
-        meta: { title: '权限', roles: ['ADMIN'] }
-      },
-      {
-        path: 'system',
-        name: 'System',
-        component: () => import('@admin/views/system/index.vue'),
-        meta: { title: '系统', roles: ['ADMIN'] }
       }
     ]
   },
@@ -248,7 +200,7 @@ router.beforeEach((to) => {
   // 3. 首登强制改密：锁定在 /profile，改密完成前不可访问其他页面
   if (authStore.needChangePwd && to.path !== '/profile') return '/profile'
 
-  // 4. 扩展点：按 meta.roles 判定越权，重定向到本角色落地页（STATION_ADMIN 因此能留在包裹/工单页）
+  // 4. 扩展点：按 meta.roles 判定越权，重定向到本角色落地页（STATION_ADMIN 因此能留在考勤/工单页）
   //    防御性兜底说明：走到这一步 user 必非空（半残态已在第 0 步清掉登录态并改走未登录分支），
   //    故 `!user ||` 在正常契约下不可达，只是避免将来有人绕过第 0 步时裸解引用 user.role。
   //    半残态白屏的真正自洽修复点是第 0 步，不要误读成「靠第 4 步拦住的」

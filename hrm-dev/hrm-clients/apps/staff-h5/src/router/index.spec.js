@@ -70,9 +70,9 @@ beforeEach(async () => {
 
 describe('员工端守卫 · 登录态', () => {
   it('未登录访问业务页 → 跳登录页并带上回跳地址', async () => {
-    await router.push('/staff/parcel')
+    await router.push('/staff/workorder')
     expect(router.currentRoute.value.path).toBe('/login')
-    expect(router.currentRoute.value.query.redirect).toBe('/staff/parcel')
+    expect(router.currentRoute.value.query.redirect).toBe('/staff/workorder')
   })
 
   it('已登录访问 /login → 落员工端工作台', async () => {
@@ -91,8 +91,8 @@ describe('员工端守卫 · 越权与未匹配路径', () => {
   it('角色不在页面白名单 → 提示无权访问并回员工端工作台', async () => {
     auth.state.token = 'demo-token'
     auth.state.user = STAFF
-    // /staff/sync 为站长专属（roles: [STATION_ADMIN]），普通员工不得进入
-    await router.push('/staff/sync')
+    // /staff/leave/review 为站长专属（roles: [STATION_ADMIN]），普通员工不得进入
+    await router.push('/staff/leave/review')
     expect(vant.showFailToast).toHaveBeenCalledTimes(1)
     expect(router.currentRoute.value.path).toBe('/staff/home')
   })
@@ -111,5 +111,27 @@ describe('员工端守卫 · 越权与未匹配路径', () => {
     await router.push('/staff/notification')
     expect(router.currentRoute.value.path).toBe('/staff/message')
     expect(router.currentRoute.value.query.tab).toBe('notice')
+  })
+})
+
+describe('员工端守卫 · MVP 裁剪：被砍模块路由不可达（新增断言）', () => {
+  // 裁撤清单：我的 KPI / 同步状态 / 包裹族（本站包裹、包裹详情、取件核销）
+  const CUT_PATHS = ['/staff/kpi', '/staff/sync', '/staff/parcel', '/staff/parcel/1', '/staff/pickup']
+
+  it('被砍路径一律落 404 且地址不变（不保留 redirect 兜底）', async () => {
+    auth.state.token = 'demo-token'
+    auth.state.user = STATION_ADMIN
+    for (const path of CUT_PATHS) {
+      await router.push(path)
+      expect(router.currentRoute.value.name, `${path} 不应再可达`).toBe('mobileNotFound')
+      expect(router.currentRoute.value.path).toBe(path)
+    }
+  })
+
+  it('保留路径仍在路由表内（反证裁剪未误伤）', () => {
+    const kept = ['/staff/home', '/staff/workorder', '/staff/attendance/makeup', '/staff/payroll', '/staff/leave']
+    for (const path of kept) {
+      expect(router.resolve(path).name, `${path} 应仍可达`).not.toBe('mobileNotFound')
+    }
   })
 })

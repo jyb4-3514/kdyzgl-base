@@ -20,6 +20,10 @@ const STAFF_ROLES = [ROLE.STATION_ADMIN, ROLE.STAFF]
  * - title   ：NavBar 标题
  *
  * 端隔离（ADR §3.5 第 8 项）：本路由只含员工域路径；管理端 /boss/* 不存在于此工程（编译期即断）。
+ *
+ * MVP 裁剪：/staff/kpi、/staff/sync、/staff/parcel、/staff/parcel/:id、/staff/pickup 五条记录整体下架
+ * （KPI 考核、同步状态、包裹族含取件核销），路由直接不存在（不加 redirect 兜底，未命中走 404），
+ * 页面源码保留在磁盘待后续恢复。
  */
 const routes = [
   { path: '/', redirect: '/login' },
@@ -61,18 +65,12 @@ const routes = [
   // 旧通知路由重定向，避免历史链接 404（端固定化：一律落员工端消息页）
   { path: '/staff/notification', redirect: { path: '/staff/message', query: { tab: 'notice' } } },
 
-  // 以下三页原为 Tabbar 一级页，本轮降为首页宫格进入的二级页，自带返回 NavBar
+  // 以下两页原为 Tabbar 一级页，本轮降为首页宫格进入的二级页，自带返回 NavBar
   {
     path: '/staff/attendance',
     name: 'staffAttendance',
     component: () => import('../views/staff/attendance.vue'),
     meta: { roles: STAFF_ROLES, title: '打卡' }
-  },
-  {
-    path: '/staff/parcel',
-    name: 'staffParcel',
-    component: () => import('../views/staff/parcel.vue'),
-    meta: { roles: STAFF_ROLES, title: '本站包裹' }
   },
   {
     path: '/staff/workorder',
@@ -82,18 +80,6 @@ const routes = [
   },
 
   /* 非 Tab 页：作业操作与详情 */
-  {
-    path: '/staff/pickup',
-    name: 'staffPickup',
-    component: () => import('../views/staff/pickup.vue'),
-    meta: { roles: STAFF_ROLES, title: '取件核销' }
-  },
-  {
-    path: '/staff/parcel/:id',
-    name: 'staffParcelDetail',
-    component: () => import('../views/staff/parcelDetail.vue'),
-    meta: { roles: STAFF_ROLES, title: '包裹详情' }
-  },
   {
     path: '/staff/workorder/create',
     name: 'staffWorkOrderCreate',
@@ -105,13 +91,6 @@ const routes = [
     name: 'staffWorkOrderDetail',
     component: () => import('../views/staff/workorderDetail.vue'),
     meta: { roles: STAFF_ROLES, title: '工单详情' }
-  },
-  // S9 同步状态：STAFF 不可见（T15 验收项），故白名单只放站长
-  {
-    path: '/staff/sync',
-    name: 'staffSync',
-    component: () => import('../views/staff/sync.vue'),
-    meta: { roles: [ROLE.STATION_ADMIN], title: '同步状态' }
   },
   {
     path: '/staff/me/password',
@@ -159,14 +138,7 @@ const routes = [
     meta: { roles: STAFF_ROLES, title: '我的请假' }
   },
 
-  /* 需求 7–10 员工端：我的数据类入口（宫格放高频作业，低频查询进「我的」） */
-  // 考核明细：页面本体为中立页 @kdyzgl/shared/ui/KpiDetail.vue，容器在 views/kpi/（B-3）
-  {
-    path: '/staff/kpi',
-    name: 'staffKpi',
-    component: () => import('../views/kpi/index.vue'),
-    meta: { roles: STAFF_ROLES, title: '我的 KPI' }
-  },
+  /* 需求 8–10 员工端：我的数据类入口（宫格放高频作业，低频查询进「我的」） */
   {
     path: '/staff/payroll',
     name: 'staffPayroll',

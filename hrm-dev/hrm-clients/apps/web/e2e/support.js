@@ -18,7 +18,6 @@ export const WEB_ENTRY_FILE = `${WEB_BASE}/index.html`
 const MENU_TITLE_BY_PATH = {
   '/dashboard': '数据看板',
   '/employee': '员工管理',
-  '/employee/kpi': 'KPI 考核',
   '/hr': '人事管理',
   '/onboard': '入离职',
   '/department': '部门管理',
@@ -26,8 +25,6 @@ const MENU_TITLE_BY_PATH = {
   '/attendance': '考勤管理',
   '/schedule': '排班管理',
   '/finance': '财务管理',
-  '/parcel': '包裹管理',
-  '/parcel/sync': '同步任务',
   '/work-order': '工单管理',
   '/notification': '通知中心',
   '/profile': '个人中心'
@@ -36,7 +33,6 @@ const MENU_TITLE_BY_PATH = {
 /** 菜单路径 → 所属分组标题（分组默认展开，仅在项不可见时兜底点击分组） */
 const MENU_GROUP_BY_PATH = {
   '/employee': '组织人事',
-  '/employee/kpi': '组织人事',
   '/hr': '组织人事',
   '/onboard': '组织人事',
   '/department': '组织人事',
@@ -44,10 +40,8 @@ const MENU_GROUP_BY_PATH = {
   '/attendance': '考勤薪酬',
   '/schedule': '考勤薪酬',
   '/finance': '考勤薪酬',
-  '/parcel': '包裹作业',
-  '/parcel/sync': '包裹作业',
-  '/work-order': '包裹作业',
-  '/notification': '包裹作业',
+  '/work-order': '作业管理',
+  '/notification': '作业管理',
   '/profile': '系统'
 }
 

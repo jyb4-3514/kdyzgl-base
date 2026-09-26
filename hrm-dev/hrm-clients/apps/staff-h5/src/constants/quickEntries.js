@@ -33,8 +33,6 @@ export const STAFF_QUICK_ENTRIES = [
   },
   // 员工端「请假」用 plain：发起申请不属于待办队列，待办由「我的请假申请」分组承担（§3.4-A）
   { key: 'leave', text: '请假', icon: 'notes-o', to: '/staff/leave/apply', type: 'plain' },
-  { key: 'parcel', text: '本站包裹', icon: 'logistics', to: '/staff/parcel', type: 'plain' },
-  { key: 'pickup', text: '取件核销', icon: 'scan', to: '/staff/pickup', type: 'plain' },
-  { key: 'schedule', text: '我的排班', icon: 'calendar-o', to: '/staff/schedule', type: 'status' },
-  { key: 'kpi', text: '我的 KPI', icon: 'bar-chart-o', to: '/staff/kpi', type: 'status' }
+  // MVP 裁剪：本站包裹 / 取件核销（包裹族）与「我的 KPI」三项随模块下架移除
+  { key: 'schedule', text: '我的排班', icon: 'calendar-o', to: '/staff/schedule', type: 'status' }
 ]

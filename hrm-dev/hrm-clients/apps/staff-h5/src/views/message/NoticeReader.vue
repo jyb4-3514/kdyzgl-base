@@ -49,19 +49,9 @@ function resolveAction(item, role) {
   switch (item.bizType) {
     case 'work_order':
       return bizId ? act('work_order', '去处理工单', `/staff/workorder/${bizId}`, STAFF_ROLES) : null
-    case 'parcel':
-      return bizId ? act('parcel', '查看包裹', `/staff/parcel/${bizId}`, STAFF_ROLES) : null
+    // MVP 裁剪：parcel / sync_task 两个动作随包裹族下架移除，不再提供下钻入口（落到 default 隐藏动作区）
     case 'payroll':
       return bizId ? act('payroll', '查看工资单', `/staff/payroll/${bizId}`, STAFF_ROLES) : null
-    case 'sync_task':
-      if (role === ROLE.STATION_ADMIN) return act('sync_task', '查看同步状态', '/staff/sync', STATION_ADMIN_ONLY)
-      // STAFF：保留可见但禁用 + 说明原因，告知能力不退化（原为点击后弹 Toast）
-      return {
-        key: 'sync_task',
-        label: '查看同步状态',
-        disabled: true,
-        note: '同步状态页仅站长可见，请用站长身份查看'
-      }
     case 'flow':
       return act('flow', '查看入离职流程', '/staff/flow', STAFF_ROLES)
     case 'leave':

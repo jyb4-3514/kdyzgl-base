@@ -135,11 +135,13 @@ import PublishDrawer from './components/PublishDrawer.vue'
  * 想演示满屏未读与跳转，走「工单指派 → 被指派人收通知」这条链路（T16 的剧本预置也会补数据）。
  */
 
-/** biz_type → 目标页与定位参数（参数名与对应页面的 route.query 读取保持一致） */
+/**
+ * biz_type → 目标页与定位参数（参数名与对应页面的 route.query 读取保持一致）
+ * MVP 裁剪：parcel / sync_task 两个跳转目标随包裹族下架移除——这类通知的 bizType 仍存在，
+ * 但不再有可达路由，handleOpen 落到「无关联业务详情」提示分支，不会指向已下架页面。
+ */
 const BIZ_ROUTE = {
-  work_order: (bizId) => ({ path: '/work-order', query: { orderId: bizId } }),
-  parcel: (bizId) => ({ path: '/parcel', query: { parcelId: bizId } }),
-  sync_task: (bizId) => ({ path: '/parcel/sync', query: { taskId: bizId } })
+  work_order: (bizId) => ({ path: '/work-order', query: { orderId: bizId } })
 }
 
 const router = useRouter()

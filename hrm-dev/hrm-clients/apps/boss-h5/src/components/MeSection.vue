@@ -50,7 +50,6 @@ async function onRetryMe() {
     <!-- 管理端＝管理与配置（配置类二级页入口，无个人业务数据）；员工端「我的数据」已迁至 views/boss/me.vue -->
     <div class="section-title">管理与配置</div>
     <van-cell-group inset>
-      <van-cell title="KPI 考核" label="全站考核结果、指标与权重配置" is-link to="/boss/kpi" />
       <van-cell title="人事管理" label="员工档案查询与调薪" is-link to="/boss/hr" />
       <van-cell title="排班管理" label="按驿站排班与批量铺排" is-link to="/boss/schedule" />
       <van-cell title="打卡规则" label="配置打卡时段与校验方式" is-link to="/boss/attendance/rule" />

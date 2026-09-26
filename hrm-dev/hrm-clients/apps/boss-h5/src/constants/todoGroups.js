@@ -3,7 +3,7 @@
  *
  * 本文件只放静态描述（key / title / to / params），取数与行文案在 stores/todo.js。
  * 为什么分开：配置层反向依赖 api，会让「改一个接口要跳两处」，constants 也不再是纯静态层（消 G3）。
- * 端固定化（B4）：本端只保留管理端 6 组，路径全在 /boss/* 内，不再携带员工端配置。
+ * 端固定化（B4）：本端只保留管理端 5 组（MVP 裁剪下架「采集异常」组，其属二期采集域），路径全在 /boss/* 内。
  */
 export const BOSS_TODO_GROUPS = [
   {
@@ -36,7 +36,5 @@ export const BOSS_TODO_GROUPS = [
     title: '待终审请假',
     to: '/boss/leave',
     params: { status: 'PENDING_BOSS', pageNum: 1, pageSize: 3 }
-  },
-  // 采集异常组无分页参数：只读总览，不需要「办理」
-  { key: 'collect', title: '采集异常 · 未配置', to: '/boss/alerts' }
+  }
 ]

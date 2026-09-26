@@ -91,65 +91,6 @@
 
       <el-col :xs="24" :lg="14">
         <el-card shadow="never" class="emp-detail__card">
-          <template #header>
-            <div class="emp-detail__card-head">
-              <span class="emp-detail__card-title">KPI 考核</span>
-              <el-date-picker
-                v-model="kpiMonth"
-                type="month"
-                value-format="YYYY-MM"
-                :clearable="false"
-                size="small"
-                style="width: 132px"
-                @change="loadKpi"
-              />
-            </div>
-          </template>
-
-          <StateBlock v-if="kpiError" variant="error" title="考核明细加载失败" @action="loadKpi" />
-          <StateBlock
-            v-else-if="!loading && !kpiDetail"
-            variant="empty"
-            title="该周期暂无考核结果"
-            description="可在 KPI 考核页生成本期考核"
-          />
-          <div v-else v-loading="loading" class="emp-detail__kpi">
-            <KpiGauge :rate="kpiDetail.achievementRate" label="指标平均达成率" />
-            <div class="emp-detail__kpi-meta">
-              <p class="emp-detail__kpi-score">
-                <span>{{ kpiDetail.totalScore }}</span>
-                <span class="emp-detail__kpi-unit">分</span>
-                <StatusTag
-                  :dict="KPI_LEVEL"
-                  :value="kpiDetail.level"
-                  :variant="(KPI_LEVEL[kpiDetail.level] || {}).variant || 'soft'"
-                />
-              </p>
-              <p class="emp-detail__hint">
-                排名第 {{ kpiDetail.rank }} 名 · {{ kpiDetail.metricCount }} 项指标 · 算分时间
-                {{ kpiDetail.calculateTime }}
-              </p>
-            </div>
-          </div>
-
-          <el-table v-if="kpiDetail" :data="kpiDetail.items" size="small" class="emp-detail__kpi-table">
-            <el-table-column prop="metricName" label="指标" min-width="120" show-overflow-tooltip />
-            <el-table-column label="权重" width="64" align="right">
-              <template #default="{ row }">{{ row.weight }}%</template>
-            </el-table-column>
-            <el-table-column label="目标 / 实际" min-width="120" align="right">
-              <template #default="{ row }"
-                >{{ row.targetValue }}{{ row.unit }} / {{ row.actualValue }}{{ row.unit }}</template
-              >
-            </el-table-column>
-            <el-table-column label="达成率" width="84" align="right">
-              <template #default="{ row }">{{ Math.round(Number(row.achievementRate || 0) * 100) }}%</template>
-            </el-table-column>
-            <el-table-column prop="score" label="得分" width="72" align="right" />
-          </el-table>
-        </el-card>
-
-        <el-card shadow="never" class="emp-detail__card">
           <template #header><span class="emp-detail__card-title">工资单</span></template>
           <StateBlock
             v-if="!payrollList.length"
@@ -188,18 +129,19 @@ import { Refresh } from '@element-plus/icons-vue'
 import { getEmployee } from '@/api/employee.js'
 import { ROLE_LABEL } from '@kdyzgl/shared/constants/role'
 import { getOffboardings, getOnboardings, getHrProfile } from '../../../api/hr.js'
-import { getKpiScoreDetail } from '../../../api/kpi.js'
 import { getPayrolls } from '../../../api/finance.js'
-import { CONTRACT_WARN, FLOW_STATUS, FLOW_TYPE, KPI_LEVEL, PAYROLL_STATUS } from '@kdyzgl/shared/constants/dict.js'
+import { CONTRACT_WARN, FLOW_STATUS, FLOW_TYPE, PAYROLL_STATUS } from '@kdyzgl/shared/constants/dict.js'
 import PageHeader from '../../../components/PageHeader.vue'
 import StateBlock from '../../../components/StateBlock.vue'
 import StatusTag from '../../../components/StatusTag.vue'
-import KpiGauge from '../../../components/KpiGauge.vue'
 
 /**
  * 员工档案聚合页（A11-1 / A11-2）
- * 存在的理由：一期员工页冻结不可改，而管理员需要「看某个人时，KPI / 人事 / 流程 / 工资在一屏内」，
+ * 存在的理由：一期员工页冻结不可改，而管理员需要「看某个人时，人事 / 流程 / 工资在一屏内」，
  * 所以把跨模块的只读画像收在一个页面里，各模块仍由各自页面维护，本页只读不写。
+ *
+ * MVP 裁剪：原「KPI 考核」卡随 KPI 模块下架移除（含 /api/kpi 取数与 KpiGauge 环图），
+ * 本页只保留人事档案、入离职流程与工资单三块。
  *
  * 窄屏退让：el-descriptions 在 <1200px 时降为 1 列（A5-3 同一规则），避免长字段换行挤在一起。
  */
@@ -214,18 +156,8 @@ const hrError = ref(false)
 
 const employee = ref({})
 const hrProfile = ref(null)
-const kpiDetail = ref(null)
-const kpiError = ref(false)
 const flowList = ref([])
 const payrollList = ref([])
-
-/** 本地时区的当月（YYYY-MM）：不用 toISOString，避免 UTC 在东八区月初把月份算成上一个月 */
-const localMonth = () => {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-}
-
-const kpiMonth = ref(route.query.month || localMonth())
 
 /** <1200px 降 1 列：抽屉/详情页窄视口下两列会把长字段压到 200px 以内 */
 const columnCount = ref(window.innerWidth < 1200 ? 1 : 2)
@@ -271,16 +203,6 @@ async function loadHr() {
   }
 }
 
-async function loadKpi() {
-  kpiError.value = false
-  kpiDetail.value = null
-  try {
-    kpiDetail.value = await getKpiScoreDetail(employeeId.value, { month: kpiMonth.value })
-  } catch (e) {
-    if (!e || e.code !== 9204) kpiError.value = true
-  }
-}
-
 /** 契约没有「按员工查流程」的接口，故取列表后按 employeeId 过滤；列表上限 100 条，超出需后端补参数 */
 async function loadFlows() {
   const [onboardPage, offboardPage] = await Promise.all([
@@ -302,7 +224,6 @@ async function loadAll() {
   await Promise.all([
     loadBase(),
     loadHr(),
-    loadKpi(),
     loadFlows().catch(() => {
       flowList.value = []
     }),
@@ -340,35 +261,6 @@ onMounted(loadAll)
     font-size: var(--fs-caption);
     line-height: var(--lh-caption);
     color: var(--text-3);
-  }
-
-  &__kpi {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-6);
-    margin-bottom: var(--sp-4);
-  }
-
-  &__kpi-score {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    margin: 0;
-    font-size: var(--fs-num-lg);
-    font-weight: var(--fw-semibold);
-    line-height: var(--lh-num-lg);
-    color: var(--text-1);
-    font-variant-numeric: tabular-nums;
-  }
-
-  &__kpi-unit {
-    font-size: var(--fs-caption);
-    font-weight: var(--fw-regular);
-    color: var(--text-3);
-  }
-
-  &__kpi-table {
-    width: 100%;
   }
 
   &__net {

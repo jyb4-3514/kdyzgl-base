@@ -2,7 +2,7 @@ import { MENU_WHITELIST } from '@kdyzgl/shared/constants/role'
 
 /**
  * PC 菜单配置（T10 / A3-1 分组化）
- * 为什么单独放一份：一期 layout 的菜单是硬编码的，承载不了包裹/同步/工单/通知；
+ * 为什么单独放一份：一期 layout 的菜单是硬编码的，承载不了工单/通知；
  * 但「谁能看见哪个菜单」不能让 Demo 再定一套——可见性单一真源仍是 shared/constants/role.js 的
  * MENU_WHITELIST（三端共用，移动端 Tabbar 后续也收口到它），本文件只做「菜单键 → 路径/标题/图标」映射。
  *
@@ -15,7 +15,8 @@ import { MENU_WHITELIST } from '@kdyzgl/shared/constants/role'
 export const MENU_GROUPS = {
   org: '组织人事',
   pay: '考勤薪酬',
-  biz: '包裹作业',
+  // MVP 裁剪：包裹族下架后该组只剩工单/通知，组名改「作业管理」避免残留「包裹」字样
+  biz: '作业管理',
   sys: '系统'
 }
 
@@ -23,7 +24,7 @@ export const MENU_GROUPS = {
 export const MENU_GROUP_ICONS = {
   org: 'OfficeBuilding',
   pay: 'Money',
-  biz: 'Box',
+  biz: 'Grid',
   sys: 'Setting'
 }
 
@@ -31,25 +32,24 @@ export const MENU_GROUP_ICONS = {
  * PC 端局部放行的菜单键（补 MENU_WHITELIST 未覆盖的项）
  * 为什么补在这里：MENU_WHITELIST 是三端共用真源，本轮不能改 shared 层，
  * 而考勤/排班对 ADMIN 与站长都要可见（STAFF 不补，天然不可见），故在 PC 菜单侧显式追加。
- * KPI / 人事 / 财务 / 入离职四键按 A3-2 只放行 ADMIN：四者的契约读写接口多为 roles:['ADMIN']，
+ * 人事 / 财务 / 入离职三键按 A3-2 只放行 ADMIN：三者的契约读写接口多为 roles:['ADMIN']，
  * 放行站长会造成「菜单可见但点进去被重定向」，故菜单可见性与路由 meta.roles 严格同口径。
  *
  * leave / logs 不进本表：二者已直接写入 MENU_WHITELIST 真源（设计规范 §3.2），
  * 再补一份会让「谁能看请假、谁能看日志」出现两个真源，权限口径迟早分裂。
  * settings 属本轮新增的只读信息页，同样因 shared 层本轮冻结而暂补在本表（口径与 logs 相同：仅 ADMIN），
  * 待 shared 解冻后与上面几个键一起并入 MENU_WHITELIST，并删除本处补充。
- * TODO(扩展): shared 层解冻后把 attendance / schedule / kpi / hr / finance / onboard / settings 并入 MENU_WHITELIST，删除本处补充
+ * TODO(扩展): shared 层解冻后把 attendance / schedule / hr / finance / onboard / settings 并入 MENU_WHITELIST，删除本处补充
  */
 const EXTRA_MENU_KEYS = {
-  ADMIN: ['attendance', 'schedule', 'kpi', 'hr', 'finance', 'onboard', 'settings'],
+  ADMIN: ['attendance', 'schedule', 'hr', 'finance', 'onboard', 'settings'],
   STATION_ADMIN: ['attendance', 'schedule']
 }
 
 export const MENU_ITEMS = [
   { key: 'dashboard', path: '/dashboard', title: '数据看板', icon: 'DataLine' },
-  // 组织人事：员工管理与 KPI / 人事 / 入离职并列，KPI 通过「员工档案聚合页」回链实现「并入员工管理模块」（A11-1）
+  // 组织人事：员工管理与人事 / 入离职并列（MVP 裁剪已下架 KPI 考核，员工档案聚合页的考核块同步移除）
   { key: 'employee', path: '/employee', title: '员工管理', icon: 'User', group: 'org' },
-  { key: 'kpi', path: '/employee/kpi', title: 'KPI 考核', icon: 'TrendCharts', group: 'org' },
   { key: 'hr', path: '/hr', title: '人事管理', icon: 'Postcard', group: 'org' },
   { key: 'onboard', path: '/onboard', title: '入离职', icon: 'Promotion', group: 'org' },
   { key: 'department', path: '/department', title: '部门管理', icon: 'Share', group: 'org' },
@@ -61,9 +61,7 @@ export const MENU_ITEMS = [
   // 请假管理：审批（站长初审 / 管理员终审）与扣款开关同屏，Q6 裁决放页内卡片而非独立菜单项
   // 图标不得与「工单管理」重复（原同为 Tickets）：Notebook 语义更贴请假，且未被其它菜单占用（已核实 icons-vue 导出）
   { key: 'leave', path: '/leave', title: '请假管理', icon: 'Notebook', group: 'pay' },
-  // 包裹作业：采集配置是「同步任务」页内的第二个视图，不另开菜单键（B1.1）
-  { key: 'parcel', path: '/parcel', title: '包裹管理', icon: 'Box', group: 'biz' },
-  { key: 'sync', path: '/parcel/sync', title: '同步任务', icon: 'Refresh', group: 'biz' },
+  // 作业管理：MVP 裁剪已下架包裹管理 / 同步任务两项，本组只留工单与通知
   { key: 'workOrder', path: '/work-order', title: '工单管理', icon: 'Tickets', group: 'biz' },
   { key: 'notification', path: '/notification', title: '通知中心', icon: 'Bell', group: 'biz' },
   // 系统：运行日志与系统设置均仅 ADMIN（移动端不做查看页，手机上读堆栈和"关于本机"都无价值）

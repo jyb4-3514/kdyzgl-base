@@ -1,62 +1,42 @@
 import { describe, expect, it } from 'vitest'
-import { buildRankRows, dayOverDay } from './dashboardMeta.js'
+import { BASE_CARDS, buildWorkOrderMetrics } from './dashboardMeta.js'
 
 /**
- * 看板指标口径的回归网
- * 重点钉住：环比基线为 0 时不显示、排行百分比是相对最大值而非绝对值、空集不炸。
+ * 看板展示口径的回归网（MVP 裁剪后）
+ *
+ * 原 dayOverDay（环比）与 buildRankRows（包裹排行换算）两组用例随包裹族下架删除；
+ * 现仅保留工单指标形态与一期口径指标清单两组断言。
  */
-describe('dayOverDay · 环比口径', () => {
-  it('空集与单元素无对比基线，返回 null', () => {
-    expect(dayOverDay([], 'todayInbound')).toBeNull()
-    expect(dayOverDay([{ todayInbound: 10 }], 'todayInbound')).toBeNull()
-    expect(dayOverDay(null, 'todayInbound')).toBeNull()
+describe('buildWorkOrderMetrics · 工单指标形态', () => {
+  const workOrder = {
+    pendingCount: 3,
+    processingCount: 2,
+    todayNewCount: 5,
+    overSlaCount: 1,
+    avgHandleMinutes: 42
+  }
+
+  it('件数项 2×2 顺序固定，超时项超 0 时标 danger', () => {
+    const out = buildWorkOrderMetrics(workOrder, (m) => `${m} 分钟`)
+    expect(out.primary.map((item) => item.label)).toEqual(['待处理', '处理中', '今日新增', '超时未处理'])
+    expect(out.primary[3]).toMatchObject({ value: 1, danger: true })
+    expect(out.avgValue).toBe('42 分钟')
   })
 
-  it('近 N 天日均（排除最后一天）为 0 时不显示，避免除零放大', () => {
-    expect(dayOverDay([{ todayInbound: 0 }, { todayInbound: 5 }], 'todayInbound')).toBeNull()
-  })
-
-  it('上升/下降/持平三态与文案', () => {
-    expect(dayOverDay([{ todayInbound: 10 }, { todayInbound: 15 }], 'todayInbound')).toEqual({
-      dir: 'up',
-      text: '50.0%'
-    })
-    expect(dayOverDay([{ todayInbound: 10 }, { todayInbound: 5 }], 'todayInbound')).toEqual({
-      dir: 'down',
-      text: '50.0%'
-    })
-    expect(dayOverDay([{ todayInbound: 10 }, { todayInbound: 10 }], 'todayInbound')).toEqual({
-      dir: 'flat',
-      text: '0.0%'
-    })
+  it('平均时长为空时给「—」占位，不冒充 0 分钟', () => {
+    const out = buildWorkOrderMetrics({ ...workOrder, overSlaCount: 0, avgHandleMinutes: null }, (m) => `${m}`)
+    expect(out.primary[3].danger).toBe(false)
+    expect(out.avgValue).toBe('—')
   })
 })
 
-describe('buildRankRows · 排行换算', () => {
-  const rows = [
-    { stationId: 1, stationName: '城东', parcelTotal: 100, pickupRate: 0.5, abnormalRate: 0.02 },
-    { stationId: 2, stationName: '城西', parcelTotal: 50, pickupRate: 0.8, abnormalRate: 0.01 }
-  ]
-
-  it('按包裹量：主值为千分位件数，百分比相对当前列表最大值', () => {
-    const out = buildRankRows(rows, 'parcelTotal')
-    expect(out[0]).toMatchObject({ rank: 1, stationName: '城东', mainValue: '100', mainUnit: '件', percent: 100 })
-    expect(out[1]).toMatchObject({ rank: 2, mainValue: '50', mainUnit: '件', percent: 50 })
-  })
-
-  it('按比率：主值转百分数保留 1 位，副信息仍是三口径固定顺序', () => {
-    const out = buildRankRows(rows, 'pickupRate')
-    expect(out[1]).toMatchObject({ mainValue: '80.0', mainUnit: '%', percent: 100 })
-    expect(out[0].mainValue).toBe('50.0')
-    expect(out[0].sub).toContain('包裹 100')
-    expect(out[0].sub).toContain('取件率 50.0%')
-    expect(out[0].sub).toContain('异常率 2.0%')
-  })
-
-  it('空集与全 0：不产生 NaN 百分比，id 退回下标保证 v-for key 稳定', () => {
-    expect(buildRankRows([], 'parcelTotal')).toEqual([])
-    const zero = buildRankRows([{ stationName: 'A', parcelTotal: 0 }], 'parcelTotal')
-    expect(zero[0].percent).toBe(0)
-    expect(zero[0].id).toBe(0)
+describe('BASE_CARDS · 一期口径指标', () => {
+  it('四项指标键与 /dashboard/summary 字段名一致且顺序固定', () => {
+    expect(BASE_CARDS.map((card) => card.key)).toEqual([
+      'employeeTotal',
+      'stationTotal',
+      'departmentTotal',
+      'todayLoginCount'
+    ])
   })
 })

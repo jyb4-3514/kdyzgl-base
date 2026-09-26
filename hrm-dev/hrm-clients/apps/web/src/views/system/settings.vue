@@ -2,7 +2,7 @@
   <div class="settings-page">
     <PageHeader title="系统设置" :sub="headerSub" />
 
-    <!-- S1 系统信息：全部来自构建期常量，同步即得，恒为 normal（不随 S3 的骨架屏闪动） -->
+    <!-- S1 系统信息：全部来自构建期常量，同步即得，恒为 normal（不随骨架屏闪动） -->
     <el-card shadow="never" class="settings-card">
       <h2 class="settings-card__title">系统信息</h2>
       <el-descriptions :column="descColumns" border>
@@ -31,7 +31,8 @@
       </el-descriptions>
     </el-card>
 
-    <!-- S3 数据预置：本页唯一异步块，四态只压在「已预置包裹总数」这一格上，静态行不参与 -->
+    <!-- S3 数据预置：全部为构建期常量 / 环境变量派生，同步即得。
+         MVP 裁剪：原「已预置包裹总数」异步块（四态）随包裹族下架移除，本卡不再有异步取数 -->
     <el-card shadow="never" class="settings-card">
       <h2 class="settings-card__title">数据预置</h2>
       <el-descriptions :column="descColumns" border>
@@ -42,24 +43,6 @@
           <StatusTag :dict="runtimeTagDict" value="mode" :aria-label="`Mock 装载状态：${runtimeMode.label}`" />
         </el-descriptions-item>
       </el-descriptions>
-
-      <div class="settings-async">
-        <MetricCard v-if="totalLoading" label="已预置包裹总数" :loading="true" tone="blue" icon="Box" />
-        <StateBlock
-          v-else-if="totalError"
-          variant="error"
-          title="包裹数据读取失败"
-          description="请检查网络后重试"
-          @action="loadTotal"
-        />
-        <StateBlock
-          v-else-if="!total"
-          variant="empty"
-          title="未检测到预置数据"
-          :description="emptyHint"
-        />
-        <MetricCard v-else label="已预置包裹总数" :value="total" unit="件" tone="blue" icon="Box" />
-      </div>
     </el-card>
 
     <!-- S4 账号与权限：登录态 + 常量映射，同步即得，恒为 normal -->
@@ -91,10 +74,7 @@ import { useAuthStore } from '@/stores/auth'
 import { ROLE_LABEL } from '@kdyzgl/shared/constants/role'
 import { APP_NAME } from '../../constants/brand.js'
 import PageHeader from '../../components/PageHeader.vue'
-import StateBlock from '../../components/StateBlock.vue'
 import StatusTag from '../../components/StatusTag.vue'
-import MetricCard from '../../components/MetricCard.vue'
-import { useSystemSettings } from './composables/useSystemSettings.js'
 import {
   APP_VERSION,
   PERMISSION_NOTES,
@@ -113,9 +93,10 @@ import {
  * 四个分区：系统信息 / 运行环境 / 数据预置 / 账号与权限；全页不可编辑 ——
  * 系统名、版本、模式都是构建期常量或运行时事实，本工程是纯前端 + Mock，没有写入通道，
  * 摆一个"能改但保存无效"的控件只会误导用户（设计规范 §2.6）。
+ *
+ * MVP 裁剪：原 S3 的「已预置包裹总数」异步块随包裹族下架移除，本页已无异步取数，全页恒为 normal。
  */
 const authStore = useAuthStore()
-const { loading: totalLoading, error: totalError, total, loadTotal } = useSystemSettings()
 
 const MOCK_ENABLED = import.meta.env.VITE_MOCK_ENABLED === 'true'
 
@@ -145,7 +126,6 @@ const descColumns = ref(2)
 const viewport = ref({ width: window.innerWidth, height: window.innerHeight })
 // 预置规模是同步派生值，生产态给「不适用」，演示态未配置数量时为空串（该行不渲染）
 const presetScale = resolvePresetScale(MOCK_ENABLED, import.meta.env.VITE_MOCK_PARCEL_COUNT)
-const emptyHint = runtimeMode.isDemo ? '演示态下请确认 Mock 已装载（VITE_MOCK_ENABLED=true）' : ''
 
 const envRows = computed(() =>
   filterRows([
@@ -165,7 +145,6 @@ function syncLayout() {
 onMounted(() => {
   syncLayout()
   window.addEventListener('resize', syncLayout)
-  loadTotal()
 })
 
 onBeforeUnmount(() => {
@@ -195,11 +174,6 @@ onBeforeUnmount(() => {
     font-size: var(--fs-body);
     font-weight: var(--fw-medium);
     color: var(--text-1);
-  }
-
-  // 异步块与静态行拉开间距：视觉上明确"这块会自己变"
-  .settings-async {
-    margin-top: var(--sp-4);
   }
 
   .settings-notes {

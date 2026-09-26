@@ -4,7 +4,6 @@ import { getMakeupList, getMyMakeups } from '../api/attendance.js'
 import { getPayrolls, getMyPayrolls } from '../api/finance.js'
 import { getOffboardingFlows, getOnboardingFlows } from '../api/hr.js'
 import { getLeaveList, getMyLeaves } from '../api/leave.js'
-import { getSyncOverview } from '../api/syncTask.js'
 import { getWorkOrders } from '../api/workOrder.js'
 import { CHECK_TYPE, LEAVE_TYPE, PAYROLL_STATUS, WORK_ORDER_PRIORITY, dictLabel } from '@kdyzgl/shared/constants/dict.js'
 import { canAccess } from '@kdyzgl/shared/domain/permission.js'
@@ -92,20 +91,6 @@ const LOADERS = {
       }))
     }
   },
-  collect: async () => {
-    const { counts } = await getSyncOverview()
-    return {
-      total: counts.abnormal + counts.unconfigured,
-      // 只读提醒：不需要「办理」，一行讲清「哪一站没在采、哪一站采挂了」
-      rows: [
-        {
-          key: 'collect',
-          title: `异常 ${counts.abnormal} 站 · 未配置采集 ${counts.unconfigured} 站`,
-          meta: '采集配置在 PC 端维护'
-        }
-      ]
-    }
-  },
   myPayrolls: async ({ params }) => {
     const page = await getMyPayrolls(params)
     return {
@@ -161,7 +146,7 @@ export const useTodoStore = defineStore('mobileTodo', () => {
   const groups = ref([])
   const loading = ref(false)
 
-  /** 按角色取分组：管理端恒为 6 类（A4-3 + 待终审请假）。端固定化（B4）后本端只有管理端配置。
+  /** 按角色取分组：管理端恒为 5 类（A4-3 + 待终审请假，MVP 裁剪下架「采集异常」组）。端固定化（B4）后本端只有管理端配置。
    *  组级 roles 未声明 = 所有能看到本表的角色都可见。 */
   const configs = computed(() => BOSS_TODO_GROUPS.filter((item) => canAccess(item.roles, auth.user)))
 

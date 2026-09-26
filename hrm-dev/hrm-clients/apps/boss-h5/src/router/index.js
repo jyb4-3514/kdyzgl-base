@@ -21,8 +21,8 @@ const BOSS_ROLES = [ROLE.ADMIN]
  *
  * 端隔离（ADR §3.5 第 8 项 / §3.7 B4 ③）：本路由只含管理端 /boss/* 路径；
  * - 员工端 /staff/* 不存在于此工程（编译期即断）；
- * - /boss/kpi/:employeeId 的页面本体为中立页 @kdyzgl/shared/ui/KpiDetail.vue（B-3，容器在 views/kpi/），
- *   不再直引员工端视图 —— 跨域直引残留 = 0。
+ * - MVP 裁剪：/boss/kpi、/boss/kpi/:employeeId、/boss/trend、/boss/rank、/boss/parcel/:id 五条记录整体下架，
+ *   路由直接不存在（不加 redirect 兜底，未命中走 404），页面源码保留在磁盘待后续恢复。
  */
 const routes = [
   { path: '/', redirect: '/login' },
@@ -68,24 +68,12 @@ const routes = [
     meta: { roles: BOSS_ROLES, title: '修改密码' }
   },
 
-  // 以下四页原为 Tabbar 一级页，三 Tab 改造后降为首页宫格进入的二级页，自带返回 NavBar
+  // 以下两页原为 Tabbar 一级页，三 Tab 改造后降为首页宫格进入的二级页，自带返回 NavBar
   {
     path: '/boss/attendance',
     name: 'bossAttendance',
     component: () => import('../modules/boss/views/attendance.vue'),
     meta: { roles: BOSS_ROLES, title: '考勤概览' }
-  },
-  {
-    path: '/boss/trend',
-    name: 'bossTrend',
-    component: () => import('../modules/boss/views/trend.vue'),
-    meta: { roles: BOSS_ROLES, title: '包裹趋势' }
-  },
-  {
-    path: '/boss/rank',
-    name: 'bossRank',
-    component: () => import('../modules/boss/views/rank.vue'),
-    meta: { roles: BOSS_ROLES, title: '驿站排行' }
   },
   {
     path: '/boss/alerts',
@@ -106,13 +94,6 @@ const routes = [
     component: () => import('../views/boss/workorderDetail.vue'),
     meta: { roles: BOSS_ROLES, title: '工单详情' }
   },
-  // 包裹详情：管理端「异常预警」下钻目标（同上，本端自有页）
-  {
-    path: '/boss/parcel/:id',
-    name: 'bossParcelDetail',
-    component: () => import('../views/boss/parcelDetail.vue'),
-    meta: { roles: BOSS_ROLES, title: '包裹详情' }
-  },
   {
     path: '/boss/attendance/makeup',
     name: 'bossMakeupApproval',
@@ -127,20 +108,7 @@ const routes = [
     meta: { roles: BOSS_ROLES, title: '发布通知' }
   },
 
-  /* 需求 7–10 管理端：不进 Tabbar，入口在首页宫格与「我的 · 管理与配置」 */
-  {
-    path: '/boss/kpi',
-    name: 'bossKpi',
-    component: () => import('../modules/boss/views/kpi.vue'),
-    meta: { roles: BOSS_ROLES, title: 'KPI 考核' }
-  },
-  // 考核明细：页面本体为中立页 @kdyzgl/shared/ui/KpiDetail.vue，容器在 views/kpi/（B-3 消解跨域直引）
-  {
-    path: '/boss/kpi/:employeeId',
-    name: 'bossKpiDetail',
-    component: () => import('../views/kpi/index.vue'),
-    meta: { roles: BOSS_ROLES, title: '考核明细' }
-  },
+  /* 需求 8–10 管理端：不进 Tabbar，入口在首页宫格与「我的 · 管理与配置」 */
   {
     path: '/boss/hr',
     name: 'bossHr',

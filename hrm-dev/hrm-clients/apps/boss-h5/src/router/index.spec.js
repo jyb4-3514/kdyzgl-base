@@ -46,7 +46,6 @@ const pages = vi.hoisted(() => ({ stub: { template: '<div />' } }))
 vi.mock('../views/login/index.vue', () => ({ default: pages.stub }))
 vi.mock('../views/message/MessagePage.vue', () => ({ default: pages.stub }))
 vi.mock('../modules/boss/views/home.vue', () => ({ default: pages.stub }))
-vi.mock('../modules/boss/views/kpi.vue', () => ({ default: pages.stub }))
 vi.mock('../views/error/NotFound.vue', () => ({ default: pages.stub }))
 
 const { default: router } = await import('./index.js')
@@ -72,9 +71,9 @@ beforeEach(async () => {
 
 describe('管理端守卫 · 登录态', () => {
   it('未登录访问业务页 → 跳登录页并带上回跳地址', async () => {
-    await router.push('/boss/kpi')
+    await router.push('/boss/hr')
     expect(router.currentRoute.value.path).toBe('/login')
-    expect(router.currentRoute.value.query.redirect).toBe('/boss/kpi')
+    expect(router.currentRoute.value.query.redirect).toBe('/boss/hr')
   })
 
   it('已登录访问 /login → 落管理端经营总览', async () => {
@@ -115,8 +114,15 @@ describe('管理端守卫 · 端隔离（B4 ③ 跨域路由分支 = 0）', () =
     }
   })
 
-  it('管理端考核明细落在本端容器（/boss/kpi/:employeeId）', async () => {
-    const resolved = router.resolve('/boss/kpi/3')
-    expect(resolved.name).toBe('bossKpiDetail')
+  it('被砍路由不再存在于本端路由表：KPI / 趋势 / 排行 / 包裹详情一律解析为 404', () => {
+    for (const path of ['/boss/kpi', '/boss/kpi/3', '/boss/trend', '/boss/rank', '/boss/parcel/1']) {
+      expect(router.resolve(path).name, `${path} 不应在本端定义`).toBe('mobileNotFound')
+    }
+  })
+
+  it('保留路由仍在路由表内（反证裁剪未误伤）', () => {
+    for (const path of ['/boss/home', '/boss/alerts', '/boss/workorder', '/boss/hr', '/boss/payroll']) {
+      expect(router.resolve(path).name, `${path} 应仍可达`).not.toBe('mobileNotFound')
+    }
   })
 })

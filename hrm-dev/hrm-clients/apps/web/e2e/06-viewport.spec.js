@@ -56,7 +56,7 @@ test.describe('B1 视口兼容性（网页端）', () => {
 
     // 表格页：逐档复测，表格右边界不得越过视口
     await page.setViewportSize({ width: 1440, height: 900 })
-    await webNavigate(page, '/parcel')
+    await webNavigate(page, '/work-order')
     await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 40_000 })
     for (const vp of VIEWPORTS) {
       await page.setViewportSize({ width: vp.w, height: vp.h })

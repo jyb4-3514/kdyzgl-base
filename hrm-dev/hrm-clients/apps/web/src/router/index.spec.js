@@ -128,3 +128,34 @@ describe('PC 守卫 · 越权与未匹配路径', () => {
     expect(router.currentRoute.value.path).toBe('/no-such-page')
   })
 })
+
+describe('PC 守卫 · MVP 裁剪：被砍模块路由不可达（新增断言）', () => {
+  // 裁撤清单：KPI 考核 / 包裹族（包裹管理、同步任务）/ 绩效 / 资金 / 权限 / 系统 / 知识库
+  const CUT_PATHS = [
+    '/employee/kpi',
+    '/parcel',
+    '/parcel/sync',
+    '/performance',
+    '/money',
+    '/permission',
+    '/system',
+    '/knowledge'
+  ]
+
+  it('被砍路径一律落 404 且地址不变（不保留 redirect 兜底）', async () => {
+    auth.state.isLoggedIn = true
+    auth.state.user = ADMIN
+    for (const path of CUT_PATHS) {
+      await router.push(path)
+      expect(router.currentRoute.value.name, `${path} 不应再可达`).toBe('NotFound')
+      expect(router.currentRoute.value.path).toBe(path)
+    }
+  })
+
+  it('保留路径仍在路由表内（反证裁剪未误伤）', () => {
+    const kept = ['/dashboard', '/employee', '/attendance', '/work-order', '/notification', '/system/logs']
+    for (const path of kept) {
+      expect(router.resolve(path).name, `${path} 应仍可达`).not.toBe('NotFound')
+    }
+  })
+})
