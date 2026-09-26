@@ -1,5 +1,28 @@
 # 变更日志
 
+## 2026-09-26 · 员工注册 B1/B2/B3/B4/B5 落地 + C 档迁移 V16~V19 执行（含端到端安全验收）
+
+**一、用户授权**：执行迁移（C 档三步授权已给）；**Q2 裁定＝移除注册页「设置密码」字段**（因"不激活 + 管理员发一次性口令 + 不复用注册密码"，该字段无作用且误导）。
+
+**二、B1 契约（后端）**：`api.md` v1.1 → **v1.2**，接口总数 **46 → 65**（§4.10 人事/入离职 **16 端点** + §4.11 注册域 5）；端点与代码**逐一对照差集 0**；§2.2 补 9307~9309（**9310 废弃**）。
+
+**三、B2 迁移（数据库，**已执行**，C 档）**：`V16` `employee.phone_active`（STORED GENERATED + `uk_employee_phone_active` 活跃唯一）/ `V17` `employee_registration`（21 列 + `apply_no` 唯一）/ `V18` `hr_flow.source`（`NOT NULL DEFAULT 'ADMIN'`）/ `V19` `employee.position`（`VARCHAR(50) NULL`）；快照与 `db.md` 同步（39 表 / v2.2）。**仅 MySQL**（PG 自 V2 冻结，与 `db.md` 一致）。
+
+**四、B3/B4 后端（后端）**：14 新文件 + 16 改动 + 7 测试类。发码**恒定化**（未注册号静默成功、移除 1109）、未知非空 scene → 400；注册提交**字段白名单**（夹带 role/薪资/站点 → 400）；`resolveScene` fail-closed；R-6 **单事务按序推 5 步**（`completeOnboardingStep`，不含 DONE）→ 建档 `role=STAFF`/`status=0` → **岗位双写**（`employee.position` 为权威）→ 不激活；行锁 `hr_flow`→`registration`；手机号活跃查重（2003）；终态清凭据。
+
+**五、B5 设计（UI/UX）**：`docs/registration-ui-design.md` 501 行（入口/字段白名单/中性化文案/结果页不承诺即时可用/岗位展示/四态/走查清单）。主智能体裁定：Q1 `StationPicker` 下沉 `packages/shared`（做）、Q3 审批台岗位**必填**、Q4 档案侧岗位**只读**。
+
+**六、服务器实跑证据（关键：本机无 JDK，全部收敛服务器）**：
+- **单测**：新批 **44 个全绿**；**全量回归 588 个全绿 / BUILD SUCCESS**。
+- **过程抓到一个真缺陷**：3 处 Mockito 参数匹配在 MyBatis-Plus 新签名下**二义** → 测试编译失败（本机不可见），已修复并复跑通过。
+- **迁移执行**：备份 `/data/backup/hrm-db/kdyzgl_test-20260926090443.sql`（834K）→ **预检 0 行** → Flyway 应用 → `flyway_schema_history` **19 条、V16~V19 全 success**；`SHOW COLUMNS`/`SHOW INDEX` 逐项核实（生成列+UNIQUE/position/source/新表齐备）。
+- **后端重建重启**：`mvn package` → jar 备份 `hrm-server.jar.bak.20260926090511` → 替换 → **端口 18s 起**、`Started HrmServerApplication`。
+- **端到端安全验收（真实部署实测）**：`scene=HACK` → **400「不支持的短信场景」**；夹带 `role/basicSalary` → **400「请求体格式不正确或缺失」**；空体 → 400 + 逐字段文案；**未注册号 vs 已注册号发码响应逐字段一致**（M-2 恒定化成立）；`GET /registration/{applyNo}` 无鉴权 → **401**。
+
+**七、回滚**：库 = 还原备份 SQL；后端 = `cp hrm-server.jar.bak.20260926090511 hrm-server.jar` + 重启；前端 = 反向 diff。
+
+**八、遗留**：① B6 前端（注册页）进行中；② B7 测试与部署 + **Nginx 限速（M-7，C 档，待授权）**；③ `cleanupExpired()` 未接定时（待定触发方式）；④ SEC-FULL-14（日志脱敏补 `code=|smsCode=`）未改，登记后续批；⑤ 发码"耗时量级一致"在真实短信通道存在通道调用差，待安全复验评估；⑥ C2~C6 契约补录（67 端点）拆分后续批。
+
 ## 2026-09-26 · 全方面技术与安全评审（只读，3 份报告）
 
 **范围**：用户要求「全方面技术和安全评审，含服务器安全」→ 按调度规则并行派网络安全工程师（R24，仓库侧静态审计）与架构师（R19，工程面技术质量），主智能体经 SSH/宝塔 MCP **只读实测服务器**（R21 MCP 独占）。**全程未改源码、未改服务器配置、未执行任何 C 档动作。**
