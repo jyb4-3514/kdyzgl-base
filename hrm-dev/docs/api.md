@@ -2,11 +2,11 @@
 
 | 项目 | 内容 |
 | ---- | ---- |
-| 文档版本 | v1.0 |
+| 文档版本 | v1.1 |
 | 编写日期 | 2026-09-06 |
 | 状态 | 待评审 |
 | 服务前缀 | `/api/v1`（生产经 Nginx 同域反代，本地经 Vite proxy） |
-| 接口总数 | 24 |
+| 接口总数 | 46 |
 | 关联文档 | [requirement.md](requirement.md)、[db.md](db.md) |
 
 ***
@@ -79,6 +79,18 @@
 | 30xx | 部门 |
 | 40xx | 驿站 |
 | 50xx | 导入导出 |
+| 60xx | 同步任务 / 采集运行态 |
+| 70xx | 包裹 |
+| 80xx | 工单 |
+| 90xx | 通知 |
+| 91xx | 考勤 / 排班 / 补卡 |
+| 92xx | KPI |
+| 93xx | 人事 / 入离职 |
+| 94xx | 财务 / 工资单 |
+| 95xx | 同步配置中心 |
+| 96xx | 请假 |
+
+> 段位与后端 `ErrorCode` 枚举一致，本表为**全域分段总表**。已展开明细的段位：通用 + 10xx~50xx + 91xx（见 2.2）、96xx（见 7.2）；其余段位为后端 `ErrorCode` 已定义、本文档尚未展开。
 
 ### 2.2 错误码明细
 
@@ -118,6 +130,15 @@
 | 5001 | 导入文件为空或格式不正确（仅支持 .xlsx） | 上传文件校验失败 |
 | 5002 | 导入数据超过单次上限（1000 行） | 数据行数超限 |
 | 5003 | 导入数据存在校验错误 | 行级错误明细见 `data.errors` |
+| 9101 | 该驿站尚未配置打卡规则 | 打卡规则未配置（考勤域） |
+| 9102 | 不在打卡时间窗内 | 时间窗越窗（打卡前短路，不留痕） |
+| 9103 | WiFi 校验未通过 | WiFi 未命中（打卡落 `ABNORMAL` 留痕后回码） |
+| 9104 | 定位校验未通过，已超出打卡围栏范围 | 定位未通过（打卡落 `ABNORMAL` 留痕后回码） |
+| 9105 | 今日该类型打卡已完成 | 重复打卡（打卡前短路，不留痕） |
+| 9106 | 班次不存在或已停用 | 班次不可用（打卡 / 排班引用） |
+| 9107 | 打卡时段不存在 | 时段缺失 / 规则时段配置非法（同码两语义，前端按接口区分） |
+| 9108 | 该时段当日已有补卡申请或已正常打卡 | 补卡重复 |
+| 9109 | 补卡申请状态不允许该操作 | 补卡状态非法 |
 
 ***
 
@@ -160,7 +181,7 @@
 
 ## 4. 接口明细
 
-### 4.0 接口概览（24 个）
+### 4.0 接口概览（46 个）
 
 | 分组 | 方法 | 路径 | 权限 | 说明 |
 | ---- | ---- | ---- | ---- | ---- |
@@ -188,6 +209,30 @@
 | 驿站 | PUT | /api/v1/stations/{id} | ADMIN | 编辑 |
 | 驿站 | PUT | /api/v1/stations/{id}/status | ADMIN | 启用/停用 |
 | 驿站 | DELETE | /api/v1/stations/{id} | ADMIN | 删除 |
+| 考勤 | GET | /api/v1/attendance/rule | ADMIN / STATION_ADMIN / STAFF（范围收敛） | 打卡规则查询 |
+| 考勤 | GET | /api/v1/attendance/rule/list | ADMIN | 规则列表（全量） |
+| 考勤 | PUT | /api/v1/attendance/rule | ADMIN | 保存打卡规则 |
+| 考勤 | GET | /api/v1/attendance/status | ADMIN / STATION_ADMIN / STAFF | 今日打卡状态 |
+| 考勤 | POST | /api/v1/attendance/check-in | ADMIN / STATION_ADMIN / STAFF | 打卡 |
+| 考勤 | GET | /api/v1/attendance/records | ADMIN / STATION_ADMIN（范围收敛） | 打卡记录（分页） |
+| 考勤 | GET | /api/v1/attendance/export | ADMIN / STATION_ADMIN（范围收敛） | 考勤记录导出（CSV） |
+| 考勤 | GET | /api/v1/attendance/summary | ADMIN / STATION_ADMIN（范围收敛） | 打卡概况 |
+| 考勤 | GET | /api/v1/attendance/detail | ADMIN / STATION_ADMIN（范围收敛） | 考勤明细 |
+| 考勤 | GET | /api/v1/attendance/my | ADMIN / STATION_ADMIN / STAFF | 我的打卡（按月） |
+| 补卡 | GET | /api/v1/attendance/makeup/my | ADMIN / STATION_ADMIN / STAFF | 我的补卡（分页） |
+| 补卡 | GET | /api/v1/attendance/makeup/list | ADMIN | 补卡列表（分页） |
+| 补卡 | POST | /api/v1/attendance/makeup | ADMIN / STATION_ADMIN / STAFF | 提交补卡 |
+| 补卡 | POST | /api/v1/attendance/makeup/{id}/approve | ADMIN | 审批补卡 |
+| 班次 | GET | /api/v1/shifts | ADMIN / STATION_ADMIN / STAFF（范围收敛） | 班次列表 |
+| 班次 | POST | /api/v1/shifts | ADMIN | 新增班次 |
+| 班次 | PUT | /api/v1/shifts/{id} | ADMIN | 编辑班次 |
+| 班次 | DELETE | /api/v1/shifts/{id} | ADMIN | 删除班次 |
+| 排班 | GET | /api/v1/schedules | ADMIN / STATION_ADMIN（范围收敛） | 周排班矩阵 |
+| 排班 | GET | /api/v1/schedules/my | ADMIN / STATION_ADMIN / STAFF | 我的排班（按周） |
+| 排班 | POST | /api/v1/schedules/batch | ADMIN | 手动批量保存排班 |
+| 排班 | POST | /api/v1/schedules/batch-by-station | ADMIN | 整站排班（手动 / 智能） |
+
+> 权限列：`ADMIN` = 管理员、`STATION_ADMIN` = 站长、`STAFF` = 员工（角色码与后端 `UserContext` 一致）。考勤 / 补卡 / 班次 / 排班的查询类端点对非 ADMIN 的 `stationId` **静默收敛为本人驿站**；「本人」端点以登录身份收口，详见 §4.6~§4.9。
 
 ### 4.1 认证接口
 
@@ -671,6 +716,371 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 
 `DELETE /api/v1/stations/{id}`（ADMIN）。前置校验：无归属员工（4003）。错误码：404 / 4003。
 
+### 4.6 考勤接口
+
+> 端点由 `AttendanceController` 提供，路径前缀 `/api/v1/attendance`；全部端点均需登录（`Authorization: Bearer {token}`）。
+> **数据范围收敛（L1）**：查询类端点的 `stationId` 对非 ADMIN **静默收敛为本人驿站**（会话缺归属时收敛为「无数据」，不报错、不越权）；`employeeId` 不参与收敛。「本人」端点（`/status`、`/check-in`、`/my`）一律以登录身份收口，不接受前端传 `employeeId` 代他人操作。
+> 角色门槛：`GET /rule`、`/status`、`/check-in`、`/my` 为 `ADMIN/STATION_ADMIN/STAFF`；`/records`、`/export`、`/summary`、`/detail` 为 `ADMIN/STATION_ADMIN`；`/rule/list`、`PUT /rule` 为 `ADMIN`。
+> 错误码见 §2.2「91xx 考勤 / 排班 / 补卡」段（9101–9109）；字段校验类错误统一 `400`。
+
+#### 4.6.1 打卡规则查询
+
+`GET /api/v1/attendance/rule`（ADMIN / STATION_ADMIN / STAFF）
+
+| 入参（Query） | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| stationId | long | 条件必填 | ADMIN 必填（缺省 → 400「缺少 stationId」）；非 ADMIN 由 L1 静默收敛为本人驿站，忽略入参 |
+
+响应 `data` 为 `AttendanceRuleVO`：
+
+| 字段 | 类型 | 说明 |
+| ---- | ---- | ---- |
+| id / stationId / stationName | long / long / string | 规则 id、驿站 id 与名称 |
+| ruleName | string | 规则名称 |
+| enableWifi / enableLocation / enableTimeWindow | boolean | 三项校验开关 |
+| matchMode | string | `ALL` / `ANY`（多校验项组合方式） |
+| wifiList | `WifiEntry[]` | 白名单（`ssid` 为判定依据、`bssid` 仅留痕）；旧数据 `>1` 条**原样返回**（见 4.6.3） |
+| longitude / latitude / radius | decimal / decimal / int | 电子围栏原点与半径（米） |
+| checkFrequency | int | 每日打卡次数：`2` / `4` |
+| checkPeriods | `CheckPeriod[]` | 打卡时段（`name` / `startTime` / `endTime`），时间判定唯一真源 |
+| allowEarlyMin / allowLateMin | int | 允许提前 / 延后打卡分钟数（时间窗余量） |
+| workStartTime / workEndTime | string | **派生值** = 首段开始 / 末段结束（由 `checkPeriods` 重算，非入参真源） |
+| lateThresholdMin / earlyLeaveThresholdMin | int | 迟到 / 早退判定阈值（分钟） |
+| status | int | 0=停用，1=启用 |
+| updateTime | string | 最近更新时间 `yyyy-MM-dd HH:mm:ss` |
+
+错误码：400（缺 stationId）/ 9101（该驿站尚未配置打卡规则）。
+
+#### 4.6.2 规则列表
+
+`GET /api/v1/attendance/rule/list`（ADMIN）
+
+无入参，返回全量规则 `AttendanceRuleVO[]`（按 id 升序）。无业务错误码（仅 401 / 403）。
+
+#### 4.6.3 保存打卡规则
+
+`PUT /api/v1/attendance/rule`（ADMIN）
+
+请求体为**差量更新**：字段缺省（`null`）表示沿用现值；`checkPeriods` 是时间判定的唯一真源，保存时据此重算 `workStartTime / workEndTime`。首次为某驿站保存时创建记录并套用默认规则（默认时段与电子围栏自洽）。
+
+| 入参 | 类型 | 必填 | 校验（违反即 400） |
+| ---- | ---- | ---- | ---- |
+| stationId | long | 是 | 须为存在驿站（4001）；缺省 → 400「缺少 stationId」 |
+| ruleName | string | 否 | 1-50 字符 |
+| enableWifi / enableLocation / enableTimeWindow | boolean | 否 | — |
+| matchMode | string | 否 | 仅 `ALL` / `ANY` |
+| wifiList | `WifiEntry[]` | 否 | 见下表「`wifiList` 约束」；缺省沿用现值、显式 `[]` 清空 |
+| longitude / latitude | decimal | 否 | — |
+| radius | int | 否 | > 0 |
+| checkFrequency | int | 否 | 仅 `2` / `4`（否则 9107） |
+| checkPeriods | `CheckPeriod[]` | 否 | 见下表「`checkPeriods` 约束」（否则 9107） |
+| allowEarlyMin / allowLateMin | int | 否 | ≥ 0 |
+| lateThresholdMin / earlyLeaveThresholdMin | int | 否 | ≥ 0 |
+| workStartTime | string | 否 | `HH:mm`（旧客户端兼容：无 `checkPeriods` 时映射到首段开始） |
+| workEndTime | string | 否 | `HH:mm`（可 `24:00` 表示跨零点收班） |
+| status | int | 否 | 0 / 1 |
+
+**`wifiList` 约束**（`AttendanceWifiValidator`，校验顺序：逐条字段 → 去重 → 条数，返回首个命中项）：
+
+| 字段 | 类型 | 必填 | 约束 | 判据（违反即 400） |
+| --- | --- | --- | --- | --- |
+| `wifiList` | `WifiEntry[]` | 否 | 至多 **1** 条（每站指定一个）；缺省沿用现值 | 条数 > 1 |
+| `wifiList[].ssid` | string | 是 | trim 后长度 **1–32** 字符；保存前 trim | 空 / 纯空白；长度 > 32 |
+| `wifiList[].bssid` | string \| null | 否 | 可空；非空须为 MAC（`AA:BB:CC:DD:EE:FF`，6 段十六进制、**大小写不敏感**）；空串 / 纯空白归一为 `null`；仅留痕，不参与打卡判定 | 非空且不符格式 |
+
+去重口径：同一 `wifiList` 内 `ssid` 不得重复，按**区分大小写的精确比对**（与打卡判定 `ssid === wifiSsid` 一致，不得改为忽略大小写）。
+
+**校验失败语义**（HTTP 200 + `body.code = 400`，`message` 明确到具体字段）：
+
+| 场景 | message 示例 |
+| --- | --- |
+| `ssid` 为空 / 纯空白 | `WiFi 名称不可为空` |
+| `ssid` 超长（> 32） | `WiFi 名称须为 1-32 个字符` |
+| 条目为 `null` | `WiFi 白名单条目不可为空` |
+| `bssid` 非空且非法 | `BSSID 须为 AA:BB:CC:DD:EE:FF 格式` |
+| 同一 `wifiList` 内 `ssid` 重复 | `WiFi 名称重复：{ssid}` |
+| 条数 > 1 | `WiFi 白名单同一驿站仅允许配置 1 条` |
+
+本约束**不新增错误码**，全部沿用 `400`（`ErrorCode.BAD_REQUEST`）。`enableWifi=true` 且白名单为空**允许保存**（fail-open，「先开开关、后配 WiFi」属正当分步流程），该态下打卡将因 WiFi 未命中失败（9103），风险由前端 warning 承担。
+
+**`checkPeriods` 约束**（统一回 9107，具体字段由 `message` 说清）：
+
+| 项 | 约束 |
+| ---- | ---- |
+| 数量 | 非空数组；长度须等于 `checkFrequency / 2`（2 次 → 1 段，4 次 → 2 段） |
+| `name` | 1-20 字符 |
+| `startTime` / `endTime` | `HH:mm`；`endTime` 可 `24:00` |
+| 单段 | 结束时间须晚于开始时间 |
+| 段间 | 不允许重叠，须按开始时间升序 |
+
+**旧数据 `wifiList.length > 1` 的边界口径**（面向将来的兜底；现网实测无历史多条数据）：
+
+| 环节 | 口径 |
+| --- | --- |
+| 加载（`GET /rule`） | 对旧数据 `>1` 条**原样返回**（逐条复制，不裁剪、不改写） |
+| 提交（`PUT /rule`） | 恒要求 **≤ 1 条**；`>1` 返回 `400`（兜底，防 PC 端 / 直调 API 绕过前端） |
+| 前端收敛 | 加载到 `>1` 条时**只渲染首条并提示**（前端责任），服务端不代劳裁剪 |
+
+响应 `data` 为保存后的 `AttendanceRuleVO`。错误码：400 / 4001 / 9107。
+
+#### 4.6.4 今日打卡状态
+
+`GET /api/v1/attendance/status`（ADMIN / STATION_ADMIN / STAFF）
+
+无入参，以登录人身份收口。响应 `data` 为 `AttendanceStatusVO`：
+
+| 字段 | 类型 | 说明 |
+| ---- | ---- | ---- |
+| workDate | string | 今日 `yyyy-MM-dd` |
+| hasSchedule | boolean | 今日是否有排班 |
+| shift | `AttendanceShiftVO` | 今日班次；未排班时为规则合成的**兜底班次**（`id=null`、`shiftName=默认班次`），无规则时为 `null` |
+| onChecked / offChecked | boolean | 今日上 / 下班卡是否已完成（有效卡，排除 `ABNORMAL`） |
+| onRecord / offRecord | `AttendanceRecordVO` | 今日最近一次有效上 / 下班卡（无则 `null`） |
+| checkFrequency | int | 规则要求的每日打卡次数（无规则时 `null`） |
+| requireSummary | string | 规则要求摘要（无规则时 `null`） |
+| periods | `PeriodStatus[]` | 按时段展开：`periodIndex` / `name` / `startTime` / `endTime` / `windowStart`（时段开始 − `allowEarlyMin`）/ `windowEnd`（时段结束 + `allowLateMin`）/ `onChecked` / `offChecked` / `onTime` / `offTime` |
+| rule | `AttendanceRuleVO` | 当前驿站规则（无规则时 `null`） |
+
+错误码：401（会话无归属员工，防御性兜底）。
+
+#### 4.6.5 打卡
+
+`POST /api/v1/attendance/check-in`（ADMIN / STATION_ADMIN / STAFF）
+
+| 入参 | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| stationId | long | 否 | 非 ADMIN 强制收敛为本人驿站（防代他人向别的驿站打卡） |
+| checkType | string | 是 | `ON` / `OFF`，其他值 400 |
+| wifiSsid | string | 否 | 当前 WiFi 名称（`enableWifi` 时参与判定） |
+| longitude / latitude | decimal | 否 | 定位坐标（`enableLocation` 时参与判定） |
+| periodIndex | int | 否 | 缺省走单班次模型（排班班次为时间基准）；传入则按时段模型判定 |
+
+判定链顺序（不得变更）：规则 → 时段 / 班次 → 时间窗 → 重复 → 校验项（WiFi / 定位，按 `matchMode` ALL/ANY）→ 迟到 / 早退。
+
+服务端判定，**校验未通过仍落一条 `ABNORMAL` 留痕记录**后回码（时间窗越窗与重复打卡除外，此二者在落库前短路、不留痕）。响应 `data` 为 `AttendanceRecordVO`。
+
+错误码：400 / 9101（未配规则）/ 9107（时段不存在）/ 9106（班次不存在或已停用，单班次模型）/ 9102（不在时间窗内，不留痕）/ 9105（今日该类型打卡已完成，不留痕）/ 9103（WiFi 校验未通过，留痕）/ 9104（定位未通过，留痕）。
+
+#### 4.6.6 打卡记录
+
+`GET /api/v1/attendance/records`（ADMIN / STATION_ADMIN）
+
+| 入参（Query） | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| pageNum / pageSize | int | 否 | 默认 1 / 10，`pageSize` 区间 [1,100]（越界 400） |
+| stationId | long | 否 | 非 ADMIN 静默收敛为本人驿站 |
+| employeeId | long | 否 | 员工筛选；**原样透传、不收敛**（对齐 Mock 口径） |
+| status | string | 否 | `NORMAL` / `LATE` / `EARLY_LEAVE` / `ABNORMAL`，其他值 400 |
+| startDate / endDate | string | 否 | `yyyy-MM-dd`（含），格式非法 400 |
+
+响应为分页 `{ total, pageNum, pageSize, list }`，`list` 元素为 `AttendanceRecordVO`（含 `id` / `employeeId` / `employeeName` / `stationId` / `workDate` / `periodIndex` / `periodName` / `checkType` / `checkTime` / `status` / `source` / `checkMode` / `wifiSsid` / `wifiMatched` / `longitude` / `latitude` / `distance` / `locationMatched` / `remark`）。补卡补录行 `source=MAKEUP`，设备校验字段为 `null`。排序 `check_time DESC`（同刻按 id 倒序）。错误码：400。
+
+#### 4.6.7 考勤记录导出
+
+`GET /api/v1/attendance/export`（ADMIN / STATION_ADMIN）
+
+入参与筛选口径同 4.6.6（**不分页，全量导出**）。响应为 CSV 文件流（`Content-Type: text/csv`，文件名 `考勤记录_yyyyMMdd.csv`），13 列：员工姓名 / 登录账号 / 所属驿站 / 日期 / 时段名称 / 卡类型 / 打卡时间 / 打卡方式 / WiFi / 距离(米) / 状态 / 来源 / 备注（枚举列输出中文，空值输出空串）。内存流写出，不落盘。错误码：400。
+
+#### 4.6.8 打卡概况
+
+`GET /api/v1/attendance/summary`（ADMIN / STATION_ADMIN）
+
+| 入参（Query） | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| stationId | long | 否 | 非 ADMIN 静默收敛为本人驿站 |
+| date | string | 否 | 统计日期 `yyyy-MM-dd`，缺省今天；格式非法 400 |
+
+响应 `data` 为 `AttendanceSummaryVO`：`date` / `shouldCount`（应到 = 当天有排班人数）/ `actualCount`（实到 = 有有效上班卡人数，去重）/ `normalCount` / `lateCount` / `earlyLeaveCount` / `absentCount`（缺卡 = `max(0, 应到 − 实到)`）。错误码：400。
+
+#### 4.6.9 考勤明细
+
+`GET /api/v1/attendance/detail`（ADMIN / STATION_ADMIN）
+
+| 入参（Query） | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| stationId | long | 否 | 非 ADMIN 静默收敛为本人驿站 |
+| dim | string | 是 | 维度，白名单 `SHOULD` / `ACTUAL` / `NORMAL` / `LATE` / `EARLY_LEAVE` / `ABSENT`，非法或缺省 400 |
+| date | string | 否 | 统计日期，缺省今天；格式非法 400 |
+
+响应 `data` 为 `AttendanceDetailVO`：`dim` / `date` / `total` / `list[]`（行含 `employeeId` / `employeeName` / `stationId` / `stationName` / `shiftName`（仅 SHOULD/ABSENT）/ `periodName` / `onCheck` / `offCheck`（各含 `time` / `status`）/ `dayState`（`MISS` / `LATE` / `EARLY_LEAVE` / `NORMAL`）/ `remark`）。排序：迟到 / 早退按命中卡时间倒序，缺卡按姓名，应到按风险优先，实到 / 正常按上班卡时间倒序。错误码：400。
+
+#### 4.6.10 我的打卡
+
+`GET /api/v1/attendance/my`（ADMIN / STATION_ADMIN / STAFF）
+
+| 入参（Query） | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| month | string | 否 | 账期 `yyyy-MM`，缺省当前月；格式非法 400 |
+
+不分页，以登录人身份收口。响应 `data` 为 `MyAttendanceVO`：`month` / `list`（本人当月 `AttendanceRecordVO[]`，按打卡时间倒序）/ `todayStatus`（`AttendanceStatusVO`，账号归属员工不存在时 `null`）。错误码：400。
+
+#### 4.6.11 NFR 与文案差异声明
+
+- **性能无关**：`wifiList` 约束为常数级纯逻辑校验（`O(n)` 且 `n ≤ 1`）+ 本地表单态，无性能目标需求。
+- **可观测性**：不新增监控埋点，`400` 由既有统一 HTTP 层承接。
+- **已知差异（不强制统一）**：前端行内文案（设计 T14 / T15 / T16）与后端 `400.message` 为**两套并存、各自真源**——前端面向表单即时反馈、后端面向 API 消费方；前端行内文案优先展示，后端 `message` 作兜底，不强制逐字统一。
+
+#### 4.6.12 Mock 与真实后端校验口径分叉（已知差异）
+
+真实后端（`AttendanceWifiValidator`）已实现下列校验；Mock 侧（`hrm-clients/packages/mock` 的 `attendanceStore.js`、`routes/attendance.js` 与 `scripts/verify-mock.mjs`）**未同步**，演示路径与真实后端**行为分叉**（以下**仅真实后端生效**）：
+
+| # | 校验维度 | 真实后端 | Mock 现状（未同步） |
+| --- | --- | --- | --- |
+| 1 | `ssid` trim 后长度 1–32 | 超 32 → `400` | 只校验非空，超长可存 |
+| 2 | `bssid` 非空须 MAC 格式 | 非法 → `400` | 不校验，非法 MAC 可存 |
+| 3 | 条数至多 1 条 | `>1` → `400` | 多条可存 |
+| 4 | `ssid` 区分大小写去重 | 重复 → `400` | 不去重 |
+
+影响：「演示（Mock）能存、线上 `400`」的认知差；`verify:mock` 现有断言仅覆盖「默认种子为 1 条」，不含上述非法输入用例。离线演示下勿据 Mock 结果判线上口径。
+
+### 4.7 补卡接口
+
+> 端点由 `AttendanceMakeupController` 提供，路径前缀 `/api/v1/attendance/makeup`。申请人一律为登录人本人，`stationId` 取登录人归属、**不接受前端传参**（防代他人申请）。
+
+#### 4.7.1 我的补卡
+
+`GET /api/v1/attendance/makeup/my`（ADMIN / STATION_ADMIN / STAFF）
+
+| 入参（Query） | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| pageNum / pageSize | int | 否 | 默认 1 / 10，`pageSize` 区间 [1,100]（越界 400） |
+| status | string | 否 | `PENDING` / `APPROVED` / `REJECTED`，其他值 400 |
+| startDate / endDate | string | 否 | `yyyy-MM-dd`（含），格式非法 400 |
+
+数据范围以登录身份收口（`employeeId` 取登录人，不接收前端传参）。响应为分页 `AttendanceMakeupVO`。错误码：400。
+
+#### 4.7.2 补卡列表
+
+`GET /api/v1/attendance/makeup/list`（ADMIN）
+
+入参同 4.7.1，另加 `stationId`（long，可选；缺省 = 全量，ADMIN 可跨站）。响应为分页 `AttendanceMakeupVO`。错误码：400。
+
+#### 4.7.3 提交补卡
+
+`POST /api/v1/attendance/makeup`（ADMIN / STATION_ADMIN / STAFF）
+
+| 入参 | 类型 | 必填 | 校验（违反即 400） |
+| ---- | ---- | ---- | ---- |
+| workDate | string | 是 | `yyyy-MM-dd`；不能晚于今天 |
+| periodIndex | int | 是 | ≥ 0（否则 9107） |
+| checkType | string | 是 | `ON` / `OFF` |
+| reason | string | 是 | 2-200 字 |
+
+校验顺序：规则 → 时段 → 重复申请 → 已有正常打卡。申请人为登录人本人，`stationId` 取登录人归属（未归属 → 400「当前账号未归属驿站，无法提交补卡」）。响应 `data` 为 `AttendanceMakeupVO`。
+
+错误码：400 / 9101（该驿站尚未配置打卡规则）/ 9107（时段不存在）/ 9108（该时段当日已有补卡申请或已正常打卡）。
+
+#### 4.7.4 审批补卡
+
+`POST /api/v1/attendance/makeup/{id}/approve`（ADMIN）
+
+| 入参 | 类型 | 必填 | 校验 |
+| ---- | ---- | ---- | ---- |
+| approved | boolean | 是 | 缺省 / 非布尔 → 400「approved 须为布尔值」 |
+| approveRemark | string | 否 | ≤ 200 字 |
+
+审批通过 → 补录打卡记录：打卡时间取该时段规定时间（上班卡取时段开始、下班卡取时段结束），`source=MAKEUP`，设备校验字段（`checkMode` / `wifiSsid` / `wifiMatched` / `longitude` / `latitude` / `distance` / `locationMatched`）统一置 `null`（不伪造命中值）。若时段被改配置导致原时段不存在，审批通过将被**拒绝**（9101），避免落下「审批通过却无打卡记录」的矛盾数据。
+
+响应 `data` 为 `AttendanceMakeupVO`（含 `id` / `employeeId` / `employeeName` / `stationId` / `stationName` / `workDate` / `periodIndex` / `periodName` / `checkType` / `reason` / `status` / `applyTime` / `approverId` / `approverName` / `approveTime` / `approveRemark`）。错误码：400 / 404（补卡申请不存在）/ 9109（补卡申请状态不允许该操作）/ 9101。
+
+### 4.8 班次接口
+
+> 端点由 `ShiftController` 提供，路径前缀 `/api/v1/shifts`。列表任何登录角色可读（非 ADMIN 静默收敛为本人驿站）；增删改仅 ADMIN。
+
+#### 4.8.1 班次列表
+
+`GET /api/v1/shifts`（ADMIN / STATION_ADMIN / STAFF）
+
+| 入参（Query） | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| stationId | long | 条件必填 | ADMIN 必填（缺省 → 400「缺少 stationId」）；非 ADMIN 静默收敛为本人驿站 |
+
+响应 `data` 为 `AttendanceShiftVO[]`，按开始时间升序。`AttendanceShiftVO`：`id` / `stationId` / `stationName` / `shiftName` / `startTime` / `endTime` / `color` / `restMinutes` / `status`。错误码：400。
+
+#### 4.8.2 新增班次
+
+`POST /api/v1/shifts`（ADMIN）
+
+| 入参 | 类型 | 必填 | 校验（违反即 400） |
+| ---- | ---- | ---- | ---- |
+| stationId | long | 是 | 须为存在驿站（4001） |
+| shiftName | string | 是 | 1-20 字符 |
+| startTime / endTime | string | 是 | `HH:mm`；`endTime` 可 `24:00`；结束须晚于开始 |
+| color | string | 是 | `#RRGGBB`（存储归一为大写） |
+| restMinutes | int | 否 | ≥ 0，缺省 0 |
+| status | int | 否 | 缺省 1 |
+
+响应 `data` 为 `AttendanceShiftVO`。错误码：400 / 4001。
+
+#### 4.8.3 编辑班次
+
+`PUT /api/v1/shifts/{id}`（ADMIN）
+
+入参同 4.8.2，但 `stationId` **忽略**（归属不可改）。响应 `data` 为 `AttendanceShiftVO`。错误码：400 / 404（班次不存在）。
+
+#### 4.8.4 删除班次
+
+`DELETE /api/v1/shifts/{id}`（ADMIN）
+
+删除受保护：**被排班引用时返回 400「该班次已被排班引用，不能删除」**（删掉会让历史排班指向空班次，打卡判定失去时间基准）。响应 `data` 为 `null`。错误码：404 / 400。
+
+### 4.9 排班接口
+
+> 端点由 `ScheduleController` 提供，路径前缀 `/api/v1/schedules`。周矩阵非 ADMIN 静默收敛为本人驿站；「我的排班」以登录身份收口。
+
+#### 4.9.1 周排班矩阵
+
+`GET /api/v1/schedules`（ADMIN / STATION_ADMIN）
+
+| 入参（Query） | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| stationId | long | 条件必填 | ADMIN 必填（缺省 → 400「缺少 stationId」）；非 ADMIN 静默收敛为本人驿站 |
+| weekStart | string | 否 | 周起始日期 `yyyy-MM-dd`（内部取该日期所在周的周一），缺省本周；格式非法 400 |
+
+响应 `data` 为 `ScheduleMatrixVO`：`weekStart` / `weekEnd` / `dates[]`（本周 7 个日期，周一→周日）/ `shifts[]`（该驿站班次，按开始时间升序）/ `employees[]`（每行含 `employeeId` / `employeeName` / `days[]`，`days` 为 7 个 `DayCell`：`workDate` / `scheduleId` / `shiftId`，未排班时为 `null`）。错误码：400。
+
+#### 4.9.2 我的排班
+
+`GET /api/v1/schedules/my`（ADMIN / STATION_ADMIN / STAFF）
+
+| 入参（Query） | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| weekStart | string | 否 | 同 4.9.1，缺省本周；格式非法 400 |
+
+以登录人身份收口。响应 `data` 为 `MyScheduleVO`：`weekStart` / `weekEnd` / `dates[]` / `list[]`（单日含 `workDate` / `scheduleId` / `shiftId` / `shiftName` / `startTime` / `endTime` / `color` / `restMinutes`，未排班时除 `workDate` 外均为 `null`）。错误码：400。
+
+#### 4.9.3 手动批量保存排班
+
+`POST /api/v1/schedules/batch`（ADMIN）
+
+| 入参 | 类型 | 必填 | 校验（违反即 400） |
+| ---- | ---- | ---- | ---- |
+| stationId | long | 是 | 缺省 → 400「缺少 stationId」 |
+| items | `Item[]` | 是 | 非空，且 ≤ **200** 条 |
+| items[].employeeId | long | 是 | 须属于该驿站（否则 400「员工 {id} 不属于该驿站」） |
+| items[].workDate | string | 是 | `yyyy-MM-dd` |
+| items[].shiftId | long | 否 | 须存在、同驿站且 `status=1`（否则 9106）；**缺省 / 空表示清空该天排班** |
+
+唯一性 = `employeeId + workDate`（同一员工同一天重复提交即覆盖）。整批为**原子提交**（`@Transactional`；与 Mock「逐条应用、中途报错留下部分改动」有意不同，实时后端不出现半成功状态）。响应 `data` 为 `{ saved, removed }`（新增 / 改派条数、清空条数）。错误码：400 / 9106。
+
+#### 4.9.4 整站排班
+
+`POST /api/v1/schedules/batch-by-station`（ADMIN）
+
+| 入参 | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| stationId | long | 是 | 须为存在驿站（4001） |
+| shiftId | long | 否 | **给定** = 手动模式（整站铺同一班次）；**缺省** = 智能模式（S3 算法） |
+| startDate / endDate | string | 是 | `yyyy-MM-dd`；`endDate` 不早于 `startDate` |
+| employeeIds | long[] | 否 | 参与员工，缺省 = 该驿站全部在职员工 |
+| skipExisting | boolean | 否 | 已存在排班是否跳过，缺省 `true`（`false` 表示覆盖） |
+| weekdays | int[] | 否 | 只排命中的星期（0=周日 … 6=周六），缺省 = 范围每天 |
+
+- **手动模式**（`shiftId` 给定）：`shiftId` 须存在、同驿站且 `status=1`（否则 9106）。
+- **智能模式**（`shiftId` 缺省）：由 S3 算法（贪心构造 + 模拟退火）逐格生成班次，尊重「每日每班最少在岗 / 连续工作上限 / 轮休均衡 / 班次均衡」约束；该驿站无启用班次时快速失败（9106）；算法超参外置于 `hrm.algo.schedule.*`（`minPerShift` / `maxConsecutiveWork` / `restCycleDays` / `weights.*` / `sa.*`），失败**降级**返回贪心解 + 违规清单（不抛异常）。
+
+响应 `data` 为 `ScheduleStationResultVO`：`created` / `skipped` / `total`（= created + skipped）/ `violations[]`（仅智能模式返回，手动模式省略）/ `fallback`（是否走了失败降级）。错误码：400 / 4001 / 9106。
+
 ***
 
 ## 5. Excel 导入模板规范
@@ -784,71 +1194,5 @@ originId, applyTime, updateTime, handleLog[]
 route / message / stack / method / path(去 query) / status / code / duration / ua`，另附 `count / firstTime / lastTime`。
 **明确不得记录**：token、密码、身份证、手机号全量、银行卡、请求/响应体原文。
 Mock 侧环形缓冲上限 200 条（FIFO），同 `(message + route + code)` 在 10 秒内重复只累加 `count`。
-
-## 8. 打卡规则 WiFi 白名单约束（`PUT /api/v1/attendance/rule`）
-
-> 说明：一期 api.md 原未收录考勤域端点；本节为**追补**，只固化本次下沉到后端的 `wifiList` 约束与失败语义，不动其它段落。
-> TODO(扩展): 考勤域正式收录时，本节并入 §4.0 接口概览（现为「24 个」，未含考勤端点）与 §2.1 分段规则（现未收录 9xxx 段），本节降为引用，避免编号/概览重叠。
-> 写权限：仅 **ADMIN** 可写（`AttendanceController.saveRule` 标 `@RequireRoles({"ADMIN"})`，与端准入一致）。请求体为差量更新：`wifiList` 缺省（`null`）= 沿用现值；显式提交空数组 = 清空白名单。
-
-### 8.1 `wifiList` 约束
-
-| 字段 | 类型 | 必填 | 约束 | 判据（违反即 400） |
-| --- | --- | --- | --- | --- |
-| `wifiList` | `WifiEntry[]` | 否 | 至多 **1** 条（每站指定一个）；缺省沿用现值 | 条数 > 1 |
-| `wifiList[].ssid` | string | 是 | trim 后长度 **1–32** 字符；保存前 trim | 空/纯空白；长度 > 32 |
-| `wifiList[].bssid` | string \| null | 否 | 可空；非空须为 MAC（`AA:BB:CC:DD:EE:FF`，6 段十六进制、**大小写不敏感**）；空串/纯空白归一为 `null`；仅留痕，不参与打卡判定 | 非空且不符格式 |
-
-**去重口径：** 同一 `wifiList` 内 `ssid` 不得重复，按**区分大小写的精确比对**（必须与打卡判定 `ssid === wifiSsid` 一致，不得改为忽略大小写）。
-**校验顺序：** 逐条字段（ssid → bssid）→ 去重 → 条数，返回首个命中项。
-
-### 8.2 校验失败语义
-
-沿用统一响应 `{ code, message, data }`，HTTP 200、`body.code = 400`（`ErrorCode.BAD_REQUEST`），`message` 明确到具体字段：
-
-| 场景 | message 示例 |
-| --- | --- |
-| `ssid` 为空 / 纯空白 | `WiFi 名称不可为空` |
-| `ssid` 超长（> 32） | `WiFi 名称须为 1-32 个字符` |
-| 条目为 `null` | `WiFi 白名单条目不可为空` |
-| `bssid` 非空且非法 | `BSSID 须为 AA:BB:CC:DD:EE:FF 格式` |
-| 同一 `wifiList` 内 `ssid` 重复 | `WiFi 名称重复：{ssid}` |
-| 条数 > 1 | `WiFi 白名单同一驿站仅允许配置 1 条` |
-
-**错误码：** 本约束**不新增错误码**，全部沿用 `ErrorCode.BAD_REQUEST`（`body.code = 400`）；如需字段级可编程分流码，后续在 **91xx 段统一规划**（现用 9101–9109），本次不动码表。
-
-**`enableWifi=true` 且白名单为空：** **允许保存**（不阻断，fail-open），属「先开开关、后配 WiFi」的分步配置正当流程；风险由前端 warning 提示承担（见设计规范 §3.4）。
-> **可用性风险登记（主智能体裁定 A，维持 fail-open）**：该态下打卡判定将因 WiFi 未命中而失败（错误码 **9103**）。缓解：前端 warning + 本接口仅 **ADMIN** 可写；**刻意不改 fail-closed**——差量更新下 `wifiList` 缺省（`null`）表示「不提交/沿用现值」、显式 `[]` 表示「清空」，二者语义可区分、服务端有能力据此阻断，但「先开开关、后配名单」属正当分步流程，故不阻断。
-
-### 8.3 旧数据 `wifiList.length > 1` 的边界口径
-
-> 实测依据（主智能体对线上测试库核查）：`kdyzgl_test.attendance_rule` 共 **8 条规则**，`json_length(wifi_list)` **全部 = 1**，`>1` 的行为 **0** 条 → **现网无历史多条数据**；本口径面向将来，属兜底。
-
-| 环节 | 口径 |
-| --- | --- |
-| **加载**（`GET /api/v1/attendance/rule`） | 对旧数据 `>1` 条**原样返回**（`toVO` / `copyWifi` 逐条复制，不裁剪、不改写），避免读路径隐式改写数据 |
-| **提交**（`PUT /api/v1/attendance/rule`） | 恒要求 **≤ 1 条**；`>1` 返回 `400`（`WiFi 白名单同一驿站仅允许配置 1 条`）——**兜底**，防止 PC 端 / 直调 API 绕过前端 |
-| **前端收敛** | 加载到 `>1` 条时**只渲染首条并提示**，由前端承担（**前端责任**）；服务端不代劳裁剪 |
-
-### 8.4 NFR 与已知差异声明
-
-- **性能无关**：本约束为**常数级纯逻辑校验**（`O(n)` 且 `n ≤ 1`）+ 本地表单态，**无性能目标需求**。
-- **可观测性**：**不新增监控埋点**，`400` 由既有统一 http 层承接。
-- **已知差异（主智能体裁定 C，不强制统一）**：前端行内文案（设计 T14 / T15 / T16）与后端 `400.message`（§8.2）为**两套并存、各自真源**——前端面向表单即时反馈、后端面向 API 消费方；**前端行内文案优先展示，后端 message 作兜底**，**不强制逐字统一**。
-
-### 8.5 Mock 与真实后端校验口径分叉（已知差异）
-
-> **TODO(扩展): Mock 侧尚未同步本约束，联调基线以真实后端为准；Mock 同步由前端侧另行落地。**
-
-真实后端（`AttendanceWifiValidator`）已补 4 条校验；Mock 侧（`hrm-clients/packages/mock` 的 `attendanceStore.js`、`routes/attendance.js` 与 `scripts/verify-mock.mjs`）**未同步**，演示路径与真实后端**行为分叉**。分叉清单（**仅真实后端生效**）：
-
-| # | 校验维度 | 真实后端 | Mock 现状（未同步） |
-| --- | --- | --- | --- |
-| 1 | `ssid` trim 后长度 1–32 | 超 32 → `400` | 只校验非空，超长可存 |
-| 2 | `bssid` 非空须 MAC 格式 | 非法 → `400` | 不校验，非法 MAC 可存 |
-| 3 | 条数至多 1 条 | `>1` → `400` | 多条可存 |
-| 4 | `ssid` 区分大小写去重 | 重复 → `400` | 不去重 |
-
-> 影响：「演示（Mock）能存、线上 `400`」的认知差；`verify:mock` 现有断言仅覆盖「默认种子为 1 条」，不含上述非法输入用例。**本批不覆盖该校验**，离线演示下勿据 Mock 结果判线上口径。
 
 
