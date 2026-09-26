@@ -18,6 +18,7 @@
 2. **三端审核** — 审核账号凭据落服务器 `/data/hrm-tmp/review-accounts-20260925121508.txt`（600）；后端 `profile=dev` → 库 `kdyzgl_test`
 3. **规则层待提交** — `.trae/rules/*`、`AGENTS.md`、`SESSION-STATE.md`、`全局规则.md`、`智能体配置.md`、`.github/CONTRIBUTING.md`、`.trae/agents|skills`
 4. **服务端 145 接口实现（方案 B·未提交）** — P0 地基 / P1 运行日志 / P2 通知 / P3 考勤排班 + 算法 S3/S4 已交付
+5. **全方面技术与安全评审（2026-09-26，只读）** — 仓库安全 20 项 / 技术质量「有条件通过 + 9 必改项」/ 服务器 18 项；报告见 `docs/{security-full-review,tech-review-full,security-server-review}-20260926.md`；**P0 整改均为 C 档，未授权未执行**
 
 ### 权威指针（**不要在本文件重复这些内容**）
 
@@ -1456,3 +1457,38 @@ B1–B7 原本都要把页面改为 `views/staff/<域>/index.vue` 并同步改 `
 2. `AttendanceAnomalyService` 接口承载待 `api.md` 定义
 3. `OPEN_AHEAD_MIN/CLOSE_DELAY_MIN`、S3 贪心补缺口放大系数、默认围栏坐标/半径：暂为等价常量，待算法参数表增键后外置
 4. 事实性纠正 4 项（`hrm.storage.export-path` vs `export-dir`、`pageNum<1` 口径、非法数值入参文案、S4 MAD=0 降级范围）见 `hrm-dev/docs/update-log.md` 本轮条目
+
+---
+
+# 全方面技术与安全评审（2026-09-26，只读）
+
+## 做了什么
+- 用户要求「全方面技术和安全评审，含服务器安全」→ 按调度规则派 **网络安全工程师**（R24）与 **架构师**（R19）并行，**主智能体经 SSH MCP 只读实测服务器**（R21 MCP 独占），共 3 份独立产物。
+- 全程**只读**：未改任何源码、未改服务器任何配置、未执行任何 C 档动作。
+
+## 产出（3 份报告）
+| 报告 | 出具方 | 结论 |
+| --- | --- | --- |
+| `hrm-dev/docs/security-full-review-20260926.md` | 网络安全工程师 | 仓库侧静态审计：**20 项（严重 1 / 高 7 / 中 6 / 低 6）** |
+| `hrm-dev/docs/tech-review-full-20260926.md` | 架构师 | 工程面技术质量：**有条件通过**，**9 条必改项**（M1~M9） |
+| `hrm-dev/docs/security-server-review-20260926.md` | 主智能体（实测） | 服务器侧：**18 项（严重 3 / 高 5 / 中 6 / 低 4）** |
+
+## 关键实测结论（服务器侧，可作为整改依据）
+1. **后端以 root 运行**（PID 986928，`-jar hrm-server.jar --spring.profiles.active=dev`，cwd `/data/www/hrm-server`，**无 systemd 托管**）→ 违反 §10.4 D 档红线。
+2. **8081 对公网开放**（UFW `ALLOW IN Anywhere` + 外部实测 OPEN），可**绕过 Nginx 的 auto-dispatch 403 与 `.map` 404**；实测 `/api/v1/auth/login` 直连 8081 返回 200。→ 与仓库侧 SEC-FULL-01（代码白名单无验签）合并为「路径成立、未做写入型实测」。
+3. **该实例 `profile=dev` 连测试库 `kdyzgl_test`**；容器 `courier-app` 为 `profile=prod` 连 `kdyzgl`；Nginx `/hrm-api/`→宿主 8081（dev/test）、`/api/`→容器（prod）。三端前端 `baseURL=/api/v1` → 线上流量走 prod 库 ✅。**双后端双库并存**须收敛。
+4. SSH `permitrootlogin yes` + `passwordauthentication yes` + 22 公网；`auth.log` Failed password **5524** 次，当日仍在爆破；Fail2Ban 已封 56 IP。
+5. **8765（宝塔 agent MCP，root）与 8888（面板，无 IP 白名单）均对公网开放**，外部实测 OPEN。
+6. `/data/www/hrm-server` 目录 **777**、`pom.xml` 666 → 任意本机用户可改「线上源码」。
+7. HTTPS **无 HSTS / X-Frame-Options / CSP**。
+8. 合规项：UFW 默认 deny、Fail2Ban、`.map` 404、`auto-dispatch` 403（Nginx）、80→301、TLS1.2/1.3 + 5 层证书链（至 2026-12-21）、acme 续期 cron、Redis 仅回环、MySQL 3307 仅容器网段、容器非 privileged、`courier-app` 非 root 用户。
+
+## 待办与待授权（**均未执行**）
+- P0（全为 **C 档**，须 §10.3 三步授权；涉公网暴露面先取安全结论、高风险升级用户裁定）：8081 收口或下线冗余实例、后端去 root 改 systemd、8765/8888 加白名单、SSH 禁 root 密码登录、`/data/www/hrm-server` 权限收敛。
+- P1：HSTS 与安全头、清理 21/888/被动端口冗余规则、MySQL 移除 172.17 绑定。
+- P2：apt 升级（110 个可升级 / 1 security）、`/apk/` autoindex 决策、源码 tar 移出、补数据库定时备份。
+- 开放问题 8 项见报告 §7（含「`/hrm-api/` 是否仍有消费者」——**下线 8081 前必须先确认**）。
+
+## 事实性纠正
+- 此前「线上无 `.map`」表述**经实测确认成立**（Nginx `return 404` + 线上产物 0 个），但**根因是部署上传排除**，本地 `dist` 仍产 map，口径以 `security-full-review` 与本节为准。
+- 「后端有 `/actuator/health`」在 8081 上返回 **401**（被鉴权拦截），端点存在性**未确认**。

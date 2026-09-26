@@ -1,5 +1,18 @@
 # 变更日志
 
+## 2026-09-26 · 全方面技术与安全评审（只读，3 份报告）
+
+**范围**：用户要求「全方面技术和安全评审，含服务器安全」→ 按调度规则并行派网络安全工程师（R24，仓库侧静态审计）与架构师（R19，工程面技术质量），主智能体经 SSH/宝塔 MCP **只读实测服务器**（R21 MCP 独占）。**全程未改源码、未改服务器配置、未执行任何 C 档动作。**
+
+**产出**：
+- `docs/security-full-review-20260926.md`（网络安全工程师）— 仓库侧 **20 项：严重 1 / 高 7 / 中 6 / 低 6**；Top1 为 `POST /api/v1/work-orders/auto-dispatch` 仍在公开白名单且无验签（Nginx 已 403，代码层未收口）。
+- `docs/tech-review-full-20260926.md`（架构师）— 六维评估，**总体「有条件通过」，9 条必改项（M1~M9）**；关键实测：方法级映射 **151** 端点、`api.md` 覆盖仅 **62/151**、main 源文件 **533**、`init.sql` 与 `V1~V15` 均 **38 表/70 索引一致**、`node run-all.mjs` **8/8 通过**。
+- `docs/security-server-review-20260926.md`（主智能体实测）— 服务器侧 **18 项：严重 3 / 高 5 / 中 6 / 低 4**。
+
+**服务器侧关键实测（非推测）**：① 后端以 **root** 运行且**无 systemd 托管**（D 档红线）；② **8081 公网开放**（UFW ANYWHERE + 外部实测 OPEN），可**绕过 Nginx 的 auto-dispatch 403 / `.map` 404**；③ 该实例 **`profile=dev` 连测试库 `kdyzgl_test`**，与容器 `courier-app`（`prod` → `kdyzgl`）**双后端双库并存**；前端 `baseURL=/api/v1` → 线上流量走 prod 库；④ SSH 允许 root 密码登录，`auth.log` 失败口令 **5524** 次（当日仍在爆破，Fail2Ban 已封 56 IP）；⑤ **8765（宝塔 agent MCP，root）与 8888（面板，无 IP 白名单）公网 OPEN**；⑥ `/data/www/hrm-server` 目录 **777**、`pom.xml` **666**；⑦ HTTPS **无 HSTS/XFO/CSP**。合规项：UFW 默认 deny、Fail2Ban、`.map` 404、`auto-dispatch` 403（Nginx 层）、80→301、TLS1.2/1.3 + 5 层证书链（至 2026-12-21）、acme 续期 cron、Redis 仅回环、MySQL 3307 仅容器网段、`courier-app` 非 root 用户。
+
+**状态**：P0/P1 整改**全为 C 档，未授权、未执行**；`/hrm-api/` 是否仍有消费者未确认（**下线 8081 前置条件**）。检查点见 `SESSION-STATE.md` 末节。
+
 ## 2026-09-26 · W3 员工自助注册：安全评估「阻断」+ 架构方案（含安全必做项闭环）
 
 **一、用户口径**：WiFi 打卡**只验 WiFi 名称**（与现状实现一致：后端按 `ssid` 精确比对，`bssid` 仅展示留痕 → **U2 视为接受"弱校验"，零代码改动**）；**按 W3 开工**员工自助注册。
