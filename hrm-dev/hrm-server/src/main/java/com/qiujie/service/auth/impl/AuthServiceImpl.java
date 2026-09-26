@@ -252,10 +252,40 @@ public class AuthServiceImpl implements AuthService {
         if (scene == SmsScene.DEVICE_VERIFY) {
             return sendDeviceVerifyCode(request, ctx);
         }
+        if (scene == SmsScene.REGISTER) {
+            return sendRegisterCode(request, ctx);
+        }
         return sendLoginCode(request, ctx, scene);
     }
 
-    /** LOGIN / PERIODIC_REAUTH 场景：按手机号定位账号并发码 */
+    /**
+     * REGISTER 场景：仅校验手机号格式与频控后发码，<b>不查账号存在性</b>（M-1）。
+     * <p>
+     * 为什么不能复用 {@link #sendLoginCode}：注册者尚未成为员工，一旦按「账号是否存在」分流，
+     * 发码响应即成为手机号枚举面（REG-02）；本场景独立分流、独立模板。
+     */
+    private SmsSendVO sendRegisterCode(SmsSendRequest request, AuthRequestContext ctx) {
+        String phone = trim(request.getPhone());
+        if (phone == null || !phone.matches(PHONE_PATTERN)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "请输入正确的 11 位手机号");
+        }
+        long now = nowEpochSeconds();
+        String deviceId = trim(request.getDeviceId());
+        // identifier = phone；employeeId = null（注册者无员工锚点，账号维度不适用）
+        if (smsCodeStore.isSendBlocked(phone, ctx.loginIp(), deviceId, null, now)) {
+            throw new BusinessException(ErrorCode.SMS_RATE_LIMITED);
+        }
+        dispatchCode(phone, SmsScene.REGISTER, phone, null, ctx, deviceId, now);
+        return buildSendVO();
+    }
+
+    /**
+     * LOGIN / PERIODIC_REAUTH 场景：按手机号定位账号并发码。
+     * <p>
+     * <b>发码恒定化（M-2 + SEC-FULL-08）</b>：对「已注册（启用）/未注册/未绑定」一律返回同一受理外观
+     * （响应体、HTTP 状态、业务码、限频口径一致）；不可投递的号码（不存在 / 非启用）作<b>静默成功</b>
+     * ——不调短信通道、不落验证码，但照常走频控计量。由此消除原 1109 / 1002 差异构成的存在性枚举面。
+     */
     private SmsSendVO sendLoginCode(SmsSendRequest request, AuthRequestContext ctx, SmsScene scene) {
         String phone = trim(request.getPhone());
         if (phone == null || !phone.matches(PHONE_PATTERN)) {
@@ -263,18 +293,19 @@ public class AuthServiceImpl implements AuthService {
         }
         Employee employee = employeeMapper.selectOne(
                 new LambdaQueryWrapper<Employee>().eq(Employee::getPhone, phone));
-        // 账号不存在与未绑手机号统一 1109，避免以不同码暴露手机号是否已注册（防枚举）
-        if (employee == null) {
-            throw new BusinessException(ErrorCode.PHONE_NOT_BOUND);
-        }
-        if (employee.getStatus() == null || employee.getStatus() != 1) {
-            throw new BusinessException(ErrorCode.ACCOUNT_DISABLED);
-        }
+        // 账号维度计数按「账号是否存在」计（与状态无关），保证启用/禁用两态的限频口径一致
+        Long accountId = employee == null ? null : employee.getId();
+        boolean deliverable = employee != null && employee.getStatus() != null && employee.getStatus() == 1;
         long now = nowEpochSeconds();
-        if (smsCodeStore.isSendBlocked(phone, ctx.loginIp(), trim(request.getDeviceId()), employee.getId(), now)) {
+        String deviceId = trim(request.getDeviceId());
+        if (smsCodeStore.isSendBlocked(phone, ctx.loginIp(), deviceId, accountId, now)) {
             throw new BusinessException(ErrorCode.SMS_RATE_LIMITED);
         }
-        dispatchCode(employee.getPhone(), scene, phone, employee.getId(), ctx, trim(request.getDeviceId()), now);
+        if (deliverable) {
+            dispatchCode(employee.getPhone(), scene, phone, accountId, ctx, deviceId, now);
+        } else {
+            smsCodeStore.recordSend(phone, ctx.loginIp(), deviceId, accountId, now);
+        }
         return buildSendVO();
     }
 
@@ -602,7 +633,11 @@ public class AuthServiceImpl implements AuthService {
                 trim(device.getOsVersion()), trim(device.getAppVersion()));
     }
 
-    /** 短信场景归一：空白/未知一律按 LOGIN（未知值不阻断登录，与前端 Mock 缺省语义一致） */
+    /**
+     * 短信场景归一（M-1 / SEC-FULL-18 定稿）：
+     * 空白/缺省 → {@code LOGIN}（保既有前端契约）；<b>非空非法值 → 400 拒绝</b>（fail-closed，
+     * 不再回落 LOGIN，消除「任意串进入通道」的 fail-open 放大）。
+     */
     private SmsScene resolveScene(String raw) {
         String value = trim(raw);
         if (value == null || value.isBlank()) {
@@ -614,8 +649,7 @@ public class AuthServiceImpl implements AuthService {
                 return scene;
             }
         }
-        log.warn("未知短信场景，按 LOGIN 处理：{}", raw);
-        return SmsScene.LOGIN;
+        throw new BusinessException(ErrorCode.BAD_REQUEST, "不支持的短信场景");
     }
 
     /** 读取并校验二次验证票据（失效 → 1107 + 明确文案，与前端 Mock 一致） */
@@ -633,6 +667,17 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(ErrorCode.ACCOUNT_DISABLED);
         }
         return employee;
+    }
+
+    /**
+     * 校验并消费指定场景的短信验证码（供注册等非登录场景复用）。
+     * <p>
+     * 复用登录同源的 {@link #verifySmsCode} 口径（未申请/过期 → 1102；达尝试上限 → 1103 并作废；
+     * 通过即一次性作废）与测试环境万能码策略，避免注册链路另造一套校验实现。
+     */
+    @Override
+    public void verifySceneCode(SmsScene scene, String identifier, String code) {
+        verifySmsCode(scene, identifier, code);
     }
 
     /**

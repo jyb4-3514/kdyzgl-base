@@ -177,9 +177,10 @@ async function handleSubmit() {
         <div class="hr-profile__head">
           <span class="hr-profile__name">{{ profile.employeeName }}</span>
           <StatusTag v-if="profile.leaveDate" :dict="LEAVE_DICT" value="LEFT" variant="outline" />
+          <!-- 岗位为只读展示（Q4 裁定 / §8.4）：不在本抽屉提供编辑入口，避免产生第二写点 -->
           <span class="hr-profile__meta"
-            >{{ profile.stationName || '—' }} · {{ profile.deptName || '—' }} · 入职
-            {{ profile.entryDate || '—' }}</span
+            >{{ profile.stationName || '—' }} · {{ profile.deptName || '—' }} · 岗位 {{ profile.position || '—' }} ·
+            入职 {{ profile.entryDate || '—' }}</span
           >
         </div>
 

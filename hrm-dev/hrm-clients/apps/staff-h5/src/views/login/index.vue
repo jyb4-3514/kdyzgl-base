@@ -300,6 +300,11 @@ const forgotTip = ref('')
 function onForgot() {
   forgotTip.value = '请联系管理员重置密码'
 }
+
+/** 员工注册入口（registration-ui-design §2）：独立公开页，不改登录主路径 */
+function onRegister() {
+  router.push('/register')
+}
 </script>
 
 <template>
@@ -461,6 +466,12 @@ function onForgot() {
       <button type="button" class="login__link" @click="onForgot">忘记密码？</button>
     </div>
     <p v-if="forgotTip" class="login__tip" role="status">{{ forgotTip }}</p>
+
+    <!-- 员工注册入口：卡片外的次级动作，不与登录主按钮争主视觉（§2.2） -->
+    <div class="login__register">
+      <p class="login__register-text">还没有账号？</p>
+      <button type="button" class="login__register-btn" @click="onRegister">员工注册</button>
+    </div>
 
     <footer class="login__compliance">
       <p v-if="demoEnabled" class="login__simulate">演示环境 · 短信不会真实发送</p>
@@ -685,6 +696,29 @@ function onForgot() {
 
 .login__compliance {
   margin-top: var(--sp-5);
+}
+
+/* 注册入口：引导语（--text-3，纯底色上 4.83:1）+ 描边次级按钮（44px，不用主按钮实底，§2.2） */
+.login__register {
+  margin-top: var(--sp-5);
+  text-align: center;
+}
+
+.login__register-text {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--text-3);
+}
+
+.login__register-btn {
+  min-height: var(--touch-min);
+  padding: 0 var(--sp-4);
+  font-size: var(--fs-body);
+  color: var(--color-primary);
+  background: var(--surface-card);
+  border: 1px solid var(--color-primary-icon);
+  border-radius: var(--r-sm);
 }
 
 /* 演示标识：复用既有 --state-simulate-*（与 warning 语义分离），不新增 Token */

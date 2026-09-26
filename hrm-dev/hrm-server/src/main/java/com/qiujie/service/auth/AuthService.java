@@ -6,6 +6,7 @@ import com.qiujie.dto.auth.LoginRequest;
 import com.qiujie.dto.auth.SmsLoginRequest;
 import com.qiujie.dto.auth.SmsSendRequest;
 import com.qiujie.service.auth.support.AuthRequestContext;
+import com.qiujie.service.support.sms.SmsScene;
 import com.qiujie.vo.auth.CaptchaVO;
 import com.qiujie.vo.auth.LoginVO;
 import com.qiujie.vo.auth.MeVO;
@@ -50,8 +51,19 @@ public interface AuthService {
 
     // ==================== M4 新增：短信通道与设备信任 ====================
 
-    /** A1 短信验证码下发（公开；按场景 LOGIN / DEVICE_VERIFY / PERIODIC_REAUTH 分流） */
+    /** A1 短信验证码下发（公开；按场景 LOGIN / DEVICE_VERIFY / PERIODIC_REAUTH / REGISTER 分流） */
     SmsSendVO sendSms(SmsSendRequest request, AuthRequestContext ctx);
+
+    /**
+     * 校验并消费指定场景的短信验证码（供注册等非登录场景复用）。
+     * <p>
+     * 契约与校验口径与登录链路同源：无效/过期 → 1102；尝试超限 → 1103；通过即一次性作废。
+     *
+     * @param scene      短信场景（注册调用 {@link SmsScene#REGISTER}）
+     * @param identifier 场景内定位键（本场景为手机号）
+     * @param code       待校验验证码
+     */
+    void verifySceneCode(SmsScene scene, String identifier, String code);
 
     /**
      * A2 短信验证码登录（公开；短信本身即第二因子，登录即视为设备受信）。

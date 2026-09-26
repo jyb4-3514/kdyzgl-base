@@ -3,6 +3,7 @@ import {
   Calendar,
   Cell,
   CellGroup,
+  Checkbox,
   Empty,
   Field,
   Form,
@@ -43,6 +44,7 @@ import 'vant/es/button/style/index'
 import 'vant/es/calendar/style/index'
 import 'vant/es/cell/style/index'
 import 'vant/es/cell-group/style/index'
+import 'vant/es/checkbox/style/index'
 import 'vant/es/dialog/style/index'
 import 'vant/es/empty/style/index'
 import 'vant/es/field/style/index'
@@ -77,6 +79,7 @@ const components = [
   Calendar,
   Cell,
   CellGroup,
+  Checkbox,
   Empty,
   Field,
   Form,

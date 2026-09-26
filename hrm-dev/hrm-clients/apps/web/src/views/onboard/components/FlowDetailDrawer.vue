@@ -55,6 +55,13 @@ async function load() {
   try {
     flow.value = isOnboarding.value ? await getOnboarding(props.flowId) : await getOffboarding(props.flowId)
     stepForm.value = { remark: '' }
+    // 定岗步预填（registration-ui-design §8.2）：优先注册意向（registration.intentPosition，R-8 新增），
+    // 退回流程既有 position；审批人可改。registration 缺失时不影响既有行为。
+    const step = flow.value.steps.find((item) => item.key === flow.value.currentStepKey)
+    if (isOnboarding.value && step && step.key === 'ASSIGN_STATION') {
+      const intent = (flow.value.registration && flow.value.registration.intentPosition) || flow.value.position || ''
+      stepForm.value.position = intent
+    }
   } catch (e) {
     error.value = true
   } finally {
@@ -124,6 +131,8 @@ function stepPayload() {
 }
 
 function validateStep() {
+  // 定岗岗位前端必填（Q3 裁定 / §8.2）：后端仍允许缺省取意向，此处拦在提交前，避免空岗建档
+  if (NEEDS_ASSIGN.value && !String(stepForm.value.position || '').trim()) return '请填写岗位名称'
   if (NEEDS_ACCOUNT.value) {
     if (!/^[A-Za-z][A-Za-z0-9_]{3,29}$/.test(String(stepForm.value.username || '')))
       return '登录账号须为字母开头、4-30 位字母数字下划线'
@@ -263,8 +272,8 @@ async function handleReject(reason) {
                 </div>
 
                 <div v-if="NEEDS_ASSIGN" class="flow-detail__grid">
-                  <el-form-item label="岗位名称">
-                    <el-input v-model="stepForm.position" placeholder="如：快递员" />
+                  <el-form-item label="岗位名称" required>
+                    <el-input v-model="stepForm.position" maxlength="50" show-word-limit placeholder="如：快递员" />
                   </el-form-item>
                   <el-form-item label="角色">
                     <el-select v-model="stepForm.role" clearable style="width: 100%">

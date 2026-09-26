@@ -29,6 +29,13 @@ public final class HrConstants {
     public static final String FLOW_STATUS_COMPLETED = "COMPLETED";
     public static final String FLOW_STATUS_REJECTED = "REJECTED";
 
+    // ==================== 流程业务来源（M-9 / V18） ====================
+
+    /** 后台创建（存量行默认值） */
+    public static final String FLOW_SOURCE_ADMIN = "ADMIN";
+    /** 员工自助注册 */
+    public static final String FLOW_SOURCE_SELF_REGISTER = "SELF_REGISTER";
+
     // ==================== 步骤状态 ====================
 
     public static final String STEP_STATUS_PENDING = "PENDING";

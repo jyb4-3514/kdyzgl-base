@@ -65,6 +65,7 @@ public class AliyunSmsSender implements SmsSender {
             case LOGIN -> aliyun.getTemplateCodeLogin();
             case DEVICE_VERIFY -> aliyun.getTemplateCodeDevice();
             case PERIODIC_REAUTH -> aliyun.getTemplateCodeReauth();
+            case REGISTER -> aliyun.getTemplateCodeRegister();
         };
     }
 }

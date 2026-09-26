@@ -1,5 +1,6 @@
 package com.qiujie.vo.hr;
 
+import com.qiujie.vo.registration.RegistrationSummaryVO;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -90,4 +91,10 @@ public class HrFlowVO {
     private Long operatorId;
 
     private String operatorName;
+
+    /**
+     * 注册申请子对象（R-8 详情新增，方案 §3.2）：
+     * 仅自助注册流程的<b>详情</b>接口填充（列表不填充，避免 N+1）；无关联申请单时为 null。
+     */
+    private RegistrationSummaryVO registration;
 }

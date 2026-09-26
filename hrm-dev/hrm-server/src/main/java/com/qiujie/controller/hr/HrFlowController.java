@@ -6,6 +6,7 @@ import com.qiujie.common.Result;
 import com.qiujie.dto.hr.HrFlowQuery;
 import com.qiujie.dto.hr.HrFlowRejectRequest;
 import com.qiujie.dto.hr.HrOffboardingCreateRequest;
+import com.qiujie.dto.hr.HrOnboardingApproveRequest;
 import com.qiujie.dto.hr.HrOnboardingCreateRequest;
 import com.qiujie.dto.hr.HrStepCompleteRequest;
 import com.qiujie.service.hr.HrFlowService;
@@ -62,6 +63,17 @@ public class HrFlowController {
     public Result<HrFlowVO> completeOnboardingStep(@PathVariable Long id, @PathVariable String key,
                                                    @RequestBody(required = false) HrStepCompleteRequest request) {
         return Result.ok(hrFlowService.completeOnboardingStep(id, key, request));
+    }
+
+    /**
+     * R-6 审批通过（聚合联动，仅 ADMIN）：单事务按序推进 5 步（不含 DONE，不自动激活），
+     * 回写注册申请终态并清凭据；激活由后续 {@code DONE} 二次确认（U-01）。
+     */
+    @RequireRoles({"ADMIN"})
+    @PostMapping("/onboarding/{id}/approve")
+    public Result<HrFlowVO> approveOnboarding(@PathVariable Long id,
+                                              @Valid @RequestBody HrOnboardingApproveRequest request) {
+        return Result.ok(hrFlowService.approveOnboarding(id, request));
     }
 
     /** 驳回入职流程 */

@@ -131,7 +131,8 @@ onMounted(loadFirst)
               <van-icon name="arrow" aria-hidden="true" />
             </div>
             <div class="list-item__meta">
-              {{ item.stationName || '总部' }} · {{ item.deptName || '未分配部门' }} · 入职 {{ item.entryDate || '-' }}
+              {{ item.stationName || '总部' }} · {{ item.deptName || '未分配部门' }} · 岗位
+              {{ item.position || '—' }} · 入职 {{ item.entryDate || '-' }}
             </div>
             <div class="list-item__meta tabular-nums">
               {{ item.contractTypeLabel || '未建档'

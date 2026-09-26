@@ -7,6 +7,7 @@ import com.qiujie.enums.ErrorCode;
 import com.qiujie.exception.BusinessException;
 import com.qiujie.mapper.DepartmentMapper;
 import com.qiujie.mapper.EmployeeMapper;
+import com.qiujie.mapper.EmployeeRegistrationMapper;
 import com.qiujie.mapper.HrFlowMapper;
 import com.qiujie.mapper.HrFlowStepMapper;
 import com.qiujie.mapper.HrProfileMapper;
@@ -44,7 +45,8 @@ class HrFlowServiceStepTest {
         hrFlowMapper = mock(HrFlowMapper.class);
         hrFlowStepMapper = mock(HrFlowStepMapper.class);
         payrollSettlementPort = mock(PayrollSettlementPort.class);
-        service = new HrFlowServiceImpl(hrFlowMapper, hrFlowStepMapper, mock(HrProfileMapper.class),
+        service = new HrFlowServiceImpl(hrFlowMapper, hrFlowStepMapper, mock(EmployeeRegistrationMapper.class),
+                mock(HrProfileMapper.class),
                 mock(HrSalaryMapper.class), mock(EmployeeMapper.class), mock(DepartmentMapper.class),
                 mock(StationMapper.class), mock(EmployeeService.class), mock(HrSalaryWriter.class),
                 payrollSettlementPort, new HrProperties());

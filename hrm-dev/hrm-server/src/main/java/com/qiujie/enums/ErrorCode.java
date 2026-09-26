@@ -205,6 +205,19 @@ public enum ErrorCode {
     HR_SALARY_NOT_EXISTS(9305, "薪资档案不存在"),
     /** 离职薪资结算未完成，不可离岗 */
     HR_SETTLEMENT_UNFINISHED(9306, "离职薪资结算未完成，不可离岗"),
+    /**
+     * 同一手机号已有进行中的入职/注册申请（注册重复提交）。
+     * 仅比对「申请单」侧 SUBMITTED，不含「是否已注册」判定（M-2 严格形态：提交段不区分是否已注册，故无 9310）。
+     */
+    REGISTRATION_DUPLICATE(9307, "该手机号已有进行中的入职申请，请勿重复提交"),
+    /**
+     * 入职申请不存在（按申请编号查询）。
+     * <p><b>一期保留、暂不启用</b>：R-3 已收敛为 ADMIN-only 按 applyNo 查，未命中按 404 语义返回，
+     * 故本码暂不抛出；列保留供后续自助查询端点启用（registration-design §3.3）。
+     */
+    REGISTRATION_NOT_EXISTS(9308, "入职申请不存在"),
+    /** 申请状态不允许该操作（审批/驳回时 registration.status 非 SUBMITTED，或流程/申请侧状态不一致） */
+    REGISTRATION_STATUS_INVALID(9309, "申请状态不允许该操作"),
 
     // ==================== 94xx 财务/工资单 ====================
 

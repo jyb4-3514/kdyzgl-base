@@ -33,6 +33,13 @@ const routes = [
     component: () => import('../views/login/index.vue'),
     meta: { public: true, title: '登录' }
   },
+  // 员工自助注册（registration-ui-design §2/§3.1）：公开路由，独立页；已登录访问由下方守卫重定向回首页
+  {
+    path: '/register',
+    name: 'staffRegister',
+    component: () => import('../views/register/index.vue'),
+    meta: { public: true, title: '员工注册' }
+  },
 
   /* ==================== 员工端（STATION_ADMIN / STAFF） ==================== */
   { path: '/staff', redirect: '/staff/home' },

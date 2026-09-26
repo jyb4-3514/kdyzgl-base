@@ -7,10 +7,12 @@ import com.qiujie.dto.employee.EmployeeStatusRequest;
 import com.qiujie.dto.hr.HrFlowQuery;
 import com.qiujie.dto.hr.HrFlowRejectRequest;
 import com.qiujie.dto.hr.HrOffboardingCreateRequest;
+import com.qiujie.dto.hr.HrOnboardingApproveRequest;
 import com.qiujie.dto.hr.HrOnboardingCreateRequest;
 import com.qiujie.dto.hr.HrStepCompleteRequest;
 import com.qiujie.dto.hr.SalaryAllowanceItem;
 import com.qiujie.entity.Employee;
+import com.qiujie.entity.EmployeeRegistration;
 import com.qiujie.entity.HrAllowance;
 import com.qiujie.entity.HrFlow;
 import com.qiujie.entity.HrFlowStep;
@@ -21,6 +23,7 @@ import com.qiujie.enums.ErrorCode;
 import com.qiujie.exception.BusinessException;
 import com.qiujie.mapper.DepartmentMapper;
 import com.qiujie.mapper.EmployeeMapper;
+import com.qiujie.mapper.EmployeeRegistrationMapper;
 import com.qiujie.mapper.HrFlowMapper;
 import com.qiujie.mapper.HrFlowStepMapper;
 import com.qiujie.mapper.HrProfileMapper;
@@ -35,6 +38,8 @@ import com.qiujie.service.hr.support.HrConstants;
 import com.qiujie.service.hr.support.HrFlowStepGuard;
 import com.qiujie.service.hr.support.HrSalaryValidator;
 import com.qiujie.service.hr.support.HrValidateSupport;
+import com.qiujie.service.registration.support.RegistrationConstants;
+import com.qiujie.service.registration.support.RegistrationRetentionPolicy;
 import com.qiujie.util.DesensitizeUtil;
 import com.qiujie.util.FieldValidator;
 import com.qiujie.util.PasswordUtil;
@@ -42,6 +47,7 @@ import com.qiujie.util.UserContext;
 import com.qiujie.vo.hr.HrFlowProgressVO;
 import com.qiujie.vo.hr.HrFlowStepVO;
 import com.qiujie.vo.hr.HrFlowVO;
+import com.qiujie.vo.registration.RegistrationSummaryVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -79,6 +85,7 @@ public class HrFlowServiceImpl implements HrFlowService {
 
     private final HrFlowMapper hrFlowMapper;
     private final HrFlowStepMapper hrFlowStepMapper;
+    private final EmployeeRegistrationMapper registrationMapper;
     private final HrProfileMapper hrProfileMapper;
     private final HrSalaryMapper hrSalaryMapper;
     private final EmployeeMapper employeeMapper;
@@ -100,7 +107,10 @@ public class HrFlowServiceImpl implements HrFlowService {
     @Override
     @Transactional(readOnly = true)
     public HrFlowVO onboardingDetail(Long id) {
-        return toFlowVO(requireFlow(id, HrConstants.FLOW_TYPE_ONBOARDING));
+        HrFlowVO vo = toFlowVO(requireFlow(id, HrConstants.FLOW_TYPE_ONBOARDING));
+        // R-8：审批详情附 registration 子对象（仅明细，避免列表 N+1；出参脱敏面在 R-3）
+        vo.setRegistration(registrationSummary(vo.getId()));
+        return vo;
     }
 
     @Override
@@ -121,10 +131,81 @@ public class HrFlowServiceImpl implements HrFlowService {
                 ? LocalDate.now() : LocalDate.parse(request.getExpectedEntryDate().trim()));
         flow.setRemark(blankToNull(request.getRemark()));
         flow.setStatus(HrConstants.FLOW_STATUS_IN_PROGRESS);
+        flow.setSource(HrConstants.FLOW_SOURCE_ADMIN);
         flow.setOperatorId(UserContext.getUserId());
         flow.setOperatorName(currentOperatorName());
         insertFlowWithSteps(flow, HrConstants.ONBOARDING_STEPS);
         return toFlowVO(flow);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long createSelfRegisterOnboarding(String realName, String phone, Long intentStationId, String intentPosition) {
+        HrFlow flow = new HrFlow();
+        flow.setFlowType(HrConstants.FLOW_TYPE_ONBOARDING);
+        flow.setCandidateName(trim(realName));
+        flow.setPhone(trim(phone));
+        flow.setGender(0);
+        flow.setStationId(intentStationId);
+        flow.setPosition(blankToNull(intentPosition));
+        // 角色恒 STAFF：注册不可注入角色（M-3/§5.4-2）
+        flow.setRole("STAFF");
+        flow.setExpectedEntryDate(LocalDate.now());
+        flow.setStatus(HrConstants.FLOW_STATUS_IN_PROGRESS);
+        // M-9：自助来源可区分；U-13：无后台操作人（留痕走 source + submit 时间）
+        flow.setSource(HrConstants.FLOW_SOURCE_SELF_REGISTER);
+        flow.setOperatorId(null);
+        flow.setOperatorName(null);
+        insertFlowWithSteps(flow, HrConstants.ONBOARDING_STEPS);
+        return flow.getId();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public HrFlowVO approveOnboarding(Long id, HrOnboardingApproveRequest request) {
+        validateApproveRequest(request);
+        // 事务首条：锁 hr_flow 单行（§11.7 固定加锁顺序 ①hr_flow → ②registration），消除并发双建/双定薪
+        HrFlow flow = hrFlowMapper.selectByIdForUpdate(id);
+        if (flow == null || !HrConstants.FLOW_TYPE_ONBOARDING.equals(flow.getFlowType())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "入职流程不存在");
+        }
+        // 重复审批 → 9303（既有一致口径）
+        if (!HrConstants.FLOW_STATUS_IN_PROGRESS.equals(flow.getStatus())) {
+            throw new BusinessException(ErrorCode.HR_ONBOARDING_STATUS_INVALID,
+                    "流程已" + nullToEmpty(HrConstants.flowStatusLabel(flow.getStatus())) + "，不可审批");
+        }
+        // ② registration 行锁：仅自助注册流程支持聚合审批（申请侧状态守卫 9309）
+        EmployeeRegistration registration = registrationMapper.selectByFlowIdForUpdate(flow.getId());
+        if (registration == null) {
+            throw new BusinessException(ErrorCode.REGISTRATION_STATUS_INVALID, "该流程无关联注册申请，不支持聚合审批");
+        }
+        if (!RegistrationConstants.STATUS_SUBMITTED.equals(registration.getStatus())) {
+            throw new BusinessException(ErrorCode.REGISTRATION_STATUS_INVALID);
+        }
+        // 惰性超时（§1.3：查询/审批前判）：已过失效基准的申请不得再审批（终态由清理任务落库）
+        if (RegistrationRetentionPolicy.isExpired(registration.getExpireTime(), LocalDateTime.now())) {
+            throw new BusinessException(ErrorCode.REGISTRATION_STATUS_INVALID, "申请已超时失效");
+        }
+
+        // 按序推进 5 步（复用既有 completeOnboardingStep，内部含 markStepDone；不含 DONE，M-4 不激活）
+        completeOnboardingStep(flow.getId(), "SUBMIT_MATERIALS", null);
+        completeOnboardingStep(flow.getId(), "HR_REVIEW", null);
+        completeOnboardingStep(flow.getId(), HrConstants.ONBOARD_CREATE_ACCOUNT, createBodyForApprove(request, flow));
+        completeOnboardingStep(flow.getId(), HrConstants.ONBOARD_ASSIGN_STATION, assignBodyForApprove(request));
+        completeOnboardingStep(flow.getId(), HrConstants.ONBOARD_SET_SALARY, salaryBodyForApprove(request));
+
+        // 回读推进后流程：employeeId 已回填、currentStepKey==DONE、status 仍 IN_PROGRESS、employee.status 仍 0
+        HrFlow updated = hrFlowMapper.selectById(flow.getId());
+        // registration 终态回写 + 清凭据（与主流程同事务，全成功或全回滚）
+        registration.setStatus(RegistrationConstants.STATUS_APPROVED);
+        registration.setApprovedEmployeeId(updated == null ? null : updated.getEmployeeId());
+        registration.setApproveTime(LocalDateTime.now());
+        registration.setPasswordHash(null);
+        registration.setQueryTokenHash(null);
+        registrationMapper.updateById(registration);
+        log.info("注册申请审批通过：applyNo={}, flowNo={}, employeeId={}", registration.getApplyNo(),
+                updated == null ? null : updated.getFlowNo(), updated == null ? null : updated.getEmployeeId());
+        return toFlowVO(updated);
     }
 
     @Override
@@ -157,10 +238,19 @@ public class HrFlowServiceImpl implements HrFlowService {
     @Transactional(rollbackFor = Exception.class)
     public HrFlowVO rejectOnboarding(Long id, HrFlowRejectRequest request) {
         String reason = validateReject(request);
-        HrFlow flow = requireFlow(id, HrConstants.FLOW_TYPE_ONBOARDING);
+        // 首条锁 hr_flow（§11.7 固定加锁顺序 ①hr_flow → ②registration）
+        HrFlow flow = hrFlowMapper.selectByIdForUpdate(id);
+        if (flow == null || !HrConstants.FLOW_TYPE_ONBOARDING.equals(flow.getFlowType())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "入职流程不存在");
+        }
         if (!HrConstants.FLOW_STATUS_IN_PROGRESS.equals(flow.getStatus())) {
             throw new BusinessException(ErrorCode.HR_ONBOARDING_STATUS_INVALID,
                     "流程已" + nullToEmpty(HrConstants.flowStatusLabel(flow.getStatus())) + "，不可驳回");
+        }
+        // R-9：自助注册流程同事务联动申请单（存在则校验状态为 SUBMITTED，否则 9309）
+        EmployeeRegistration registration = registrationMapper.selectByFlowIdForUpdate(flow.getId());
+        if (registration != null && !RegistrationConstants.STATUS_SUBMITTED.equals(registration.getStatus())) {
+            throw new BusinessException(ErrorCode.REGISTRATION_STATUS_INVALID);
         }
         LocalDateTime now = LocalDateTime.now();
         flow.setStatus(HrConstants.FLOW_STATUS_REJECTED);
@@ -171,6 +261,14 @@ public class HrFlowServiceImpl implements HrFlowService {
         // 已建档员工一并禁用：流程被驳回却留着可登录账号属于自相矛盾的数据
         if (flow.getEmployeeId() != null) {
             updateEmployeeStatus(flow.getEmployeeId(), 0, "入职流程 " + flow.getFlowNo() + " 已驳回");
+        }
+        if (registration != null) {
+            registration.setStatus(RegistrationConstants.STATUS_REJECTED);
+            registration.setRejectReason(reason);
+            // 终态清凭据（§2.2 凭据卫生）
+            registration.setPasswordHash(null);
+            registration.setQueryTokenHash(null);
+            registrationMapper.updateById(registration);
         }
         return toFlowVO(flow);
     }
@@ -213,6 +311,7 @@ public class HrFlowServiceImpl implements HrFlowService {
         flow.setReason(trim(request.getReason()));
         flow.setLastWorkDate(LocalDate.parse(request.getLastWorkDate().trim()));
         flow.setStatus(HrConstants.FLOW_STATUS_IN_PROGRESS);
+        flow.setSource(HrConstants.FLOW_SOURCE_ADMIN);
         flow.setOperatorId(UserContext.getUserId());
         flow.setOperatorName(currentOperatorName());
         insertFlowWithSteps(flow, HrConstants.OFFBOARDING_STEPS);
@@ -271,6 +370,10 @@ public class HrFlowServiceImpl implements HrFlowService {
         }
         if (usernameExists(username)) {
             throw new BusinessException(ErrorCode.USERNAME_EXISTS);
+        }
+        // M-5：建档补手机号活跃查重（与 V16 DB 活跃唯一双保险；DB 约束为最终防线）
+        if (phoneExistsActive(flow.getPhone())) {
+            throw new BusinessException(ErrorCode.PHONE_EXISTS);
         }
         if (!FieldValidator.isStrongPassword(body.getPassword())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "初始密码须为 8-20 位且同时包含字母和数字");
@@ -359,7 +462,11 @@ public class HrFlowServiceImpl implements HrFlowService {
             employee.setStationId(body.getStationId());
         }
         if (body.getPosition() != null) {
-            flow.setPosition(trim(body.getPosition()));
+            // 岗位双写唯一入口（U-07/§11.9）：employee.position 为权威事实，hr_flow.position 为流程留痕；
+            // 禁止他处单独写 employee.position（防注册侧岗位注入）
+            String position = trim(body.getPosition());
+            employee.setPosition(position);
+            flow.setPosition(position);
         }
         if (body.getRole() != null) {
             if (!HrConstants.ASSIGNABLE_ROLES.contains(body.getRole())) {
@@ -712,6 +819,106 @@ public class HrFlowServiceImpl implements HrFlowService {
     private boolean usernameExists(String username) {
         return employeeMapper.selectCount(new LambdaQueryWrapper<Employee>()
                 .eq(Employee::getUsername, username)) > 0;
+    }
+
+    /** 手机号活跃查重（@TableLogic 自动限定 is_deleted=0，故为「活跃」口径；命中 → 2003） */
+    private boolean phoneExistsActive(String phone) {
+        if (phone == null || phone.isBlank()) {
+            return false;
+        }
+        return employeeMapper.selectCount(new LambdaQueryWrapper<Employee>()
+                .eq(Employee::getPhone, phone)) > 0;
+    }
+
+    /** R-6 入参兜底校验（注解校验之外的语义校验：密码强度 / 角色白名单 / 薪资必填 / 用户名格式） */
+    private void validateApproveRequest(HrOnboardingApproveRequest request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "审批入参不能为空");
+        }
+        if (!HrValidateSupport.textLen(request.getPosition(), 1, 50)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "请填写岗位（1-50 字）");
+        }
+        if (request.getDeptId() == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "请选择部门");
+        }
+        if (!FieldValidator.isStrongPassword(request.getInitialPassword())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "初始密码须为 8-20 位且同时包含字母和数字");
+        }
+        if (request.getRole() != null && !HrConstants.ASSIGNABLE_ROLES.contains(request.getRole())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "role 仅支持 STATION_ADMIN / STAFF");
+        }
+        // U-10：审批定薪三项必填（防工资单静默为 0）→ isCreate=true 强制三项校验
+        String salaryError = HrSalaryValidator.validate(request.getBasicSalary(), request.getPostSalary(),
+                request.getPerformanceBase(), request.getAllowances(), request.getEffectiveDate(), null, true);
+        if (salaryError != null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, salaryError);
+        }
+        if (!HrValidateSupport.isBlank(request.getRemark()) && !HrValidateSupport.textLen(request.getRemark(), 0, 200)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "备注不可超过 200 字");
+        }
+        String username = trim(request.getUsername());
+        if (!HrValidateSupport.isBlank(username) && !FieldValidator.isValidUsername(username)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "登录账号须为字母开头、4-30 位字母数字下划线");
+        }
+    }
+
+    /** R-6：把 ADMIN 审批入参映射为 CREATE_ACCOUNT 步骤体（username 缺省按 U-11 规则生成） */
+    private HrStepCompleteRequest createBodyForApprove(HrOnboardingApproveRequest request, HrFlow flow) {
+        HrStepCompleteRequest body = new HrStepCompleteRequest();
+        String username = trim(request.getUsername());
+        body.setUsername(HrValidateSupport.isBlank(username) ? defaultUsername(flow.getPhone()) : username);
+        body.setPassword(request.getInitialPassword());
+        body.setDeptId(request.getDeptId());
+        body.setStationId(request.getStationId() != null ? request.getStationId() : flow.getStationId());
+        body.setProbationMonths(request.getProbationMonths());
+        body.setContractType(request.getContractType());
+        body.setRemark(request.getRemark());
+        return body;
+    }
+
+    /** R-6：把 ADMIN 审批入参映射为 ASSIGN_STATION 步骤体（岗位必填 → 触发员工档案双写） */
+    private HrStepCompleteRequest assignBodyForApprove(HrOnboardingApproveRequest request) {
+        HrStepCompleteRequest body = new HrStepCompleteRequest();
+        body.setDeptId(request.getDeptId());
+        body.setStationId(request.getStationId());
+        body.setPosition(request.getPosition());
+        body.setRole(request.getRole());
+        body.setRemark(request.getRemark());
+        return body;
+    }
+
+    /** R-6：把 ADMIN 审批入参映射为 SET_SALARY 步骤体 */
+    private HrStepCompleteRequest salaryBodyForApprove(HrOnboardingApproveRequest request) {
+        HrStepCompleteRequest body = new HrStepCompleteRequest();
+        body.setBasicSalary(request.getBasicSalary());
+        body.setPostSalary(request.getPostSalary());
+        body.setPerformanceBase(request.getPerformanceBase());
+        body.setAllowances(request.getAllowances());
+        body.setEffectiveDate(request.getEffectiveDate());
+        body.setRemark(request.getRemark());
+        return body;
+    }
+
+    /** U-11：缺省登录账号 = {@code u} + 手机号（满足 {@code ^[a-zA-Z][a-zA-Z0-9_]{3,29}$}） */
+    private String defaultUsername(String phone) {
+        return "u" + (phone == null ? "" : phone.trim());
+    }
+
+    /** R-8：申请单摘要（无关联申请单返回 null，保持既有后台流程出参不变） */
+    private RegistrationSummaryVO registrationSummary(Long flowId) {
+        EmployeeRegistration registration = registrationMapper.selectOne(new LambdaQueryWrapper<EmployeeRegistration>()
+                .eq(EmployeeRegistration::getFlowId, flowId));
+        if (registration == null) {
+            return null;
+        }
+        RegistrationSummaryVO summary = new RegistrationSummaryVO();
+        summary.setApplyNo(registration.getApplyNo());
+        summary.setIntentPosition(registration.getApplyPosition());
+        summary.setAgreementVersion(registration.getAgreementVersion());
+        summary.setSource(registration.getSource());
+        summary.setCreateTime(registration.getCreateTime());
+        summary.setStatus(registration.getStatus());
+        return summary;
     }
 
     private boolean hasInProgressOffboarding(Long employeeId) {

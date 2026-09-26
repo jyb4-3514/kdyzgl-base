@@ -28,6 +28,13 @@ class PublicEndpointsTest {
     }
 
     @Test
+    void registrationSubmitIsPublicButDetailIsNot() {
+        // B3/M-6：R-2 提交为唯一净新增公开端点；R-3 详情 ADMIN-only，严禁进入白名单
+        assertTrue(PublicEndpoints.isPublic("/api/v1/registration"));
+        assertFalse(PublicEndpoints.isPublic("/api/v1/registration/RG-20260926-0001"));
+    }
+
+    @Test
     void deviceManagementEndpointsAreNotPublic() {
         // C1/C2 需登录态且仅限本人设备，严禁进入白名单
         assertFalse(PublicEndpoints.isPublic("/api/v1/auth/devices"));
@@ -45,8 +52,8 @@ class PublicEndpointsTest {
     }
 
     @Test
-    void whitelistHasExactlySixEntries() {
-        // M4：登录 + 企微自动派单（预留）+ A1/A2/B2/D1 = 6
-        assertEquals(6, PublicEndpoints.all().size());
+    void whitelistHasExactlySevenEntries() {
+        // M4：登录 + 企微自动派单（预留）+ A1/A2/B2/D1 = 6；B3 注册提交净新增 1 → 7
+        assertEquals(7, PublicEndpoints.all().size());
     }
 }

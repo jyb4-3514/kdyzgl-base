@@ -18,6 +18,8 @@
             <el-descriptions-item label="手机号">{{ employee.phone || '—' }}</el-descriptions-item>
             <el-descriptions-item label="归属驿站">{{ employee.stationName || '—' }}</el-descriptions-item>
             <el-descriptions-item label="部门">{{ employee.deptName || '—' }}</el-descriptions-item>
+            <!-- 岗位为档案只读展示（Q4 裁定 / §8.4）：权威事实 employee.position 仅由定岗流程双写，本页不提供编辑 -->
+            <el-descriptions-item label="岗位">{{ employee.position || '—' }}</el-descriptions-item>
             <el-descriptions-item label="终审角色">{{ roleLabel }}</el-descriptions-item>
             <el-descriptions-item label="入职日期">{{ employee.entryDate || '—' }}</el-descriptions-item>
             <el-descriptions-item label="账号状态">{{

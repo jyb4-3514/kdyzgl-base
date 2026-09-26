@@ -126,6 +126,7 @@ hrm:
   #      / code-ttl-seconds 验证码有效期(秒) / send-interval-seconds 同号最小间隔(秒)
   #      / daily-limit-per-phone 同号每日上限 / ip-hourly-limit 同 IP 每小时上限
   #      / device-hourly-limit 同设备每小时上限 / account-daily-limit 同账号每日上限
+  #      / global-daily-limit 全局每日上限(成本兜底，M-7)
   #      / max-verify-attempts 单码最大尝试次数
   #      / dev-fixed-code 降级通道固定码 / dev-universal-code 测试环境万能码(默认空=关闭,生产非空即启动失败)
   sms:
@@ -137,6 +138,7 @@ hrm:
       template-code-login: change_me_sms_tpl_login
       template-code-device: change_me_sms_tpl_device
       template-code-reauth: change_me_sms_tpl_reauth
+      template-code-register: change_me_sms_tpl_register
     code-length: 6
     code-ttl-seconds: 300
     send-interval-seconds: 60
@@ -144,6 +146,8 @@ hrm:
     ip-hourly-limit: 20
     device-hourly-limit: 10
     account-daily-limit: 10
+    # 全局每日发送上限（M-7/S-2 成本兜底）：在四维之外阻断「持续换号」放大成本；<=0 视为不限
+    global-daily-limit: 500
     max-verify-attempts: 5
     # 降级通道（provider=none，仅非生产）使用的开发固定验证码；生产必须 aliyun（否则启动失败），本值不会生效。
     # 与前端演示资产固定码一致，便于联调；绝不打印到日志/响应体。
@@ -169,6 +173,15 @@ hrm:
   hr:
     default-probation-months: 3     # 入职建档默认试用期（月），对齐 Mock 建档默认
     default-contract-months: 3      # 入职建档默认合同期限（月），对齐 Mock 建档默认
+
+  # 员工自助注册（B3/B4，registration-design §1.3/§11.2 M-8）：失效天数 / 留存期 / 提交日上限
+  # 逐键：expire-days 申请失效天数(create_time+N，惰性判定，默认 7)
+  #      / retention-days 已拒绝/已失效留存天数(清理任务，默认 30)
+  #      / submit-daily-limit-per-phone 同号注册提交每日上限(默认 5；<=0 不限)
+  registration:
+    expire-days: 7
+    retention-days: 30
+    submit-daily-limit-per-phone: 5
 
   # 存储路径（C-11）：业务上传与导出临时目录落数据盘（架构 1.4.8）
   storage:

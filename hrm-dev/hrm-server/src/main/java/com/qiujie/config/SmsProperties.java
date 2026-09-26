@@ -66,6 +66,14 @@ public class SmsProperties {
     private int accountDailyLimit = 10;
 
     /**
+     * 全局每日发送上限（次）。默认 500；取值范围：正整数；{@code <=0} 视为不限。
+     * <p>
+     * M-7/S-2：在既有四维（手机号 / IP / 设备 / 账号）之外叠加的<b>成本兜底</b>——即使攻击者持续换号、换 IP、换设备，
+     * 也无法突破当日总发送量。键 {@code hrm:sms:limit:global}（1 天 TTL，惰性重置）。
+     */
+    private int globalDailyLimit = 500;
+
+    /**
      * 单次验证码最大校验尝试次数。默认 5；取值范围：正整数。
      * 达上限即作废验证码（防暴力猜测）。
      */
@@ -113,5 +121,7 @@ public class SmsProperties {
         private String templateCodeDevice = "";
         /** 周期重认证场景模板 Code */
         private String templateCodeReauth = "";
+        /** 员工自助注册场景模板 Code（M-1 新增场景 REGISTER） */
+        private String templateCodeRegister = "";
     }
 }

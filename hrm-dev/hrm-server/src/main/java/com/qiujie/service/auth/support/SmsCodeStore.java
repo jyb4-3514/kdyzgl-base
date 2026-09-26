@@ -39,6 +39,8 @@ public class SmsCodeStore {
     private static final String LIMIT_IP_PREFIX = "hrm:sms:limit:ip:";
     private static final String LIMIT_DEVICE_PREFIX = "hrm:sms:limit:device:";
     private static final String LIMIT_ACCOUNT_PREFIX = "hrm:sms:limit:account:";
+    /** 全局日上限计数器（M-7/S-2 成本兜底；单键计数，1 天 TTL 惰性重置） */
+    private static final String LIMIT_GLOBAL_KEY = "hrm:sms:limit:global";
 
     private static final long ONE_HOUR_SECONDS = 3600L;
     private static final long ONE_DAY_SECONDS = 86400L;
@@ -86,7 +88,7 @@ public class SmsCodeStore {
     /**
      * 是否应拦截本次发送（任一维度命中即拦截 → 1101）。
      * <p>
-     * 判定顺序：同手机号最小间隔 → 同手机号每日上限 → 同 IP 每小时 → 同设备每小时 → 同账号每日。
+     * 判定顺序：同手机号最小间隔 → 同手机号每日上限 → 同 IP 每小时 → 同设备每小时 → 同账号每日 → 全局每日。
      * <b>读取不写入</b>：命中拦截时不消耗计数（与前端 Mock「仅成功发送才更新 lastSend」一致），
      * 通过后由 {@link #recordSend} 统一入账。
      */
@@ -109,9 +111,14 @@ public class SmsCodeStore {
                 smsProperties.getDeviceHourlyLimit())) {
             return true;
         }
-        return employeeId != null
+        if (employeeId != null
                 && SmsThrottlePolicy.dailyLimitExceeded((int) counter(LIMIT_ACCOUNT_PREFIX + employeeId),
-                smsProperties.getAccountDailyLimit());
+                smsProperties.getAccountDailyLimit())) {
+            return true;
+        }
+        // 全局日上限兜底：不区分手机号/账号，阻断「持续换号」把成本放大到不可控
+        return SmsThrottlePolicy.dailyLimitExceeded((int) counter(LIMIT_GLOBAL_KEY),
+                smsProperties.getGlobalDailyLimit());
     }
 
     /** 记一次成功发送：刷新「最近发送时刻」并按各维度累计计数（TTL：手机号/账号 1 天，IP/设备 1 小时） */
@@ -129,6 +136,8 @@ public class SmsCodeStore {
         if (deviceId != null && !deviceId.isBlank()) {
             incrementWithTtl(LIMIT_DEVICE_PREFIX + deviceId, ONE_HOUR_SECONDS);
         }
+        // 全局计量与手机号同 TTL（1 天），保证「读」与「写」的窗口口径一致
+        incrementWithTtl(LIMIT_GLOBAL_KEY, ONE_DAY_SECONDS);
     }
 
     /** 建议的重发等待秒数（前端倒计时对齐用；取同手机号最小间隔） */

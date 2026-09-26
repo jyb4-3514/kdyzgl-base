@@ -4,6 +4,7 @@ import com.qiujie.common.PageResult;
 import com.qiujie.dto.hr.HrFlowQuery;
 import com.qiujie.dto.hr.HrFlowRejectRequest;
 import com.qiujie.dto.hr.HrOffboardingCreateRequest;
+import com.qiujie.dto.hr.HrOnboardingApproveRequest;
 import com.qiujie.dto.hr.HrOnboardingCreateRequest;
 import com.qiujie.dto.hr.HrStepCompleteRequest;
 import com.qiujie.vo.hr.HrFlowVO;
@@ -29,6 +30,26 @@ public interface HrFlowService {
 
     /** 发起入职流程 */
     HrFlowVO createOnboarding(HrOnboardingCreateRequest request);
+
+    /**
+     * R-2：为员工自助注册创建入职审批单（供注册服务在<b>同一事务</b>内调用）。
+     * <p>
+     * 硬约束：{@code source=SELF_REGISTER}、{@code operatorId/Name=null}（U-13）、{@code role} 恒 {@code STAFF}
+     * （注册不可注入角色，M-3）、步骤全 {@code PENDING}；返回新建流程 id（供回填 {@code registration.flow_id}）。
+     *
+     * @param realName       姓名（→ candidate_name）
+     * @param phone          手机号（→ phone）
+     * @param intentStationId 意向驿站（→ station_id，仅意向）
+     * @param intentPosition 意向岗位（→ position，仅意向，可空）
+     */
+    Long createSelfRegisterOnboarding(String realName, String phone, Long intentStationId, String intentPosition);
+
+    /**
+     * R-6 审批通过（聚合联动，仅 ADMIN）：单事务内按序推进 5 步
+     * {@code SUBMIT_MATERIALS → HR_REVIEW → CREATE_ACCOUNT → ASSIGN_STATION → SET_SALARY}
+     * （<b>不含 DONE</b>，M-4 不自动激活），并回写 {@code registration} 终态、清空凭据。
+     */
+    HrFlowVO approveOnboarding(Long id, HrOnboardingApproveRequest request);
 
     /** 办理入职步骤（按序守卫；建档/分配/定薪/完成各自的副作用） */
     HrFlowVO completeOnboardingStep(Long id, String key, HrStepCompleteRequest request);

@@ -13,7 +13,14 @@ public enum SmsScene {
     /** 新设备登录二次验证（DEVICE_VERIFY） */
     DEVICE_VERIFY,
     /** 周期重认证（会话到期前以短信延续/重建会话） */
-    PERIODIC_REAUTH;
+    PERIODIC_REAUTH,
+    /**
+     * 员工自助注册（公开提交前置验证，M-1）。
+     * <p>
+     * 与 LOGIN 的关键差异：<b>不判定手机号是否已注册</b>（注册者尚未成为员工），
+     * 故不查 {@code employee}、不产生存在性差异；独立场景亦隔离模板与频控口径。
+     */
+    REGISTER;
 
     /** 是否为已知场景（防任意串进入通道调用） */
     public static boolean isValid(String value) {

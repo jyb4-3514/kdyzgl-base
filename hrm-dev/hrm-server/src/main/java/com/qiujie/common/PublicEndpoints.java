@@ -36,15 +36,28 @@ public final class PublicEndpoints {
     /** D1 图形验证码（可选；captcha 开启时使用） */
     private static final String AUTH_CAPTCHA = "/api/v1/auth/captcha";
 
+    // ==================== B3 员工自助注册新增公开端点（registration-design §3.1，M-6） ====================
+
+    /**
+     * 提交注册申请（R-2，**唯一净新增公开端点**）。
+     * <p>
+     * 定稿（U-04/U-06）：公开面仅 R-1（复用 {@code /auth/sms/send}，加 {@code scene=REGISTER}）与 R-2 两条；
+     * R-3 转 ADMIN-only、R-4 取消、R-5 取消公开 → 本清单<b>净新增 1 条</b>。
+     * <p>
+     * 安全要求：扩大外部攻击面（刷单/枚举），公网暴露前须过 P0.5 安全评估（security-registration-review M-1~M-9）。
+     */
+    private static final String REGISTRATION_SUBMIT = "/api/v1/registration";
+
     /**
      * 公开端点集合。
      * <p>
      * 注：{@code /api/v1/auth/devices}（C1）与 {@code /api/v1/auth/devices/{deviceId}}（C2）
-     * <b>不在</b>白名单——须登录态且仅限本人设备。
+     * <b>不在</b>白名单——须登录态且仅限本人设备；{@code /api/v1/registration/{applyNo}}（R-3）亦不在白名单（ADMIN-only）。
      */
     private static final Set<String> PATHS = Set.of(
             AUTH_LOGIN, WORK_ORDER_AUTO_DISPATCH,
-            AUTH_SMS_SEND, AUTH_SMS_LOGIN, AUTH_DEVICE_VERIFY, AUTH_CAPTCHA);
+            AUTH_SMS_SEND, AUTH_SMS_LOGIN, AUTH_DEVICE_VERIFY, AUTH_CAPTCHA,
+            REGISTRATION_SUBMIT);
 
     private PublicEndpoints() {
     }

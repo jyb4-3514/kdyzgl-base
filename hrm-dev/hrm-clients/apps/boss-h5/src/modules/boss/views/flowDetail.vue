@@ -5,7 +5,7 @@ import { showSuccessToast } from 'vant'
 import ActionBar from '@kdyzgl/shared/ui/ActionBar.vue'
 import PageNav from '@kdyzgl/shared/ui/PageNav.vue'
 import PageState from '@kdyzgl/shared/ui/PageState.vue'
-import StationPicker from '@/components/StationPicker.vue'
+import StationPicker from '@kdyzgl/shared/ui/StationPicker.vue'
 import { bossConfirm } from '../components/bossConfirm.js'
 // FlowSteps 与 PayrollStatusSteps 是同一份实现（纵向步骤条），此处按业务语义重命名引用，避免写第二份
 import FlowSteps from '@/components/PayrollStatusSteps.vue'

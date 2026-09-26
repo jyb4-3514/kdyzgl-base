@@ -41,6 +41,14 @@ public class Employee {
     /** 归属驿站（逻辑外键 station.id，二期数据同步基础） */
     private Long stationId;
 
+    /**
+     * 岗位（员工档案属性，权威事实；V19 方案乙新增，允许 NULL 表示「未登记」）。
+     * <p>
+     * 与 {@code hr_flow.position} 双写、以本字段为权威；<b>双写点唯一</b>：
+     * 仅 {@code HrFlowServiceImpl#assignForFlow}（同方法同事务）可写，禁止他处单独写本列（防岗位注入）。
+     */
+    private String position;
+
     /** 角色：ADMIN / STATION_ADMIN(二期) / STAFF */
     private String role;
 

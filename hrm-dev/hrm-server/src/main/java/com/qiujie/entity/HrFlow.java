@@ -98,6 +98,13 @@ public class HrFlow {
     /** 当前待办步骤键（游标） */
     private String currentStepKey;
 
+    /**
+     * 业务来源（M-9/V18 新增）：{@code ADMIN}=后台创建，{@code SELF_REGISTER}=员工自助注册。
+     * <p>
+     * 与 {@code employee_registration.source}（注册渠道 {@code STAFF_H5}）语义不同、并存。
+     */
+    private String source;
+
     /** 备注 */
     private String remark;
 
