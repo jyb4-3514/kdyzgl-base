@@ -1,5 +1,29 @@
 # 变更日志
 
+## 2026-09-26 · MVP 裁剪（下架 KPI / 包裹族 / 同步 / 占位页）+ 三端重新部署上线（前端 + C 档部署，主智能体执行）
+
+**一、需求裁定（用户）**：先做**最小可用版本**——砍掉 **KPI 模块**、**包裹族整体**（`/web/parcel`、`/web/parcel/sync`、`/boss/trend`、`/boss/parcel/:id`、`/staff/parcel`、`/staff/parcel/:id`、`/staff/pickup`、`/staff/sync`）与 `/web/` 5 个疑似占位页（`performance` / `money` / `permission` / `system` / `knowledge`）；**砍掉的模块前端完全不展示**。未答复项按激进裁法执行：`/boss/rank`（驿站排行）随 KPI 族下架；`/boss/alerts`（异常预警）**保留**。
+
+**二、实现**（前端工程师，commit `96b2064`，39 文件：web 16 / boss 13 / staff 10）：
+- 三端 `src/router/index.js` 共删 **18 条**路由记录；新增断言「被砍路径一律 404」「保留路径仍可达」。
+- **不删源文件**：被砍页面 `.vue` 与 api **保留磁盘、零引用**（构建产物内 `kpi|parcel|pickup|sync|rank|trend|performance|knowledge` chunk 命中 **0**）；后期迭代放开路由即可恢复。
+- 入口与展示同步收起：web 菜单 `config/menu.js`（分组「包裹作业→作业管理」）、看板由 6 块收敛为 2 块（工单指标 + 组织规模）、员工档案删 KPI 卡、系统设置删「已预置包裹总数」、通知 `BIZ_ROUTE` 删 parcel/sync_task；boss 宫格删「包裹趋势/驿站排行」、待办组删「采集异常」、首页删 4 包裹指标卡与趋势/同步健康度/驿站 TOP3、「我的」删 KPI cell、`alerts` 由四组收敛为「超时未处理工单」一组；staff 宫格删「本站包裹/取件核销/我的 KPI」、首页删包裹指标卡与 KPI 取数、「我的数据」删 KPI 与同步状态入口。
+- **隐性依赖修复**：web `ROLE_LANDING.STATION_ADMIN` 原为 `/parcel`（下架后会 404）→ 改为 `/attendance`；员工档案 `activeMenu` 与 breadcrumb 同步去 KPI。
+
+**三、验收基线变更（需求裁剪，非迁就代码）**：删 / 改写用例 **16 条**并逐条登记——web 看板 7 条（`dayOverDay` 环比 3 + `buildRankRows` 3 + 取数 4）与 e2e `A5-1`；boss e2e `05-render.spec.js` **整文件**（唯一用例指向 `/boss/trend`）；staff e2e `A5-7`；boss `todo.spec.js` 4 处改写（改以零值组做对照）。**保留页断言未弱化**（守卫 4 条、Tabbar、宫格项数原样通过）。
+
+**四、独立复核（主智能体，不采信自述）**：三端 `npm run test` = **102 / 108 / 234 全过**；`npm run build:prod` 三端 EXIT=0（32.7s / 14.7s / 14.2s）；本地产物被砍 chunk 命中 0；e2e（子智能体实跑）19 / 11 / 17 passed。
+
+**五、部署（C 档，用户指令「先达到上线前我在域名预览」）**：`build:prod` → 打 tar（**上传时排除 `*.map`**）→ 上传 `/data/hrm-tmp/{web,staff,boss}.tar.gz` → 服务器以 `mv` 将旧目录移入 `/data/backup/hrm-clients-20260926032430/` 后解压新产物（**未用 `rm`，旧版完整保留**）。**未改任何 Nginx 配置**。
+
+**六、线上验证**：`/web/ /staff/ /boss/` **200**；深链 `/web/employee` `/staff/attendance` `/boss/payroll` **200**；`*.map` **404**；`/` `/health` `/apk/` **200**；80 → **301**；线上文件数 web **140** / staff **68** / boss **77**，**`.map` = 0**；**入口 asset 哈希与本地构建逐字一致**（`index-CbvobW6q.js`、`index-BhuARSKO.js`）→ 证明确为本次构建产物。
+
+**七、回滚**：把 `/data/backup/hrm-clients-20260926032430/{web,staff,boss}` 换回 `/data/www/download/hrm-clients/` 同名目录即可（无数据变更、不重建容器）。
+
+**八、事实性纠正（下游纠正上游）**：三端生产构建为 `sourcemap:'hidden'`——**本地 dist 确实产出 map**（web 85 / boss 40 / staff 36）；此前「build 零 map」表述不准确，**准确口径：构建产 map，部署上传时排除，故线上 0 map**，且 Nginx 对 `.map` 另返回 404（双保险）。
+
+**九、遗留**：① 财务计薪规则 `PayrollRuleEditor.vue` / `PayrollDetailTable.vue` 仍含「KPI 得分」计薪来源项（属计薪契约与 Mock 断言范围，**保留未动**，待口径确认）；② 被砍模块的休眠单测（web `sync/*.spec.js`）仍通过但无引用，`TODO(扩展): 二期恢复包裹/同步时统一启用或清理`；③ `/web/` 看板如后续要恢复指标需待包裹族解冻。
+
 ## 2026-09-25 · 两处既有死链修复 + U-A/U-B 落地 + ADR v3 回填与复评（C 档修复，主智能体执行；含 R1 口径回填）
 
 **一、既有死链修复（C 档，用户授权「全部修」；非 B7/B8 引入）**：① **`/admin/` 由恒 500 改为 `return 301 /web/`** —— 原 `alias /usr/share/nginx/html/admin/`（容器内该目录**不存在**）+ `try_files $uri $uri/ /admin/index.html` 形成 `rewrite or internal redirection cycle`；一期 PC 端已由 `apps/web` 承接（含只读引用的 9 张一期页面），故 301 至 `/web/`。载体：宿主 `/data/www/kdyzzhxt/courier-server/nginx/nginx.conf`；**改动 1 个既有 location（6 行 → 6 行）**，备份 `nginx.conf.20260925123334`，`nginx -t` 通过后 `-s reload`；**原地改写（`cat >`）保 inode**。② **`/download` 由 404 改为 200** —— **只增宿主 `/data/www/download/index.html`（1773 字节）**：客户端/入口下载页（三端入口 + APK 待发布说明），**未改任何 Nginx 配置**。**验证**：`/admin/`、`/admin/employee`、`/admin/index.html` 均 **301**；`/download` **200**；**回归全不变** —— `/` 200、`/web/` `/staff/` `/boss/` 200、`/health` 200、`/apk/` 200、`/.well-known/` 200、`/api/actuator/health` 403、`/hrm-api/v1/auth/login` 200、**`.map` 仍 404**。**执行期注意**：reload 后新旧 worker 并存，需**复测一次**（首次测得的 `/admin/` 500 为瞬态，日志确认最终为 301）。
