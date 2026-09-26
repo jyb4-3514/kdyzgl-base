@@ -13,6 +13,7 @@ import com.qiujie.mapper.StationMapper;
 import com.qiujie.service.attendance.AttendanceRuleService;
 import com.qiujie.service.attendance.support.AttendancePeriodResolver;
 import com.qiujie.service.attendance.support.AttendanceSupport;
+import com.qiujie.service.attendance.support.AttendanceWifiValidator;
 import com.qiujie.vo.attendance.AttendanceRuleVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -182,10 +183,15 @@ public class AttendanceRuleServiceImpl implements AttendanceRuleService {
         if (body.getAllowLateMin() != null && !(body.getAllowLateMin() >= 0)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "允许延后打卡分钟数须不小于 0");
         }
-        if (body.getWifiList() != null && body.getWifiList().stream()
-                .anyMatch(w -> w == null || AttendanceSupport.isBlank(w.getSsid()))) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "WiFi 白名单须为 [{ssid, bssid}] 数组");
+        // WiFi 白名单：长度 / MAC 格式 / 重复 / 条数（至多 1 条）四项下沉校验，与前端先行约束对称（防直调 API 绕过）
+        String wifiError = AttendanceWifiValidator.validate(body.getWifiList());
+        if (wifiError != null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, wifiError);
         }
+        // 刻意不对「enableWifi=true 且白名单为空」做 fail-closed 阻断：设计规范 §3.4 明确该状态只警告不阻断，
+        // 以放行"先开开关、后配 WiFi"的分步配置。差量语义：wifiList=null 表示不提交/沿用现值、[] 表示清空，
+        // 二者可区分，服务端有能力据此 fail-closed，但按产品口径刻意不阻断。风险由前端 warning + 仅 ADMIN 可写收敛。
+        // 可用性风险：该态下打卡将因 WiFi 未命中失败（9103），见 api.md §8.2 风险登记。
     }
 
     /**
@@ -251,14 +257,8 @@ public class AttendanceRuleServiceImpl implements AttendanceRuleService {
             payload.setMatchMode(body.getMatchMode());
         }
         if (body.getWifiList() != null) {
-            List<WifiEntry> wifi = new ArrayList<>();
-            for (WifiEntry w : body.getWifiList()) {
-                WifiEntry entry = new WifiEntry();
-                entry.setSsid(w.getSsid().trim());
-                entry.setBssid(w.getBssid() == null ? null : String.valueOf(w.getBssid()));
-                wifi.add(entry);
-            }
-            payload.setWifiList(wifi);
+            // 归一收口到 AttendanceWifiValidator：ssid trim、bssid 空串归一为 null（与校验判据同源，避免口径分叉）
+            payload.setWifiList(AttendanceWifiValidator.normalize(body.getWifiList()));
         }
         if (body.getLongitude() != null) {
             payload.setLongitude(body.getLongitude());
