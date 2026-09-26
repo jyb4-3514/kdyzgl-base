@@ -86,7 +86,7 @@ async function onPickup() {
 
 function onReportAbnormal() {
   // TODO(扩展): 包裹异常上报接口（api.md 与 demo-design.md 7.4 均未定义），待二期补充后改为表单弹层提交
-  showToast('异常上报接口待二期定义，演示暂不接入')
+  showToast('异常上报接口待二期定义，暂未接入')
 }
 
 function onAction(key) {

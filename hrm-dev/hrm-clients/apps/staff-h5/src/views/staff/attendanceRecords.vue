@@ -16,6 +16,9 @@ import { clockOf, dayStatusOf, dayText, formatDate, monthShiftMap } from '../../
  */
 const pad = (n) => String(n).padStart(2, '0')
 
+/** 演示构建才标注「记录按今天为锚点生成」；生产态记录来自真实后端，不出现该口径（整块剔除） */
+const demoEnabled = import.meta.env.VITE_MOCK_ENABLED === 'true'
+
 /** 一天的状态：多时段下按「异常 > 迟到 > 早退 > 正常」取最严重的一项，与单时段口径一致 */
 const STATUS_PRIORITY = ['ABNORMAL', 'LATE', 'EARLY_LEAVE', 'NORMAL']
 
@@ -159,7 +162,9 @@ onMounted(load)
             {{ day.modeRow.distance == null ? '未知' : `${day.modeRow.distance} 米` }}
           </p>
         </ListItemCard>
-        <p class="tip">记录为演示数据，按「今天」为锚点生成；异常卡（校验未通过）不计入出勤</p>
+        <p class="tip">
+          <template v-if="demoEnabled">记录为演示数据，按「今天」为锚点生成；</template>异常卡（校验未通过）不计入出勤
+        </p>
       </PageState>
     </div>
   </div>

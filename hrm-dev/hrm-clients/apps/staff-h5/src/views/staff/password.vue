@@ -14,6 +14,9 @@ import { useNotifyStore } from '../../stores/notify.js'
  */
 const PASSWORD_RULE = /^(?=.*[A-Za-z])(?=.*\d)[\s\S]{8,20}$/
 
+/** 演示态才提示「改密写 Mock」；生产态不出现演示口径（编译期常量使演示分支整块剔除） */
+const demoEnabled = import.meta.env.VITE_MOCK_ENABLED === 'true'
+
 const auth = useAuthStore()
 const notify = useNotifyStore()
 const router = useRouter()
@@ -92,8 +95,10 @@ async function onSubmit() {
       </div>
 
       <p class="tip">
-        修改成功后当前登录态立即失效，需用新密码重新登录。<br />
-        演示提示：改密会写入 Mock 内存数据，回入口页点「重置演示数据」可恢复统一演示密码。
+        修改成功后当前登录态立即失效，需用新密码重新登录。
+        <template v-if="demoEnabled"
+          ><br />演示提示：改密会写入 Mock 内存数据，回入口页点「重置演示数据」可恢复统一演示密码。</template
+        >
       </p>
     </div>
   </div>

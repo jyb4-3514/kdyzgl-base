@@ -28,6 +28,9 @@ const emit = defineEmits(['refresh'])
 const router = useRouter()
 const { submitting, result, submit } = useCheckIn()
 
+/** 演示构建才有「去打卡页开启演示辅助」引导；生产态整块剔除，不出现演示入口 */
+const demoEnabled = import.meta.env.VITE_MOCK_ENABLED === 'true'
+
 const rule = computed(() => (props.status ? props.status.rule : null))
 const periods = computed(() => (props.status && props.status.periods) || [])
 const progress = computed(() => attendanceProgress(props.status))
@@ -124,7 +127,7 @@ async function onAction() {
     <!-- 打卡判定结果就近反馈：失败要说清「卡在哪、下一步去哪」，不放任一个 Toast 飘过 -->
     <p v-if="result && !result.ok" class="att-bar__result" role="alert">
       {{ result.hint }}
-      <button v-if="result.demoGuide" type="button" class="att-bar__link" @click="router.push('/staff/attendance')">
+      <button v-if="demoEnabled && result.demoGuide" type="button" class="att-bar__link" @click="router.push('/staff/attendance')">
         去打卡页开启演示辅助
       </button>
     </p>

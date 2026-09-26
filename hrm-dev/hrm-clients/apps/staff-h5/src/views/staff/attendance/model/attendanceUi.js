@@ -56,22 +56,17 @@ export const WIFI_MOCK_HINT =
   '浏览器没有读取真实 SSID 的标准能力，此处为按规则白名单填充的模拟值；安装安卓壳后由 HrmBridge.getWifiInfo() 读取真实 SSID'
 export const WIFI_REAL_HINT = '由安卓壳读取的真实 WiFi'
 
-/** 定位自查卡文案 */
+/** 定位自查卡文案（生产口径：不引导演示手段；「演示辅助」入口只在演示态页面上出现，见 attendance.vue） */
 export const LOCATE_BTN_TEXT = '重新定位'
 export const LOCATE_NO_VALUE = '尚未获取到定位'
 export const LOCATE_IN_FENCE = '在围栏内'
 export const LOCATE_OUT_FENCE = '超出围栏'
-export const LOCATE_UNSUPPORTED = '当前环境不提供定位能力，可开启「演示辅助」开关跑通演示'
+export const LOCATE_UNSUPPORTED = '当前环境不提供定位能力，请联系管理员'
 export const LOCATE_DENIED = '定位未授权：请在浏览器/系统设置中允许定位后重试'
-export const LOCATE_FAILED = '定位获取失败，可开启「演示辅助」开关跑通演示'
+export const LOCATE_FAILED = '定位获取失败，请稍后重试'
 
-/** 演示辅助：显式标注为演示手段，不与真实能力混淆（硬约束，不做隐形后门）。整组导出，避免壳为一个开关解构四个常量 */
-export const DEMO_ASSIST = {
-  title: '演示辅助（非真实能力）',
-  badge: '演示辅助 · 围栏中心',
-  switchLabel: '演示辅助开关：开启后按围栏中心坐标提交打卡',
-  hint: 'Mock 围栏坐标是虚构值，手机真实定位必然在围栏外。开启后按围栏中心坐标提交，仅用于演示打卡通过路径；关闭则提交真实定位。'
-}
+/** 演示辅助定位标记（仅演示态可达）：显式标注来源，不与真实定位混淆（硬约束，不做隐形后门） */
+export const DEMO_ASSIST_BADGE = '演示辅助 · 围栏中心'
 
 /**
  * 班次 VO → ShiftCard props 的展示映射
@@ -125,7 +120,7 @@ export const positionTextOf = (rule, position, demoAssist) => {
 
 /** 定位标记：演示辅助与围栏内同为「可提交」的确定态（ok 样式），超出围栏才是 warn */
 export const locateBadgeOf = (inFence, demoAssist) => ({
-  text: demoAssist ? DEMO_ASSIST.badge : inFence ? LOCATE_IN_FENCE : LOCATE_OUT_FENCE,
+  text: demoAssist ? DEMO_ASSIST_BADGE : inFence ? LOCATE_IN_FENCE : LOCATE_OUT_FENCE,
   tone: demoAssist || inFence ? 'success' : 'danger'
 })
 

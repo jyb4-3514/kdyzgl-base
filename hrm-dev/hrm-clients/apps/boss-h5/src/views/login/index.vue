@@ -464,7 +464,9 @@ function onForgot() {
 
     <footer class="login__compliance">
       <p v-if="demoEnabled" class="login__simulate">演示环境 · 短信不会真实发送</p>
-      <p class="login__agree">登录即表示同意《服务条款》与《隐私与安全说明》，本页仅为演示。</p>
+      <p class="login__agree">
+        登录即表示同意《服务条款》与《隐私与安全说明》<template v-if="demoEnabled">，本页仅为演示</template>。
+      </p>
     </footer>
   </div>
 </template>

@@ -13,7 +13,10 @@ import { useMakeupForm } from './attendance/composables/useMakeupForm.js'
 import { useCheckIn } from '../../composables/useCheckIn.js'
 import { useAuthStore } from '../../stores/auth.js'
 import { periodWindowText } from '../../utils/attendance.js'
-import { DEMO_ASSIST, LOCATE_BTN_TEXT, MORE_LINKS, shiftProps } from './attendance/model/attendanceUi.js'
+import { LOCATE_BTN_TEXT, MORE_LINKS, shiftProps } from './attendance/model/attendanceUi.js'
+
+/** 演示辅助只在演示构建出现：生产态没有「演示辅助」入口（编译期常量，演示分支整块剔除） */
+const demoEnabled = import.meta.env.VITE_MOCK_ENABLED === 'true'
 
 /** 员工端打卡页（壳）：取数 + 四态 + 区块编排；仅认 /attendance/status 的 periods（不推演时段）。
  * 补卡唯一性 = 员工+日期+时段+卡类型；WiFi 模拟值与演示辅助均显式标注；区块 DOM 细节全在 attendance/ 下的组件里。 */
@@ -88,16 +91,18 @@ onUnmounted(att.stopClock)
           <van-button class="verify__btn" size="small" plain type="primary" :loading="att.locating" @click="att.locate">
             {{ LOCATE_BTN_TEXT }}
           </van-button>
-          <!-- 演示辅助：整行可点，开关自身仍可聚焦（键盘可操作） -->
-          <div class="assist" @click="att.toggleAssist">
+          <!-- 演示辅助：整行可点，开关自身仍可聚焦（键盘可操作）；仅演示态渲染 -->
+          <div v-if="demoEnabled" class="assist" @click="att.toggleAssist">
             <div class="assist__text">
-              <p class="assist__title">{{ DEMO_ASSIST.title }}</p>
-              <p class="assist__hint">{{ DEMO_ASSIST.hint }}</p>
+              <p class="assist__title">演示辅助（非真实能力）</p>
+              <p class="assist__hint">
+                Mock 围栏坐标是虚构值，手机真实定位必然在围栏外。开启后按围栏中心坐标提交，仅用于演示打卡通过路径；关闭则提交真实定位。
+              </p>
             </div>
             <van-switch
               :model-value="att.demoAssist"
               size="24px"
-              :aria-label="DEMO_ASSIST.switchLabel"
+              aria-label="演示辅助开关：开启后按围栏中心坐标提交打卡"
               @keydown.enter.prevent="att.toggleAssist"
               @keydown.space.prevent="att.toggleAssist"
             />

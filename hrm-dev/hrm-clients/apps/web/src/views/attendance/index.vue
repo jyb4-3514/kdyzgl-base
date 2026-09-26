@@ -89,7 +89,7 @@
             clearable
             disabled
             placeholder="全部类型"
-            title="演示契约暂未支持按打卡类型筛选（待后端补 checkType 参数）"
+            title="接口契约暂未支持按打卡类型筛选（待后端补 checkType 参数）"
           >
             <el-option v-for="(item, key) in CHECK_TYPE" :key="key" :label="item.label" :value="key" />
           </el-select>

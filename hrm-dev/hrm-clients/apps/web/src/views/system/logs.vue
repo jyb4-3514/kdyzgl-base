@@ -294,7 +294,7 @@ function openDetail(row) {
 async function handleClear() {
   try {
     await ElMessageBox.confirm(
-      '清空后本演示环境的历史运行日志不可恢复（环形缓冲仅保留最近 200 条，清空即全删）。',
+      '清空后历史运行日志不可恢复（环形缓冲仅保留最近 200 条，清空即全删）。',
       '确认清空运行日志？',
       { type: 'warning', confirmButtonText: '确认清空', cancelButtonText: '取消' }
     )

@@ -18,6 +18,9 @@ import { clockText, numberText, shortDateText } from '@/utils/format.js'
  */
 const router = useRouter()
 
+/** 演示构建才说明「种子数据只覆盖城东」；生产态全域口径不依赖某驿站，不出现该口径（整块剔除） */
+const demoEnabled = import.meta.env.VITE_MOCK_ENABLED === 'true'
+
 const loading = ref(true)
 const error = ref('')
 const summary = ref(null)
@@ -210,7 +213,7 @@ onMounted(load)
 
       <p class="tip">
         缺卡 = 应到减实到；校验未通过的异常卡不计入实到与迟到/早退，需在「打卡记录」中按「异常」状态查看。
-        演示数据仅城东驿站有排班与打卡记录，故全域口径与城东驿站一致。
+        <template v-if="demoEnabled">演示数据仅城东驿站有排班与打卡记录，故全域口径与城东驿站一致。</template>
       </p>
     </PageState>
   </div>

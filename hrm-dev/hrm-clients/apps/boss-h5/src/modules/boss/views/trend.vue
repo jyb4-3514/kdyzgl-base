@@ -101,7 +101,7 @@ onMounted(load)
           <StatCard label="日均入库" :value="numberText(avgInbound)" unit="件" tone="neutral" value-size="md" dense />
         </div>
 
-        <BossScopeNote text="口径：入库按包裹入库时间分天聚合；取件含历史派生取件时间与演示中的实时核销" />
+        <BossScopeNote text="口径：入库按包裹入库时间分天聚合；取件含历史派生取件时间与实时核销" />
       </PageState>
     </van-pull-refresh>
   </div>

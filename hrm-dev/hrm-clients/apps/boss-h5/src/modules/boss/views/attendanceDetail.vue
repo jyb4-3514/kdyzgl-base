@@ -18,6 +18,10 @@ import { DAY_ATTENDANCE_STATE } from '@kdyzgl/shared/constants/dict.js'
  * 与「打卡记录」页的语义分工：本页只回答「这个维度上有哪些人」，日期/驿站/状态三维筛选留给打卡记录页，
  * 两者不重叠（§14.1）。名单与计数由 Mock 侧同一个 attendanceScope 产出，故明细人数必然与概览卡一致。
  */
+
+/** 演示构建才补充「种子数据只覆盖城东」的口径；生产态全域口径不依赖某驿站（编译期常量，整块剔除） */
+const demoEnabled = import.meta.env.VITE_MOCK_ENABLED === 'true'
+
 const DIMS = [
   { value: 'SHOULD', label: '应到', tone: 'neutral', hit: '', caliber: '当日有排班的人', empty: '今日无排班，应到 0 人' },
   {
@@ -61,8 +65,10 @@ const DEFAULT_DIM = 'SHOULD'
 /** 六维度共同边界（§14.3 四条），写在页顶而不是逐行重复 */
 const SCOPE_BOUNDARY =
   '校验未通过的异常卡不计入实到/正常/迟到/早退，六个维度都不承载它，请到「打卡记录」按「异常」查看；' +
-  '早退发生在到达之后、与到达状态重叠，不并入出勤构成；缺卡 = 应到 − 实到，是差集而非异常卡；' +
-  '演示数据仅城东驿站有排班与打卡，故全域口径与城东驿站一致'
+  '早退发生在到达之后、与到达状态重叠，不并入出勤构成；缺卡 = 应到 − 实到，是差集而非异常卡'
+
+/** 演示态追加「种子数据只覆盖城东」的提示；生产态为空串，不出现演示口径 */
+const DEMO_SCOPE_TAIL = demoEnabled ? '；演示数据仅城东驿站有排班与打卡，故全域口径与城东驿站一致' : ''
 
 /** 维度级固定说明：无 remark 时补一句，正常/实到不硬凑说明避免噪音（§14.5-C） */
 const DIM_REMARK = {
@@ -85,7 +91,7 @@ const list = ref([])
 const date = ref('')
 
 const pageTitle = computed(() => `${meta.value.label}明细`)
-const scopeText = computed(() => `口径：${date.value || '今日'} ${meta.value.caliber}。${SCOPE_BOUNDARY}`)
+const scopeText = computed(() => `口径：${date.value || '今日'} ${meta.value.caliber}。${SCOPE_BOUNDARY}${DEMO_SCOPE_TAIL}`)
 /** 维度切换后的新人数由这里播报，避免读屏只听到卡片重排（§14.9） */
 const liveText = computed(() => `${meta.value.label}人数 ${numberText(total.value)} 人`)
 
@@ -197,7 +203,7 @@ watch(dim, load, { immediate: true })
 
       <p class="tip">
         缺卡 = 应到减实到；校验未通过的异常卡不计入实到与迟到/早退，需在「打卡记录」中按「异常」状态查看。
-        演示数据仅城东驿站有排班与打卡记录，故全域口径与城东驿站一致。
+        <template v-if="demoEnabled">演示数据仅城东驿站有排班与打卡记录，故全域口径与城东驿站一致。</template>
       </p>
     </PageState>
   </div>

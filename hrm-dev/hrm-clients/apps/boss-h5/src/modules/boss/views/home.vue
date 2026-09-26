@@ -95,7 +95,7 @@ const quickData = computed(() => ({
         <div class="flex-between">
           <span class="hero__title">今日经营</span>
           <!-- 口径不可切换：不做成像按钮的 chip，避免用户反复点击（A12-6）；真的开放切换时再改回控件 -->
-          <span class="hero__scope" title="当前演示账号固定为全域口径，暂不支持切换">口径：全域</span>
+          <span class="hero__scope" title="当前账号固定为全域口径，暂不支持切换">口径：全域</span>
         </div>
         <p class="hero__sub">{{ dateText }} · {{ updatedText }}</p>
         <!-- 待办总数：待办取数全失败时显示 ···，不用 0 冒充「没有待办」（B4-2 硬规则 2） -->

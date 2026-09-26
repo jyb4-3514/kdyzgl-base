@@ -105,6 +105,9 @@ export function coordText(value) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(6) : '-'
 }
 
+/** 演示构建才在定位失败话术里引导「演示辅助」开关；生产态无该入口，不给这条引导 */
+const DEMO_ENABLED = import.meta.env.VITE_MOCK_ENABLED === 'true'
+
 /**
  * 打卡错误码 → 页面级提示
  * 为什么不用 codeMessage：9103/9104 只说「校验未通过」，现场员工需要的是
@@ -119,7 +122,7 @@ export function checkErrorHint(code, ctx = {}) {
     case ATTENDANCE_CODE.WIFI_MISMATCH:
       return `WiFi 校验未通过：当前「${ctx.ssid || '未知网络'}」不在驿站白名单内，请连接驿站 WiFi 后重试`
     case ATTENDANCE_CODE.LOCATION_MISMATCH:
-      return `定位校验未通过：距围栏中心 ${ctx.distanceText || '未知'}，超出允许范围${ctx.demoHint ? '；可打开上方「演示辅助」开关跑通演示' : ''}`
+      return `定位校验未通过：距围栏中心 ${ctx.distanceText || '未知'}，超出允许范围${ctx.demoHint && DEMO_ENABLED ? '；可打开上方「演示辅助」开关跑通演示' : ''}`
     case ATTENDANCE_CODE.DUPLICATE_CHECK:
       return ctx.periodName
         ? `「${ctx.periodName}」的${ctx.checkTypeLabel || ''}已完成，无需重复打卡`

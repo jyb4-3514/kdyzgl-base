@@ -429,7 +429,7 @@ function handleReset() {
           </el-form-item>
           <el-form-item>
             <span class="field-hint field-hint--block">
-              坐标为演示用虚拟坐标，非真实地点；打卡时按 Haversine 球面距离判定是否落在围栏内
+              坐标为围栏中心的经纬度；打卡时按 Haversine 球面距离判定是否落在围栏内
             </span>
           </el-form-item>
         </section>

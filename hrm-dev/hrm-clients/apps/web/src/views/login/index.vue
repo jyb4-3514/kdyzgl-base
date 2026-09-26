@@ -88,8 +88,11 @@ const deviceCodeText = computed(() =>
   deviceCountdown.left.value > 0 ? `重新获取（${deviceCountdown.left.value}s）` : '获取验证码'
 )
 
-/** 演示态标识：仅 Mock 构建展示（生产构建 VITE_MOCK_ENABLED≠true 时为 false） */
-const demoEnabled = import.meta.env.VITE_MOCK_ENABLED === 'true'
+/**
+ * 演示态标识文案：仅 Mock 构建展示，生产构建下取空串（编译期常量，演示文案不残留进产物）。
+ * 为什么取值而不是模板里 v-if 直判：该节点在 el-card 插槽内，编译不内联，v-if 常量无法被静态剔除。
+ */
+const demoTag = import.meta.env.VITE_MOCK_ENABLED === 'true' ? '演示环境 · 数据为 Mock，短信不会真实发送' : ''
 
 watch(activeChannel, () => {
   errorMsg.value = ''
@@ -411,7 +414,7 @@ function onForgot() {
       <div class="login-aux">
         <el-button link type="primary" @click="onForgot">忘记密码？</el-button>
       </div>
-      <p v-if="demoEnabled" class="login-demo">演示环境 · 数据为 Mock，短信不会真实发送</p>
+      <p v-if="demoTag" class="login-demo">{{ demoTag }}</p>
     </el-card>
   </div>
 </template>

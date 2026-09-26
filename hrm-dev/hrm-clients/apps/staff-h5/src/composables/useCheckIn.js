@@ -6,6 +6,9 @@ import { checkIn } from '../api/attendance.js'
 import { getWifiInfo } from '../utils/bridge.js'
 import { checkErrorHint, distanceText, haversine, periodWindowText } from '../utils/attendance.js'
 
+/** 演示构建才有「去打卡页开启演示辅助」的引导；生产态无演示开关，不暴露这条路径 */
+const DEMO_ENABLED = import.meta.env.VITE_MOCK_ENABLED === 'true'
+
 /**
  * 打卡提交（首页一键打卡 + 打卡页共用一份实现）
  *
@@ -97,8 +100,8 @@ export function useCheckIn() {
         periodName: period.name,
         checkType,
         code: e.code,
-        // 首页没有演示开关，定位类失败直接指向打卡页，这是唯一能让演示跑通的路径
-        demoGuide: e.code === ATTENDANCE_CODE.LOCATION_MISMATCH,
+        // 首页没有演示开关；定位类失败只在演示构建才指向打卡页（生产态不给演示路径）
+        demoGuide: DEMO_ENABLED && e.code === ATTENDANCE_CODE.LOCATION_MISMATCH,
         hint
       }
     } finally {
