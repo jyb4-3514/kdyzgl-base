@@ -1,32 +1,28 @@
 /**
- * WiFi 白名单校验与权限分支（打卡规则页 · 可编辑区）
+ * WiFi 白名单校验与权限分支（打卡规则页 · 单条配置区）
  *
- * 为什么抽成纯函数：判定口径必须与后端（Mock）对齐 —— 打卡只按 SSID 精确比对（`w.ssid === wifiSsid`，
- * 区分大小写），BSSID 不参与判定；抽出来才能单测锁死，页面只负责把结果落到行内 error-message 与 ActionBar note。
- * 文案取自设计规范 boss-wifi-and-station-design.md §7（T14–T17 等），不得在页面里另写一份。
+ * 为什么抽成纯函数：判定口径必须与后端对齐 —— 打卡只按 SSID 精确比对（区分大小写），BSSID 不参与判定；
+ * 抽出来才能单测锁死，页面只负责把结果落到行内 error-message 与 ActionBar note。
+ * 文案取自设计规范 boss-wifi-and-station-design.md §12.4 / §12.6，不得在页面里另写一份。
+ *
+ * 单条化（设计 §12）：每站白名单至多一条；「SSID 重复 / 多条未填 / 条数上限」随口径变更作废（§12.6）。
  */
 
-/** SSID 长度上限：IEEE 802.11 的 SSID 上限即 32 字节（客观依据，非设计随手取值） */
+/** SSID 长度上限：32 个字符（对应 IEEE 802.11 的 32 octets，本实现按字符数校验，与 maxlength=32 对齐） */
 export const SSID_MAX = 32
 
 /** MAC 地址：AA:BB:CC:DD:EE:FF（6 组两位十六进制，冒号分隔） */
 export const BSSID_RE = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/
 
-/** 新增行的哨兵 key：与已保存行的 key 区分，用于「新增行取消即不写入列表」 */
-export const NEW_WIFI_KEY = '__new__'
-
 export const SSID_EMPTY_TEXT = '请填写 WiFi 名称（SSID）'
 export const SSID_TOO_LONG_TEXT = 'WiFi 名称最长 32 个字符'
 export const BSSID_INVALID_TEXT = 'MAC 地址格式应为 AA:BB:CC:DD:EE:FF'
-export const SSID_DUPLICATE_TEXT = '该 WiFi 已存在，请勿重复添加'
 
-/** SSID 单值校验：空 → 必填；>32 → 超长；与同站其它项重复（精确比对，区分大小写，后端口径同此） */
-export function validateSsid(value, { list = [], selfKey = null } = {}) {
+/** SSID 单值校验：空 → 必填；>32 → 超长（重复校验已随「每站仅一条」作废，见设计 §12.6） */
+export function validateSsid(value) {
   const text = String(value == null ? '' : value).trim()
   if (!text) return SSID_EMPTY_TEXT
   if (text.length > SSID_MAX) return SSID_TOO_LONG_TEXT
-  const duplicated = list.some((item) => item && item.key !== selfKey && String(item.ssid || '').trim() === text)
-  if (duplicated) return SSID_DUPLICATE_TEXT
   return ''
 }
 
@@ -38,16 +34,26 @@ export function validateBssid(value) {
 }
 
 /** 行内错误汇总：{ ssid, bssid }，空串表示该字段无错 */
-export function rowErrors(draft, { list = [], selfKey = null } = {}) {
+export function rowErrors(draft) {
   return {
-    ssid: validateSsid(draft && draft.ssid, { list, selfKey }),
+    ssid: validateSsid(draft && draft.ssid),
     bssid: validateBssid(draft && draft.bssid)
   }
 }
 
-/** 未填 SSID 的条数：ActionBar note 只给结论，不重复行内细节（设计 §3.1.6） */
-export function countEmptySsid(list = []) {
-  return list.filter((item) => !String((item && item.ssid) || '').trim()).length
+/**
+ * 单条化收敛（设计 §12.12①）：服务端若返回多条历史数据，只取首条渲染，并回传「存在多条」标记用于 T39 提示。
+ * 返回 { entry, hasLegacyMultiple }；entry 为 null 表示本站未配置白名单。
+ */
+export function pickWifiEntry(list) {
+  const arr = Array.isArray(list) ? list : []
+  const first = arr[0]
+  return {
+    entry: first
+      ? { ssid: first.ssid ? String(first.ssid) : '', bssid: first.bssid ? String(first.bssid) : '' }
+      : null,
+    hasLegacyMultiple: arr.length > 1
+  }
 }
 
 /**
@@ -58,9 +64,9 @@ export function isWifiEditable(isAdmin) {
   return isAdmin === true
 }
 
-/** 卡标题 extra：{n} 条 · 可编辑 / 只读（T1 / T2） */
-export function wifiExtraLabel(count, editable) {
-  return `${count} 条 · ${editable ? '可编辑' : '只读'}`
+/** 卡标题 extra：可编辑 / 只读（T30；单条化后不再显示条数） */
+export function wifiExtraLabel(editable) {
+  return editable ? '可编辑' : '只读'
 }
 
 /**

@@ -9,9 +9,8 @@ import { getStationList } from '@/api/org.js'
 import { MATCH_MODE } from '@kdyzgl/shared/constants/dict.js'
 import { minutesOfDay } from '@/utils/attendance.js'
 import {
-  NEW_WIFI_KEY,
-  countEmptySsid,
   isWifiEditable,
+  pickWifiEntry,
   rowErrors,
   validateBssid,
   validateSsid,
@@ -27,8 +26,9 @@ import { useAuthStore } from '@/stores/auth.js'
  * 时段是规则的唯一真源：上下班时间（workStartTime / workEndTime）由时段自动派生，
  * 页面上只读展示，避免「改了时段、上下班时间还是旧值」两套口径打架。
  *
- * 白名单（WiFi / BSSID）本批由只读改为可编辑：判定只比对 SSID（区分大小写），BSSID 仅留痕；
- * 编辑只改本地数组，仍走页面统一的「保存规则」提交（wifiList 随 PUT /attendance/rule 一并提交）。
+ * 白名单（WiFi / BSSID）按「每站仅一条」单条化（设计 §12）：未配置 → 设置，已配置 → 修改 / 清除；
+ * 判定只比对 SSID（区分大小写），BSSID 仅留痕；编辑只改本地表单，仍走页面统一的「保存规则」提交。
+ * 提交恒 0 或 1 条（§12.12②）；加载遇历史多条只取首条并提示 T39（§12.12①）。
  * 非 ADMIN 属防御位（本端 BOSS_ROLES = [ADMIN]，登录者恒为 ADMIN）：只读、不渲染任何按钮。
  */
 const VALIDATIONS = [
@@ -70,14 +70,12 @@ const original = ref('')
 const auth = useAuthStore()
 const wifiEditable = computed(() => isWifiEditable(auth.isAdmin))
 
-/** 行 key 计数器：白名单行需要稳定 key，服务端数据无此字段，故在页内生成并只在本地使用 */
-let wifiKeySeq = 0
-const newWifiKey = () => `w${(wifiKeySeq += 1)}`
-
-/** 白名单编辑态：同一时刻至多一条；NEW_WIFI_KEY 表示正在新增的空行（取消即不写入列表） */
-const editingKey = ref(null)
+/** 白名单编辑态：单条化后物理上恒为 0 或 1 条，editing 表示当前是否展开编辑表单 */
+const editing = ref(false)
 const draft = ref({ ssid: '', bssid: '' })
 const draftErrors = ref({ ssid: '', bssid: '' })
+/** 加载到历史多条白名单的标记：只渲染首条，卡顶提示 T39（设计 §12.12①） */
+const legacyMultiple = ref(false)
 
 const periods = computed(() => (form.value ? form.value.checkPeriods : []))
 /** 派生作息：取首个时段开始与末个时段结束，与服务端 saveRule 的重算规则一致 */
@@ -102,28 +100,42 @@ const currentStationName = computed(() => {
 
 /** 白名单真源落在 form 上（随表单一起脏检查与提交），rule 只保留服务端回读的更新时间等只读展示值 */
 const wifiList = computed(() => (form.value ? form.value.wifiList : []))
+/** 单条化后「已配置」等价于长度 > 0（长度恒为 0 或 1） */
+const hasWifi = computed(() => wifiList.value.length > 0)
 
-/** 卡标题 extra：{n} 条 · 可编辑 / 只读 */
-const wifiExtra = computed(() => wifiExtraLabel(wifiList.value.length, wifiEditable.value))
+/** 卡标题 extra：可编辑 / 只读（T30，单条化后不再显示条数） */
+const wifiExtra = computed(() => wifiExtraLabel(wifiEditable.value))
 
 /**
- * 卡顶 warning 提示条（最多一条，按优先级）：
- * 关闭校验 → 说明白名单不参与判定；开启但为空 → 提示无人能通过校验。
- * 两者都只提示不阻断保存（分步配置的正当流程要能走通）。
+ * 卡顶 warning 提示条（互斥取一条，优先级 T4 > T40 > T39，见设计 §12.3.2 / §12.12 / §12.13.1）：
+ * 关闭校验 → 说明白名单不参与判定；开启但为空 → 强警示 T40（warning-o、不可关闭）；
+ * 开启但加载到历史多条 → T39 提示将收敛为 1 条。均只提示不阻断保存（分步配置的正当流程要能走通）。
  */
 const wifiNotice = computed(() => {
-  if (!form.value) return ''
-  if (!form.value.enableWifi) return 'WiFi 校验已关闭，白名单暂不参与打卡判定'
-  if (!wifiList.value.length) return 'WiFi 校验已开启但白名单为空，将无人能通过 WiFi 校验'
-  return ''
+  if (!form.value) return null
+  if (!form.value.enableWifi) {
+    return { icon: 'info-o', text: 'WiFi 校验已关闭，白名单暂不参与打卡判定' }
+  }
+  if (!hasWifi.value) {
+    return {
+      icon: 'warning-o',
+      text: 'WiFi 校验已开启但白名单为空：本站所有员工将无法通过 WiFi 校验打卡（错误码 9103）。请设置白名单，或关闭 WiFi 校验。'
+    }
+  }
+  if (legacyMultiple.value) {
+    return {
+      icon: 'info-o',
+      text: '检测到本站存在多条 WiFi 白名单（历史数据），当前仅显示第 1 条；保存后将收敛为 1 条。'
+    }
+  }
+  return null
 })
 
-/** 白名单侧的阻断原因（ActionBar note 的跨字段汇总）：有未完成编辑行 / 有未填 SSID 的行 */
+/** 白名单侧的阻断原因（ActionBar note）：只读分支说明权限；编辑中提示先完成或取消（T19，单条化后唯一 note 场景） */
 const wifiBlockReason = computed(() => {
   if (!wifiEditable.value) return '当前身份只能查看打卡规则，保存需管理员权限'
-  if (editingKey.value !== null) return '有 1 条白名单正在编辑，请先完成或取消'
-  const empty = countEmptySsid(wifiList.value)
-  return empty ? `有 ${empty} 条白名单未填写 WiFi 名称` : ''
+  if (editing.value) return '有 1 条白名单正在编辑，请先完成或取消'
+  return ''
 })
 
 /** 提交体：字段与 Mock 的可写白名单一一对应，派生字段（workStartTime / workEndTime）不发 */
@@ -145,8 +157,9 @@ const payload = computed(() => {
       startTime: p.startTime,
       endTime: p.endTime
     })),
-    // 显式提交白名单：不提交则会沿用服务端现值，页面上的增删改保存后不生效（key 只在本地用，不外发）
-    wifiList: form.value.wifiList.map((w) => ({
+    // 显式提交白名单：不提交则会沿用服务端现值，页面上的设置/修改/清除保存后不生效。
+    // 单条化硬约束：截断为 0 或 1 条，正常路径永不产生 length > 1 的请求体（设计 §12.12②）
+    wifiList: form.value.wifiList.slice(0, 1).map((w) => ({
       ssid: String(w.ssid).trim(),
       bssid: w.bssid ? String(w.bssid).trim() : null
     })),
@@ -205,6 +218,8 @@ const formError = computed(() => {
 
 const dirty = computed(() => {
   if (!payload.value || !original.value) return false
+  // 历史多条：即便用户未改动，保存也会把服务端收敛为 1 条，故视为有改动（对应 T39「保存后收敛为 1 条」）
+  if (legacyMultiple.value) return true
   return JSON.stringify(bodyOf(payload.value)) !== original.value
 })
 
@@ -232,8 +247,8 @@ async function loadRule() {
   if (stationId.value == null) return
   loading.value = true
   error.value = ''
-  // 换驿站时丢弃未完成的编辑行，避免把 A 站的草稿带到 B 站
-  closeEdit()
+  // 换驿站时丢弃未完成的编辑草稿，避免把 A 站的输入带到 B 站
+  cancelEdit()
   try {
     const data = await getAttendanceRule({ stationId: stationId.value })
     rule.value = data
@@ -242,6 +257,9 @@ async function loadRule() {
       Array.isArray(data.checkPeriods) && data.checkPeriods.length
         ? data.checkPeriods
         : [{ name: '全天班', startTime: data.workStartTime, endTime: data.workEndTime }]
+    // 单条化加载口径（设计 §12.12①）：多条历史数据只取首条渲染，并置标记触发 T39 提示
+    const wifi = pickWifiEntry(data.wifiList)
+    legacyMultiple.value = wifi.hasLegacyMultiple
     form.value = {
       ruleName: data.ruleName,
       enableWifi: data.enableWifi,
@@ -253,12 +271,8 @@ async function loadRule() {
       radius: data.radius,
       checkFrequency: Number(data.checkFrequency) || list.length * 2,
       checkPeriods: list.map((p) => ({ name: p.name, startTime: p.startTime, endTime: p.endTime })),
-      // 白名单落到表单：key 仅本地生成用于 v-for / 编辑定位，提交时被 payload 剔除
-      wifiList: (Array.isArray(data.wifiList) ? data.wifiList : []).map((w) => ({
-        key: newWifiKey(),
-        ssid: w && w.ssid ? String(w.ssid) : '',
-        bssid: w && w.bssid ? String(w.bssid) : ''
-      })),
+      // 白名单落到表单：单条化后恒 0 或 1 条（历史多条已在上面截为一条）
+      wifiList: wifi.entry ? [wifi.entry] : [],
       allowEarlyMin: data.allowEarlyMin,
       allowLateMin: data.allowLateMin,
       lateThresholdMin: data.lateThresholdMin,
@@ -269,6 +283,7 @@ async function loadRule() {
     error.value = e.message || '加载失败'
     rule.value = null
     form.value = null
+    legacyMultiple.value = false
   } finally {
     loading.value = false
   }
@@ -338,87 +353,64 @@ function toggle(key) {
   form.value[key] = !form.value[key]
 }
 
-/* ==================== WiFi 白名单编辑（本地数组，随页面统一保存） ==================== */
+/* ==================== WiFi 白名单编辑（本地表单，随页面统一保存 · 每站仅一条） ==================== */
 
-/** 收起编辑态：新增行等同「取消」，不写入列表；已有行丢弃草稿回到原值 */
-function closeEdit() {
-  editingKey.value = null
+/** 收起编辑态：未配置态取消 → 回到未配置（不产生空记录）；已配置态取消 → 丢弃草稿回原值 */
+function cancelEdit() {
+  editing.value = false
   draft.value = { ssid: '', bssid: '' }
   draftErrors.value = { ssid: '', bssid: '' }
 }
 
-/** 进入某行编辑：同一时刻只允许一条，点到别的行时先收起当前行（不叠加二次确认） */
-function editRow(key) {
-  if (editingKey.value !== null && editingKey.value !== key) closeEdit()
-  const row = wifiList.value.find((item) => item.key === key)
-  if (!row) return
-  editingKey.value = key
-  draft.value = { ssid: row.ssid, bssid: row.bssid }
-  draftErrors.value = { ssid: '', bssid: '' }
-}
-
-/** 新增空行：不设条数上限（设计稿的 20 条无后端依据，已由主智能体裁定取消） */
-function addRow() {
-  if (editingKey.value !== null) closeEdit()
-  editingKey.value = NEW_WIFI_KEY
-  draft.value = { ssid: '', bssid: '' }
+/** 进入编辑态：entry 为 null 表示未配置态「设置 WiFi」，否则为已配置态「修改」（两态共用同一表单） */
+function startEdit(entry) {
+  editing.value = true
+  draft.value = { ssid: entry ? entry.ssid : '', bssid: entry ? entry.bssid : '' }
   draftErrors.value = { ssid: '', bssid: '' }
 }
 
 /** 行内校验：错误就近展示在字段下方（error-message），点「完成」/ 失焦都会走这里 */
 function validateDraft() {
-  draftErrors.value = rowErrors(draft.value, { list: wifiList.value, selfKey: editingKey.value })
+  draftErrors.value = rowErrors(draft.value)
   return !draftErrors.value.ssid && !draftErrors.value.bssid
 }
 
 function onSsidBlur() {
-  draftErrors.value = {
-    ...draftErrors.value,
-    ssid: validateSsid(draft.value.ssid, { list: wifiList.value, selfKey: editingKey.value })
-  }
+  draftErrors.value = { ...draftErrors.value, ssid: validateSsid(draft.value.ssid) }
 }
 
 function onBssidBlur() {
   draftErrors.value = { ...draftErrors.value, bssid: validateBssid(draft.value.bssid) }
 }
 
-/** 完成：本行校验通过才收起为展示态并写入本地数组（不立即请求，仍走页面统一保存） */
+/** 完成：校验通过才收起为展示态并写入表单（恒 0 或 1 条；不立即请求，仍走页面统一保存） */
 function commitEdit() {
   if (!validateDraft()) return
-  const ssid = draft.value.ssid.trim()
-  const bssid = draft.value.bssid.trim()
-  if (editingKey.value === NEW_WIFI_KEY) {
-    form.value.wifiList.push({ key: newWifiKey(), ssid, bssid })
-  } else {
-    const row = form.value.wifiList.find((item) => item.key === editingKey.value)
-    if (row) {
-      row.ssid = ssid
-      row.bssid = bssid
-    }
-  }
-  closeEdit()
+  form.value.wifiList = [{ ssid: draft.value.ssid.trim(), bssid: draft.value.bssid.trim() }]
+  cancelEdit()
 }
 
-/** 删除：先收起未完成的编辑行（等同取消），再二次确认；确认后仅从本地数组移除，保存按钮随之可用 */
-async function askRemove(row) {
-  if (editingKey.value !== null) closeEdit()
+/** 清除：二次确认（T35–T37，设计 §12.5①）后置空唯一一条；确认后仅改本地表单，保存按钮随之可用 */
+async function askClear() {
   try {
     await showConfirmDialog({
-      title: '删除白名单',
-      message: `删除「${row.ssid}」后，该 WiFi 将不再通过校验。确定删除？`,
-      confirmButtonText: '删除',
+      title: '清除 WiFi 白名单',
+      message:
+        '清除后本站将不再配置 WiFi 白名单；若「WiFi 校验」已开启，将无人能通过 WiFi 校验。确定清除？',
+      confirmButtonText: '清除',
       cancelButtonText: '取消',
       confirmButtonColor: 'var(--color-danger)'
     })
   } catch (e) {
-    return // 取消删除：什么都不做
+    return // 取消清除：什么都不做
   }
-  form.value.wifiList = form.value.wifiList.filter((item) => item.key !== row.key)
+  form.value.wifiList = []
 }
 
 /**
  * 「读取当前 WiFi」（预留态/降级分支）：安卓壳未实现 HrmBridge.getWifiInfo，桥接恒返回 mock:true，
  * 因此**不发起任何读取、不预填任何值**，只按设计 §3.3 明确告知需手动输入 —— 不得伪装成已读取。
+ * 落位（设计 §12.5③）：编辑中态紧贴 BSSID 字段下方；展示态/未配置态不出现该按钮。
  * TODO(扩展): 壳侧实现 HrmBridge.getWifiInfo 后改为：
  *   const info = getWifiInfo()
  *   if (canAutoFillWifi(info)) { 回填 SSID/BSSID 并标注来源「来自当前连接（安卓壳）」 } else { 走本降级分支 }
@@ -431,12 +423,29 @@ function onReadWifi() {
 
 async function onSave() {
   if (saving.value || formError.value || wifiBlockReason.value || !dirty.value) return
+  // 保存前二次确认（T41–T43，设计 §12.13.1）：开启校验却提交空名单会让全员 WiFi 校验失败，
+  // 真正的危险点是「提交落地那一刻」，故在提交前再确认一次；「仍要保存」放行、「返回设置」回表单，均不阻断。
+  if (payload.value.enableWifi && payload.value.wifiList.length === 0) {
+    try {
+      await showConfirmDialog({
+        title: '确认保存？白名单为空',
+        message:
+          'WiFi 校验已开启但白名单为空，保存后本站所有员工将无法通过 WiFi 校验打卡（错误码 9103）。确定仍要保存？',
+        confirmButtonText: '仍要保存',
+        cancelButtonText: '返回设置',
+        confirmButtonColor: 'var(--color-warning)'
+      })
+    } catch (e) {
+      return // 返回设置：留在表单，不提交
+    }
+  }
   saving.value = true
   try {
     const vo = await saveAttendanceRule(payload.value)
     rule.value = vo
     original.value = JSON.stringify(bodyOf(payload.value))
-    closeEdit()
+    legacyMultiple.value = false // 保存后已收敛为 1 条，T39 提示随之解除
+    cancelEdit()
     showSuccessToast('打卡规则已保存')
   } catch (e) {
     // 错误提示由 http 层统一弹出（9107 的时段原因在 message 里），页内不重复
@@ -602,13 +611,13 @@ onMounted(load)
             WiFi 白名单<span class="section-title__extra">{{ wifiExtra }}</span>
           </div>
           <div class="card">
-            <!-- 校验关闭 / 开启但为空：warning 提示条，只提示不阻断（最多一条，按优先级） -->
+            <!-- warning 提示条（互斥取一条，优先级：校验关闭 T4 > 开启但为空 T40 强警示 > 多条历史 T39） -->
             <van-notice-bar
               v-if="wifiNotice"
               class="notice"
-              left-icon="info-o"
+              :left-icon="wifiNotice.icon"
               wrapable
-              :text="wifiNotice"
+              :text="wifiNotice.text"
               color="var(--color-warning)"
               background="var(--color-warning-surface)"
             />
@@ -621,21 +630,35 @@ onMounted(load)
               白名单需现场抓取 SSID 后维护；改白名单请走 PC 端。
             </p>
 
-            <!-- 展示态行：ADMIN 才带「编辑 / 删除」；正在编辑的行不显示按钮，避免误删正在编辑的项 -->
+            <!-- A. 未配置态：唯一动作「设置 WiFi」（未配置进入取消 → 回到本态，不产生空记录） -->
+            <template v-if="!hasWifi && !editing">
+              <p class="wifi-empty">{{ wifiEditable ? '尚未设置 WiFi 白名单' : '未配置' }}</p>
+              <van-button
+                v-if="wifiEditable"
+                block
+                plain
+                type="primary"
+                class="wifi-set"
+                @click="startEdit(null)"
+              >
+                设置 WiFi
+              </van-button>
+            </template>
+
+            <!-- B. 已配置态（唯一一条）：动作「修改 / 清除」；只读分支不渲染按钮、不留空位 -->
             <van-cell
-              v-for="w in wifiList"
-              :key="w.key"
-              :title="w.ssid"
-              :label="w.bssid ? `BSSID ${w.bssid}` : 'BSSID 未填'"
+              v-else-if="hasWifi && !editing"
+              :title="wifiList[0].ssid"
+              :label="wifiList[0].bssid ? `BSSID ${wifiList[0].bssid}` : 'BSSID 未填'"
             >
-              <template v-if="wifiEditable && w.key !== editingKey" #right-icon>
-                <button type="button" class="wifi-act" @click="editRow(w.key)">编辑</button>
-                <button type="button" class="wifi-act wifi-act--danger" @click="askRemove(w)">删除</button>
+              <template v-if="wifiEditable" #right-icon>
+                <button type="button" class="wifi-act" @click="startEdit(wifiList[0])">修改</button>
+                <button type="button" class="wifi-act wifi-act--danger" @click="askClear">清除</button>
               </template>
             </van-cell>
 
-            <!-- 编辑态行：同一时刻至多一条；「完成」校验通过才收起，「取消」丢弃改动 -->
-            <div v-if="editingKey !== null" class="wifi-edit">
+            <!-- C. 编辑中态（未配置 / 已配置共用同一表单；「完成」校验通过才收起，「取消」丢弃改动） -->
+            <template v-else-if="editing">
               <van-field
                 v-model="draft.ssid"
                 label="SSID"
@@ -653,30 +676,16 @@ onMounted(load)
                 :error-message="draftErrors.bssid"
                 @blur="onBssidBlur"
               />
+              <!-- 降级态：紧贴唯一输入行（设计 §12.5③）；能力未开放，可点但明确拒绝，不发起读取、不预填 -->
+              <van-button v-if="wifiEditable" plain type="primary" size="small" class="wifi-read" @click="onReadWifi">
+                读取当前 WiFi（暂不支持）
+              </van-button>
+              <p class="tip wifi-read-tip">当前版本请手动输入 SSID 与 BSSID。</p>
               <div class="wifi-edit-actions">
-                <van-button plain size="small" class="wifi-edit-btn" @click="closeEdit">取消</van-button>
+                <van-button plain size="small" class="wifi-edit-btn" @click="cancelEdit">取消</van-button>
                 <van-button type="primary" size="small" class="wifi-edit-btn" @click="commitEdit">完成</van-button>
               </div>
-            </div>
-
-            <p v-if="!wifiList.length" class="wifi-empty">{{ wifiEditable ? '尚未配置白名单' : '未配置' }}</p>
-
-            <van-button v-if="wifiEditable" block plain type="primary" class="wifi-add" @click="addRow">
-              + 添加白名单
-            </van-button>
-
-            <!-- 预留态：能力未开放，可点但明确拒绝，不发起读取、不预填（设计 §3.3） -->
-            <van-button
-              v-if="wifiEditable"
-              plain
-              type="primary"
-              size="small"
-              class="wifi-read"
-              @click="onReadWifi"
-            >
-              读取当前 WiFi（暂不支持）
-            </van-button>
-            <p v-if="wifiEditable" class="tip wifi-read-tip">当前版本请手动输入 SSID 与 BSSID。</p>
+            </template>
           </div>
 
           <div class="section-title">电子围栏</div>
@@ -801,7 +810,7 @@ onMounted(load)
   margin-top: var(--sp-3);
 }
 
-/* 行内「编辑 / 删除」：原生按钮，触控区 ≥44×44（设计 §9.2） */
+/* 行内「修改 / 清除」：原生按钮，触控区 ≥44×44（设计 §9.2） */
 .wifi-act {
   display: inline-flex;
   align-items: center;
@@ -818,10 +827,6 @@ onMounted(load)
   color: var(--color-danger);
 }
 
-.wifi-edit {
-  margin-top: var(--sp-3);
-}
-
 .wifi-edit-actions {
   display: flex;
   gap: var(--sp-3);
@@ -834,7 +839,7 @@ onMounted(load)
   min-height: var(--touch-min);
 }
 
-/* 空态：可编辑「尚未配置白名单」/ 只读「未配置」，都不含「失败/错误/网络」字样 */
+/* 空态：可编辑「尚未设置 WiFi 白名单」/ 只读「未配置」，都不含「失败/错误/网络」字样 */
 .wifi-empty {
   margin: var(--sp-5) 0;
   font-size: var(--fs-caption);
@@ -843,7 +848,8 @@ onMounted(load)
   text-align: center;
 }
 
-.wifi-add {
+/* 「设置 WiFi」沿用原「+ 添加白名单」取值（设计 §12.8） */
+.wifi-set {
   margin-top: var(--sp-4);
   min-height: var(--touch-min);
 }
