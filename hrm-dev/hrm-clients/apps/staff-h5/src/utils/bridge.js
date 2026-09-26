@@ -40,15 +40,14 @@ export function shellToast(text) {
 /**
  * 读取当前连接的 WiFi（打卡的 WiFi 校验项用）
  *
- * 为什么必须区分壳内 / 浏览器：W3C 从未标准化「网页读取当前 SSID」的能力，
- * 浏览器下任何库都拿不到真实 SSID —— 因此浏览器分支只能返回模拟值，
- * 并由调用方在界面上明确标注「模拟」，不得伪装成真实能力。
+ * 为什么不再有「浏览器模拟值」：W3C 从未标准化「网页读取当前 SSID」，浏览器与
+ * 未实现该能力的壳都拿不到真实 SSID。此态一律返回空 ssid + mock:true，由调用方
+ * 提交 null 交服务端按未命中判定（9103）—— 系统绝不替用户伪造设备标识。
+ * （安全评估 A 档，见 docs/security-wifi-checkin-bypass-review.md）
  *
- * @param {string} fallbackSsid 浏览器下的模拟值来源（取打卡规则白名单中的一项），
- *                              使纯前端演示能走通 WiFi 校验分支
- * @returns {{ ssid: string, bssid: string, mock: boolean }}
+ * @returns {{ ssid: string, bssid: string, mock: boolean }} mock=true 表示未取到真实值（此时 ssid 恒为空）
  */
-export function getWifiInfo(fallbackSsid = '') {
+export function getWifiInfo() {
   const raw = call('getWifiInfo')
   if (raw) {
     try {
@@ -57,10 +56,10 @@ export function getWifiInfo(fallbackSsid = '') {
         return { ssid: String(info.ssid), bssid: info.bssid ? String(info.bssid) : '', mock: false }
       }
     } catch (e) {
-      /* 壳侧返回非 JSON：按「取不到」处理，走下面的模拟分支，页面依旧可用 */
+      /* 壳侧返回非 JSON：按「取不到」处理，不伪造，页面依旧可用 */
     }
   }
-  return { ssid: String(fallbackSsid || ''), bssid: '', mock: true }
+  return { ssid: '', bssid: '', mock: true }
 }
 
 export function closeShell() {

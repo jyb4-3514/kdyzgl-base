@@ -6,6 +6,22 @@ import { checkIn } from '../api/attendance.js'
 import { getWifiInfo } from '../utils/bridge.js'
 import { checkErrorHint, distanceText, haversine, periodWindowText } from '../utils/attendance.js'
 
+/** 演示构建（VITE_MOCK_ENABLED=true）才允许 WiFi 演示模拟；生产构建编译期常量为 false，整块剔除 */
+const DEMO_ENABLED = import.meta.env.VITE_MOCK_ENABLED === 'true'
+
+/**
+ * WiFi 提交值口径（安全评估 A 档，见 docs/security-wifi-checkin-bypass-review.md）
+ * - 生产：仅壳侧真实读取（mock === false 且 ssid 非空）才提交该 SSID；未取到一律 null，
+ *   交服务端按未命中判定（9103）—— 系统不得替用户伪造设备标识，也不再把规则白名单首项当「当前 WiFi」；
+ * - 演示：Demo/Mock 构建下浏览器与未实现壳都取不到真实 SSID，按规则白名单首项模拟，保证演示打卡链路可走通。
+ *   该分支由编译期常量 DEMO_ENABLED 门控，生产构建（VITE_MOCK_ENABLED=false）整块被剔除，不可达。
+ */
+function resolveWifiSsid(wifi, rule) {
+  if (wifi.mock === false && wifi.ssid) return wifi.ssid
+  if (!DEMO_ENABLED) return null
+  return rule && rule.wifiList && rule.wifiList.length ? String(rule.wifiList[0].ssid) : null
+}
+
 /**
  * 打卡提交（首页一键打卡 + 打卡页共用一份实现）
  *
@@ -53,12 +69,13 @@ export function useCheckIn() {
     submitting.value = true
     submittingKey.value = options.key || ''
     result.value = null
-    const wifi = getWifiInfo(rule && rule.wifiList && rule.wifiList.length ? rule.wifiList[0].ssid : '')
+    const wifi = getWifiInfo()
+    const wifiSsid = resolveWifiSsid(wifi, rule)
     // 有覆盖坐标（页面已自查过）就直接用，避免再触发一次系统定位；
     // 覆盖坐标为「全 null」也走同一条路径 —— 那是页面明确表达「取不到，交服务端判定」
     const coord = options.coordinate || (await locate())
     try {
-      const vo = await checkIn({ checkType, periodIndex: period.periodIndex, wifiSsid: wifi.ssid || null, ...coord })
+      const vo = await checkIn({ checkType, periodIndex: period.periodIndex, wifiSsid, ...coord })
       result.value = {
         ok: true,
         periodIndex: period.periodIndex,
@@ -86,7 +103,7 @@ export function useCheckIn() {
         checkTypeLabel: dictLabel(CHECK_TYPE, checkType),
         periodName: period.name,
         window: periodWindowText(period, rule),
-        ssid: wifi.ssid,
+        ssid: wifiSsid,
         distanceText: distanceText(distance),
         demoHint: options.demoHint === true,
         message: e.message

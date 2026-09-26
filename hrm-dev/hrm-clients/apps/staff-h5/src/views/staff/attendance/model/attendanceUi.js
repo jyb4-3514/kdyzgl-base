@@ -47,14 +47,16 @@ export const slotText = {
 /** 驿站归属兜底文案（演示账号未挂驿站时也要能看出「未归属」而不是空白） */
 export const STATION_FALLBACK = '未归属驿站'
 
-/** WiFi 自查卡文案：模拟值必须标注来源，绝不伪装成真实能力 */
+/** WiFi 自查卡文案：未取到真实 SSID 时如实给「未获取到」+ 需客户端提示，绝不回填白名单值冒充当前 WiFi（安全评估 A 档） */
 export const WIFI_EMPTY = '未获取到'
-export const WIFI_MOCK_BADGE = '模拟'
+export const WIFI_UNAVAILABLE_BADGE = '需客户端'
 export const WIFI_WHITELIST_EMPTY = '未配置'
 export const WIFI_WHITELIST_PREFIX = '规则白名单：'
-export const WIFI_MOCK_HINT =
-  '浏览器没有读取真实 SSID 的标准能力，此处为按规则白名单填充的模拟值；安装安卓壳后由 HrmBridge.getWifiInfo() 读取真实 SSID'
+export const WIFI_NO_CLIENT_HINT =
+  '浏览器/未实现壳无法读取真实 SSID，未获取到当前 WiFi；需安装客户端（安卓壳）才能完成 WiFi 校验打卡'
 export const WIFI_REAL_HINT = '由安卓壳读取的真实 WiFi'
+/** 演示构建专用：Mock 后端无真实壳，提交时按规则白名单首项模拟，仅用于演示打卡链路（生产构建不可达） */
+export const WIFI_DEMO_HINT = '演示构建：浏览器无法读取真实 WiFi，打卡提交时按规则白名单首项模拟，仅用于演示'
 
 /** 定位自查卡文案（生产口径：不引导演示手段；「演示辅助」入口只在演示态页面上出现，见 attendance.vue） */
 export const LOCATE_BTN_TEXT = '重新定位'
@@ -100,16 +102,22 @@ export const MORE_LINKS = [
 
 /* ==================== 纯展示映射（不依赖响应式，供 composable 直调） ==================== */
 
-/** WiFi 标记：模拟值必须显式标注来源（硬约束）；非模拟不给标记，避免「已校验」的误读 */
-export const wifiBadgeOf = (wifi) => (wifi.mock ? { text: WIFI_MOCK_BADGE, tone: 'warning', note: true } : null)
+/** WiFi 标记：未取到真实值给「需客户端」提示（替代原「模拟」标记），真实值不给标记以免误读为「已校验」 */
+export const wifiBadgeOf = (wifi) => (wifi.mock ? { text: WIFI_UNAVAILABLE_BADGE, tone: 'warning', note: true } : null)
 
 /** 未取到 SSID 给「未获取到」而不是空白：空白会被读成加载中，与「确实没取到」不是一回事 */
 export const wifiTextOf = (wifi) => wifi.ssid || WIFI_EMPTY
 
-export const wifiHintsOf = (wifi, wifiListText) => [
-  { text: wifi.mock ? WIFI_MOCK_HINT : WIFI_REAL_HINT },
-  { text: `${WIFI_WHITELIST_PREFIX}${wifiListText || WIFI_WHITELIST_EMPTY}` }
-]
+/**
+ * WiFi 自查卡明细：未取到真实值给「需安装客户端」提示；演示构建额外说明提交时会按白名单模拟（生产不可达）。
+ * 白名单始终单列一行并明示为「规则白名单」，不作为「当前 WiFi」展示。
+ */
+export const wifiHintsOf = (wifi, wifiListText, demoEnabled = false) => {
+  const hints = [{ text: wifi.mock ? WIFI_NO_CLIENT_HINT : WIFI_REAL_HINT }]
+  if (wifi.mock && demoEnabled) hints.push({ text: WIFI_DEMO_HINT })
+  hints.push({ text: `${WIFI_WHITELIST_PREFIX}${wifiListText || WIFI_WHITELIST_EMPTY}` })
+  return hints
+}
 
 /** 定位主值：演示辅助取围栏中心，否则按真实定位；两者都没有时给「尚未获取到」 */
 export const positionTextOf = (rule, position, demoAssist) => {

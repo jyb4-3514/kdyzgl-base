@@ -123,14 +123,27 @@ describe('attendanceUi · 自查卡纯映射', () => {
     allowLateMin: 60
   }
 
-  it('WiFi：模拟值必须带「模拟」标记，非模拟不给标记', () => {
-    expect(wifiBadgeOf({ ssid: 'X', mock: true })).toEqual({ text: '模拟', tone: 'warning', note: true })
+  it('WiFi：未取到真实值给「未获取到」+「需客户端」，绝不把白名单值当「当前 WiFi」（A-2/A-5）', () => {
+    expect(wifiBadgeOf({ ssid: '', mock: true })).toEqual({ text: '需客户端', tone: 'warning', note: true })
     expect(wifiBadgeOf({ ssid: 'X', mock: false })).toBeNull()
     expect(wifiTextOf({ ssid: '', mock: true })).toBe('未获取到')
+    expect(wifiTextOf({ ssid: 'ZYD-WIFI', mock: false })).toBe('ZYD-WIFI')
+    // 未取到时不把白名单值当「当前 WiFi」：白名单只出现在「规则白名单：」行，主值恒为「未获取到」
+    const hints = wifiHintsOf({ ssid: '', mock: true }, 'ZYD-WIFI')
+    expect(hints[0].text).toContain('需安装客户端（安卓壳）才能完成 WiFi 校验打卡')
+    expect(hints[0].text).not.toContain('ZYD-WIFI')
+    expect(hints[1].text).toBe('规则白名单：ZYD-WIFI')
     expect(wifiHintsOf({ ssid: 'X', mock: false }, '')).toEqual([
       { text: '由安卓壳读取的真实 WiFi' },
       { text: '规则白名单：未配置' }
     ])
+  })
+
+  it('WiFi 演示说明只在演示态追加（生产构建不可达）', () => {
+    expect(wifiHintsOf({ ssid: '', mock: true }, 'ZYD-WIFI', false)).toHaveLength(2)
+    const demo = wifiHintsOf({ ssid: '', mock: true }, 'ZYD-WIFI', true)
+    expect(demo).toHaveLength(3)
+    expect(demo[1].text).toContain('演示构建')
   })
 
   it('定位主值：演示辅助优先取围栏中心，无定位时给「尚未获取到」', () => {

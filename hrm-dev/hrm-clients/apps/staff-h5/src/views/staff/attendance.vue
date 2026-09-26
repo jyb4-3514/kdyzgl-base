@@ -78,7 +78,7 @@ onUnmounted(att.stopClock)
           @makeup="makeup.open(period, $event, att.status.workDate)"
         />
         <div class="section-title"><span>校验状态</span><span class="section-title__extra">打卡前自查</span></div>
-        <!-- WiFi 卡：壳内真实 SSID / 浏览器模拟值，模拟必须标注 -->
+        <!-- WiFi 卡：只展示壳侧真实 SSID；未取到如实显示「未获取到」+ 需客户端提示，不回填白名单值 -->
         <VerifyCard title="当前 WiFi" :badge="att.wifiBadge" :value="att.wifiText" :hints="att.wifiHints" />
         <VerifyCard
           title="当前定位"

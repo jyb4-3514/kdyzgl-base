@@ -24,6 +24,9 @@ import {
   wifiTextOf
 } from '../model/attendanceUi.js'
 
+/** 演示构建才在 WiFi 自查卡补「提交按白名单模拟」说明；生产构建编译期常量为 false，整块剔除 */
+const DEMO_ENABLED = import.meta.env.VITE_MOCK_ENABLED === 'true'
+
 /**
  * 打卡页状态中枢（取数 + 四态 + 时段/规则派生）
  *
@@ -135,7 +138,7 @@ export function useAttendanceStatus() {
 
   const wifiBadge = computed(() => wifiBadgeOf(wifi.value))
   const wifiText = computed(() => wifiTextOf(wifi.value))
-  const wifiHints = computed(() => wifiHintsOf(wifi.value, wifiListText.value))
+  const wifiHints = computed(() => wifiHintsOf(wifi.value, wifiListText.value, DEMO_ENABLED))
   const positionText = computed(() => positionTextOf(rule.value, position.value, demoAssist.value))
   const locateBadge = computed(() => locateBadgeOf(inFence.value, demoAssist.value))
   const fenceHints = computed(() => fenceHintsOf(rule.value, fenceDistance.value, position.value, demoAssist.value))
@@ -160,8 +163,8 @@ export function useAttendanceStatus() {
     } else {
       const list = (rule.value && rule.value.wifiList) || []
       wifiListText.value = list.map((item) => item.ssid).join('、')
-      // WiFi 模拟值取自规则白名单首位：浏览器演示能走通 WiFi 校验分支，壳内则取真实 SSID
-      wifi.value = getWifiInfo(list.length ? list[0].ssid : '')
+      // 只读壳侧真实 SSID：未取到时 getWifiInfo 返回空 ssid，卡片如实显示「未获取到」（不再回填白名单值）
+      wifi.value = getWifiInfo()
       await loadPendingMakeups()
     }
     if (initial) loading.value = false

@@ -120,7 +120,10 @@ export function checkErrorHint(code, ctx = {}) {
     case ATTENDANCE_CODE.OUT_OF_TIME_WINDOW:
       return `当前不在打卡时间窗内（${ctx.checkTypeLabel || ''}可打时间 ${ctx.window || '-'}），请到时间后再试`
     case ATTENDANCE_CODE.WIFI_MISMATCH:
-      return `WiFi 校验未通过：当前「${ctx.ssid || '未知网络'}」不在驿站白名单内，请连接驿站 WiFi 后重试`
+      // 未取到 SSID（提交 null）不是「连了别的网」，不能笼统说「当前网络不在白名单」，否则误导员工
+      return ctx.ssid
+        ? `WiFi 校验未通过：当前「${ctx.ssid}」不在驿站白名单内，请连接驿站 WiFi 后重试`
+        : 'WiFi 校验未通过：未获取到当前 WiFi，需安装客户端（安卓壳）才能完成 WiFi 校验打卡'
     case ATTENDANCE_CODE.LOCATION_MISMATCH:
       return `定位校验未通过：距围栏中心 ${ctx.distanceText || '未知'}，超出允许范围${ctx.demoHint && DEMO_ENABLED ? '；可打开上方「演示辅助」开关跑通演示' : ''}`
     case ATTENDANCE_CODE.DUPLICATE_CHECK:

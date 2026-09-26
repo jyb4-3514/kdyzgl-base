@@ -74,7 +74,8 @@ beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
   mocks.readToken.mockReturnValue('demo-token')
-  mocks.getWifi.mockReturnValue({ ssid: 'ZYD-WIFI', mock: true })
+  // 未取到真实 SSID（浏览器/未实现壳）：getWifiInfo 现返回空 ssid + mock:true，不再回填白名单值
+  mocks.getWifi.mockReturnValue({ ssid: '', mock: true })
   mocks.getMakeups.mockResolvedValue({ list: [] })
 })
 
@@ -314,15 +315,31 @@ describe('useAttendanceStatus · 规则与定位自查', () => {
     vi.unstubAllGlobals()
   })
 
-  it('WiFi 模拟值标注来源：非壳环境标记为「模拟」，SSID 空值给占位', async () => {
+  it('WiFi 未取到真实值：如实给「未获取到」+ 需客户端提示，不回填白名单值（A-2/A-5）', async () => {
     mocks.getStatus.mockResolvedValue(statusOf([periodOf(0)]))
     mocks.getWifi.mockReturnValue({ ssid: '', mock: true })
     const att = useAttendanceStatus()
 
     await att.load()
 
-    expect(att.wifiBadge.value).toEqual({ text: '模拟', tone: 'warning', note: true })
+    // getWifiInfo 不得再收到「白名单首项」作为模拟来源（调用不带参数）
+    expect(mocks.getWifi).toHaveBeenCalledWith()
+    // 卡片不得把规则白名单（ZYD-WIFI）当「当前 WiFi」，主值恒为「未获取到」
+    expect(att.wifiBadge.value).toEqual({ text: '需客户端', tone: 'warning', note: true })
     expect(att.wifiText.value).toBe('未获取到')
-    expect(att.wifiHints.value[0].text).toContain('模拟值')
+    expect(att.wifiText.value).not.toContain('ZYD-WIFI')
+    expect(att.wifiHints.value[0].text).toContain('需安装客户端（安卓壳）才能完成 WiFi 校验打卡')
+  })
+
+  it('WiFi 壳侧真实读取：卡片展示真实 SSID、不给标记（回归：正路不得修坏）', async () => {
+    mocks.getStatus.mockResolvedValue(statusOf([periodOf(0)]))
+    mocks.getWifi.mockReturnValue({ ssid: 'Real-WiFi', bssid: '', mock: false })
+    const att = useAttendanceStatus()
+
+    await att.load()
+
+    expect(att.wifiText.value).toBe('Real-WiFi')
+    expect(att.wifiBadge.value).toBeNull()
+    expect(att.wifiHints.value[0].text).toBe('由安卓壳读取的真实 WiFi')
   })
 })
