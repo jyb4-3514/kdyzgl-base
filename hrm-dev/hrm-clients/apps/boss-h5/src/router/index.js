@@ -121,6 +121,13 @@ const routes = [
     component: () => import('../modules/boss/views/hrDetail.vue'),
     meta: { roles: BOSS_ROLES, title: '员工档案' }
   },
+  // 站点管理（只读骨架）：入口在「我的 · 管理与配置」人事管理之后；先选驿站再看该站员工名册
+  {
+    path: '/boss/station',
+    name: 'bossStation',
+    component: () => import('../modules/boss/views/station.vue'),
+    meta: { roles: BOSS_ROLES, title: '站点管理' }
+  },
   {
     path: '/boss/payroll',
     name: 'bossPayroll',

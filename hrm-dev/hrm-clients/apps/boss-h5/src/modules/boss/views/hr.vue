@@ -99,7 +99,7 @@ onMounted(loadFirst)
   <div class="boss-hr">
     <PageNav title="人事管理" />
     <div class="page page--loose">
-      <van-search v-model="keyword" placeholder="搜索姓名或工号" shape="round" @search="loadFirst" @clear="loadFirst" />
+      <van-search v-model="keyword" placeholder="搜索姓名或登录账号" shape="round" @search="loadFirst" @clear="loadFirst" />
 
       <van-notice-bar
         v-if="warnCount.soon || warnCount.expired"

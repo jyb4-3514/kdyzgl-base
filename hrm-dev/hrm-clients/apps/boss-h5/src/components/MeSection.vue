@@ -51,6 +51,7 @@ async function onRetryMe() {
     <div class="section-title">管理与配置</div>
     <van-cell-group inset>
       <van-cell title="人事管理" label="员工档案查询与调薪" is-link to="/boss/hr" />
+      <van-cell title="站点管理" label="按驿站查看名下员工" is-link to="/boss/station" />
       <van-cell title="排班管理" label="按驿站排班与批量铺排" is-link to="/boss/schedule" />
       <van-cell title="打卡规则" label="配置打卡时段与校验方式" is-link to="/boss/attendance/rule" />
       <van-cell title="打卡记录" label="全域打卡记录查询" is-link to="/boss/attendance/records" />
