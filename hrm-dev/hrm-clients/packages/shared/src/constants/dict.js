@@ -79,7 +79,9 @@ export const WORK_ORDER_SLA_HOURS = { 0: 48, 1: 24, 2: 8 }
 /**
  * 通知类型：1=工单指派，2=工单流转，3=同步失败，4=系统公告，5/6=请假（M11）
  * 5=请假申请（发给审批人），6=请假结果（发给申请人）。
- * 新增值必须同步放行通知发布接口的类型硬校验（mock/routes/notification.js 的 PUBLISH_TYPES），否则发通知会被拦。
+ * 7~10 为薪资自动化系统联动类型（由服务端 sendSystem 投递，不经公告端点）：
+ * 7=工资单待审核（→管理员），8=工资单已发布（→员工本人），9=工资单异议退回（→管理员），
+ * 10=自动算薪执行失败（→管理员）。文案对齐后端 PayrollNotifySupport 与 docs/api.md §4.12.21。
  */
 export const NOTIFICATION_TYPE = {
   1: { label: '工单指派' },
@@ -87,8 +89,20 @@ export const NOTIFICATION_TYPE = {
   3: { label: '同步失败' },
   4: { label: '系统公告' },
   5: { label: '请假申请' },
-  6: { label: '请假结果' }
+  6: { label: '请假结果' },
+  7: { label: '工资单待审核' },
+  8: { label: '工资单已发布' },
+  9: { label: '工资单异议退回' },
+  10: { label: '自动算薪执行失败' }
 }
+
+/**
+ * 公告端点（管理员手工发布）可选的通知类型：仅 1~6。
+ * 为什么单列：7~10 只能由服务端 sendSystem 投递，公告端点若放行它们会打开「仿冒薪资通知」的口子
+ * （docs/security-payroll-automation-review.md M-7）；本数组与后端 PUBLISH_TYPES、mock 同口径。
+ * 发布类界面从这里取选项，勿直接遍历 NOTIFICATION_TYPE，避免把 7~10 渲染成永远发不出的选项。
+ */
+export const NOTIFICATION_PUBLISH_TYPES = [1, 2, 3, 4, 5, 6]
 
 /**
  * 公告标记：手工发布的通知带「公告」标签，与系统联动通知（工单/同步/请假）区分「谁发的」。
@@ -144,9 +158,13 @@ export const KPI_LEVEL = {
 }
 
 /**
- * 工资单状态（契约 6 态，financeStore.PAYROLL_STATUS_LABEL）：
- * DRAFT / PENDING_APPROVAL / APPROVED / REJECTED / PUBLISHED / CONFIRMED。
+ * 工资单状态（契约 8 态，financeStore.PAYROLL_STATUS_LABEL）：
+ * DRAFT / PENDING_APPROVAL / APPROVED / REJECTED / PUBLISHED / CONFIRMED / OBJECTED / PAID。
  * APPROVED 是契约独有的「已审核待发布」中间态，归入 success 族（与 CONFIRMED 同族，靠步骤条位置区分）。
+ * 新增两态（payroll-ui-design.md §1.2）：
+ *   OBJECTED 异议退回 = warning + solid（需立刻处理的例外态，与 PENDING_APPROVAL 同族异形）；
+ *   PAID 已发放 = success + outline（已发放且归档冻结的终态，无动作诉求）。
+ * 注意：新增状态会让 PAYROLL_STATUS[status].variant 的取值点若未覆盖则取 undefined，新增态必须与 mock 镜像、硬编码视图同批落地。
  */
 export const PAYROLL_STATUS = {
   DRAFT: { label: '草稿', type: 'info', variant: 'outline' },
@@ -154,7 +172,9 @@ export const PAYROLL_STATUS = {
   APPROVED: { label: '已通过', type: 'success', variant: 'soft' },
   REJECTED: { label: '已驳回', type: 'danger', variant: 'soft' },
   PUBLISHED: { label: '已发布', type: 'primary', variant: 'soft' },
-  CONFIRMED: { label: '已确认', type: 'success', variant: 'soft' }
+  CONFIRMED: { label: '已确认', type: 'success', variant: 'soft' },
+  OBJECTED: { label: '异议退回', type: 'warning', variant: 'solid' },
+  PAID: { label: '已发放', type: 'success', variant: 'outline' }
 }
 
 /** 流程状态：与 hrStore 的 FLOW_STATUS_LABEL 一致 */
@@ -298,15 +318,77 @@ export const FLOW_TYPE = {
 /** 明细展示顺序：要处理的排最前（异常 → 未配置），已停用沉底 */
 export const COLLECT_STATE_ORDER = ['ABNORMAL', 'UNCONFIGURED', 'NORMAL', 'DISABLED']
 
-/** 工资单筛选（顺序即管理端的处理动线：待审核 → 已通过 → 已发布 → 已确认 → 驳回/草稿） */
+/** 工资单筛选（顺序即管理端的处理动线：待审核 → 异议退回 → 已通过 → 已发布 → 已确认 → 已发放 → 已驳回 → 草稿） */
 export const PAYROLL_FILTERS = [
   { value: 'PENDING_APPROVAL', label: '待审核' },
+  { value: 'OBJECTED', label: '异议退回' },
   { value: 'APPROVED', label: '已通过' },
   { value: 'PUBLISHED', label: '已发布' },
   { value: 'CONFIRMED', label: '已确认' },
+  { value: 'PAID', label: '已发放' },
   { value: 'REJECTED', label: '已驳回' },
   { value: 'DRAFT', label: '草稿' }
 ]
+
+/**
+ * 薪资结算自动化（I-1~I-10）展示字典
+ *
+ * 均为「值 → 文案 / 色形」的纯展示映射，与 PAYROLL_STATUS 并列但独立：
+ * RUNNING 未终态用 soft（有动作诉求），SKIPPED 为正常拦截无动作诉求故用 outline。
+ * 真源：api.md v1.4 §4.12.18 / 设计规范 payroll-ui-design.md §3.3 / §11.2。
+ */
+
+/** 自动算薪运行结果（I-5 status）：进行中 / 成功 / 失败 / 已跳过 */
+export const PAYROLL_RUN_STATUS = {
+  RUNNING: { label: '进行中', type: 'primary', variant: 'soft' },
+  SUCCESS: { label: '成功', type: 'success', variant: 'soft' },
+  FAILED: { label: '失败', type: 'danger', variant: 'soft' },
+  SKIPPED: { label: '已跳过', type: 'info', variant: 'outline' }
+}
+
+/** 自动算薪触发方式（I-5 triggerType）：AUTO 定时到点 / CATCH_UP 补跑 / MANUAL 手工触发 */
+export const PAYROLL_RUN_TRIGGER = {
+  AUTO: { label: '定时' },
+  CATCH_UP: { label: '补跑' },
+  MANUAL: { label: '手工' }
+}
+
+/** 任务书命名兼容别名（设计规范 §11.2 定名 PAYROLL_RUN_TRIGGER，任务描述写作 PAYROLL_RUN_TRIGGER_TYPE） */
+export const PAYROLL_RUN_TRIGGER_TYPE = PAYROLL_RUN_TRIGGER
+
+/** 自动算薪跳过原因（I-5 skipCode → 中文，禁止原样展示机器码） */
+export const PAYROLL_SKIP_CODE = {
+  BLOCKED_9405: { label: '该账期已存在非可覆盖工资单' },
+  CONFIG_INVALID: { label: '算薪配置非法' },
+  DRAFT_PROTECTED: { label: '存在草稿单，保护性跳过' }
+}
+
+/** 算薪配置变更历史动作（I-9）：ENABLE 为 M-9 硬要求，须可追溯「启用 0→1」 */
+export const PAYROLL_SETTING_LOG_ACTION = {
+  CREATE: { label: '创建' },
+  UPDATE: { label: '修改' },
+  ENABLE: { label: '启用自动算薪' },
+  DISABLE: { label: '停用自动算薪' }
+}
+
+/** 工资单操作留痕动作（I-7）：NOTIFY_SKIP / AUTO_SUBMIT_SKIPPED 为系统留痕，同样需要可检索 */
+export const PAYROLL_LOG_ACTION = {
+  GENERATE_AUTO: { label: '自动生成' },
+  GENERATE_MANUAL: { label: '手工生成' },
+  ITEM_ADD: { label: '手工加扣款' },
+  ITEM_UPDATE: { label: '修改金额' },
+  SUBMIT: { label: '提交审核' },
+  APPROVE: { label: '审核通过' },
+  REJECT: { label: '审核驳回' },
+  PUBLISH: { label: '发布' },
+  REPUBLISH: { label: '重新发布' },
+  CONFIRM: { label: '员工确认' },
+  OBJECTION: { label: '员工异议' },
+  PAY: { label: '确认发放' },
+  NOTIFY: { label: '通知已发送' },
+  NOTIFY_SKIP: { label: '通知未送达' },
+  AUTO_SUBMIT_SKIPPED: { label: '自动提交失败' }
+}
 
 /* ==================== 六、学历与合同类型（原 PC 侧命名 HR_* 统一为通用名） ==================== */
 
@@ -415,6 +497,26 @@ export const CLIENT_LOG_SOURCE = {
   PC: { label: 'PC' },
   H5: { label: 'H5' },
   SHELL: { label: '壳' }
+}
+
+/* ==================== 八、岗位（B5 批次 · 用户裁定） ==================== */
+
+/**
+ * 岗位枚举：店员 / 站长 / 管理员（用户裁定「岗位取值为枚举三值」，非自由文本）。
+ *
+ * 为什么 value 直接用中文原值：契约里 position 是 VARCHAR(50) 自由文本字段（无岗位实体），
+ * 注册意向岗位仍走自由文本；审批台只收口取值，故落库值即展示文案，与既有存量/意向文本共存于同一字段。
+ * 值域单一真源：PC 审批台（el-select）与移动端审批台（van-picker）都消费本常量，不各写一份。
+ */
+export const POSITION_OPTIONS = [
+  { value: '店员', label: '店员' },
+  { value: '站长', label: '站长' },
+  { value: '管理员', label: '管理员' }
+]
+
+/** 岗位白名单校验：预填过滤与提交校验共用，避免两端各自实现成员判断 */
+export function isPositionOption(value) {
+  return POSITION_OPTIONS.some((item) => item.value === value)
 }
 
 /* ==================== 通用工具 ==================== */

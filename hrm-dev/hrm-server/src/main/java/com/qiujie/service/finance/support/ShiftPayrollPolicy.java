@@ -206,6 +206,31 @@ public final class ShiftPayrollPolicy {
         return leave;
     }
 
+    /**
+     * 缺勤班次单元集合 {@code R \ (A ∪ L)}（与 {@link #compute} 的 {@code absentShifts} 同源）。
+     * <p>
+     * 为什么单列此方法：考勤<b>明细</b>缺卡名单需按班次粒度逐项列出「哪个员工哪一个班次缺」，
+     * 而 {@code compute} 只回计数。抽出集合口径供明细复用，避免明细另写一套缺卡判定导致与概况漂移。
+     * 入参与 {@link #compute} 同构；考勤口径传 {@code leaveUnits = 空集}（不抵扣请假）。
+     */
+    public static Set<Long> absentShiftSet(Collection<ScheduleRow> schedules,
+                                           Collection<RecordRow> records,
+                                           Collection<Long> leaveUnits,
+                                           int middayBoundaryMinute,
+                                           String legacyPeriodSentinel) {
+        Map<LocalDate, Set<Long>> dayKeys = dayKeysOf(schedules, middayBoundaryMinute);
+        Set<Long> required = requiredShiftSet(schedules, middayBoundaryMinute, null);
+        Set<Long> attended = attendedShiftSet(records, dayKeys, legacyPeriodSentinel, null);
+        Set<Long> leave = leaveShiftSet(leaveUnits, required);
+        Set<Long> absent = new LinkedHashSet<>();
+        for (Long key : required) {
+            if (!attended.contains(key) && !leave.contains(key)) {
+                absent.add(key);
+            }
+        }
+        return absent;
+    }
+
     /** 迟到计数：PER_CARD（每张有效 ON 迟到卡计 1 次，= 现状） / PER_DAY（按日去重，口径变更） */
     public static int lateCountOf(Collection<RecordRow> records, String lateGranularity) {
         int perCard = 0;

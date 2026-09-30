@@ -173,6 +173,27 @@ public class AlgoProperties {
     @Data
     public static class Attendance {
         private Anomaly anomaly = new Anomaly();
+
+        // ==================== 多班次排班（ARCH-C-2~5；algorithm-multi-shift-scheduling.md §2 参数表） ====================
+        // 键名遵循既有前缀体例 hrm.algo.attendance.*；禁止内联阈值（规则 §11.4、反模式 A03）。
+
+        /** 是否允许同员工同天班次时间重叠（默认 false：重叠提交被拒） */
+        private boolean allowShiftOverlap = false;
+        /** 单日班次上限（默认 2，与计薪序号编码 {@code epochDay×2+ordinal} 绑定；>2 须先做计薪编码扩展） */
+        private int maxShiftsPerDay = 2;
+        /** 重叠判定容差（分钟；0=严格半开区间，>0 容忍端点轻微重叠） */
+        private int overlapToleranceMinutes = 0;
+        /** {@code end_time ≤ start_time} 是否视为跨零点顺延（true：e += 1440 归一；false：判脏数据拒绝） */
+        private boolean crossMidnightAsNextDay = true;
+        /** 同员工同天重复排同一班次的处置：IDEMPOTENT=视为 no-op（默认）/ REJECT=报错 */
+        private String duplicateShiftPolicy = "IDEMPOTENT";
+        /** 同日同员工各排班次 {@code ordinal} 是否必须互异（默认 true；关闭将导致计薪静默少算） */
+        private boolean requireDistinctOrdinalPerDay = true;
+        /**
+         * 应到/缺卡粒度：{@code PER_SHIFT}（默认，B7b 用户已裁定：按班次统计）/
+         * {@code PER_DAY}（旧按人去重口径，回落开关）。算法 §2 / §8-4。
+         */
+        private String absentGranularity = "PER_SHIFT";
     }
 
     @Data

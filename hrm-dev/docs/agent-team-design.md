@@ -254,11 +254,11 @@ graph TD
 
 | 字段 | 内容 |
 | --- | --- |
-| 唯一职责域 | 只对**部署执行、CI/CD、宝塔/Nginx 配置、监控与回滚操作**负责 |
+| 唯一职责域 | 只对**部署执行、CI/CD、宝塔/Nginx 配置、监控与回滚操作**，以及**例行巡检与容量治理**负责（后者为 A 档只读子域，可不经 C 档授权自驱；依据 `hrm-dev/docs/ops-agent-optimization.md` v2.1，技术评审「有条件通过」） |
 | 明确不做 | ① **不做安全评估**——**操作安全评估**（影响范围 / 是否涉生产数据 / 是否可逆 / 回滚步骤）由**主智能体**按 §10.3 完成；**技术安全评估**（漏洞 / 攻击面 / 鉴权与越权 / 依赖与供应链 / 合规红线）由**网络安全工程师**出具；运维不承担任一类（本方 SKILL.md 同款口径）；② **不直接调用 MCP**（§10.5，主智能体独占）；③ 不在服务器编辑业务源码（§5 红线 §10.4）；④ 不设计业务功能与表结构（交架构/数据库）；⑤ 不写业务代码修复缺陷（交对应工程师） |
 | 上游输入 | 架构设计（`hrm-dev/docs/adr-*.md`）、部署手册（`hrm-dev/docs/deploy.md`）、发布版本/tag（§5）、**主智能体下发的 C 档授权与凭据**（§7.1 §10.3） |
-| 下游输出 | 部署与回滚记录（`hrm-dev/docs/deploy.md`、`hrm-dev/docs/update-log.md`）、运维脚本（`hrm-dev/deploy/**`）、检查点条目（`SESSION-STATE.md`） |
-| 禁止事项 | 服务器代码只来源于 `git pull`（§5 红线）；宝塔托管进程须带 `RESTART_MODE=bt`，不得双进程抢 8080（§5）；Nginx 四关键项不得删改（§5）；上线前先备份数据库（§5）；凭据不落明文（§7.2.1） |
+| 下游输出 | **例行巡检报告**（`hrm-dev/docs/ops-checkup-{YYYYMMDD}.md`，**A 档只读可自驱**：磁盘水位 / 容器与托管进程 / 数据服务连通 / 证书与链路 / 日志轮转 / 备份可恢复性）、部署与回滚记录（`hrm-dev/docs/deploy.md`、`hrm-dev/docs/update-log.md`）、运维脚本（`hrm-dev/deploy/**`）、检查点条目（`SESSION-STATE.md`） |
+| 禁止事项 | 服务器代码只来源于 `git pull`（§5 红线）；宝塔托管进程须带 `RESTART_MODE=bt`，不得双进程抢 8080（§5）；Nginx 四关键项不得删改（§5）；**单文件 bind mount 须原地改写保 inode，禁用 `mv`/`cp` 换文件**（`deploy.md:1059-1067`）；上线前先备份数据库（§5）；凭据不落明文（§7.2.1） |
 | 升级路径 | 任何 C 档动作（重部署/回滚/证书/防火墙/删文件/停服务）、需凭据、健康检查失败、需在服务器新增非源码文件时，**停下回报主智能体** |
 | 加载技能 | `token-optimizer`、`engineering-discipline`、`devops-pipeline` |
 
@@ -268,10 +268,10 @@ graph TD
 
 | 字段 | 内容 |
 | --- | --- |
-| 唯一职责域 | 只对安全威胁建模、代码与配置的安全审计、依赖与供应链漏洞核查、安全测试与攻击面验证、安全合规红线的技术判定负责。 |
+| 唯一职责域 | 只对安全威胁建模、代码与配置的安全审计、依赖与供应链漏洞核查、安全测试与攻击面验证、安全合规红线的技术判定负责，以及**例行安全巡检**（后者为 A 档只读子域，可不经 C 档授权自驱；依据 `hrm-dev/docs/security-agent-checkup-plan.md` v2，技术评审「有条件通过」）。 |
 | 明确不做 | ① 不做审批/授权（C 档授权是主智能体职责 §10.3，本角色只出技术结论与风险等级）；② 不直接调用 MCP（§10.5）；③ 不执行部署与服务器操作（运维工程师职责）；④ 不写业务代码修复，只出修复建议与验收标准，交对应实现角色；⑤ 不获取或轮换凭据（§7.1），审计中不得读取真实凭据明文；⑥ 不做功能正确性测试与门禁实跑（测试工程师职责），只做安全维度；⑦ 不设计表结构（数据库工程师职责）；不改 Nginx / 宝塔配置，只出建议交运维；⑧ **技术安全评估的独立性**——不参与 §10.3 的**操作安全评估**与授权决策，仅出技术结论（评估与授权分离，不得由同一主体兼任）。 |
 | 上游输入 | 架构设计 / ADR（`hrm-dev/docs/adr-{序号}-{标题}.md`，**新增**）、接口契约 `hrm-dev/docs/api.md`、源码与配置（只读）、依赖清单（`hrm-dev/hrm-server/pom.xml` 与前端 `package.json` / lock）、部署与 Nginx 配置 `hrm-dev/deploy/**`、合规文档（`collector-architecture-adr.md` §20、`wecom-integration-adr.md` 红线 W-C1/C3/C8/C10）、项目规则 §7.2 安全红线。 |
-| 下游输出 | ① 安全评估报告 `hrm-dev/docs/security-{主题}.md`（**新增**：威胁建模 / 发现项含严重级与可利用性与影响面 / 复现步骤 / 修复建议 / 复验结论）；② C 档授权的技术输入结论（风险等级 + 是否可放行 + 缓解措施）；③ 安全测试用例（交测试工程师纳入 `hrm-dev/docs/test-cases.md`）。 |
+| 下游输出 | ① **例行安全巡检报告**（`hrm-dev/docs/security-checkup-{YYYYMMDD}.md`，**A 档只读可自驱**：依赖与供应链 / 配置与占位残留 / 对外暴露面 / 鉴权与越权回归 / 日志异常迹象 / 证书与私钥落点与权限；周期每天一次）；② 安全评估报告 `hrm-dev/docs/security-{主题}.md`（**新增**：威胁建模 / 发现项含严重级与可利用性与影响面 / 复现步骤 / 修复建议 / 复验结论）；③ C 档授权的技术输入结论（风险等级 + 是否可放行 + 缓解措施）；④ 安全测试用例（交测试工程师纳入 `hrm-dev/docs/test-cases.md`）。 |
 | 硬红线 | 不得逆向接口签名、注入进程、伪装设备标识、绕过风控限频（§7.2.5、§10.4）；不得在生产库执行破坏性验证（§10.4）；报告中不得出现真实凭据明文（§7.1）；未验证项闭环前不得声称「已确认合规」（§7.2.5）；不得以「以 root 运行应用进程」为前提给出放行结论（§10.4）。 |
 | 升级路径 | 发现高危可利用漏洞（尤其涉生产数据或权限绕过）、发现凭据泄露痕迹、需在生产环境做验证、发现实现与 §7.2 冲突、发现 §7.2.5 合规红线被触碰时，**立即停下回报主智能体**。 |
 | 加载技能 | `token-optimizer`、`engineering-discipline`、`code-review`（领域核心，取安全维度）；附 `TODO(扩展): 待新增专用安全审计技能；当前以 code-review 的安全维度承担`。 |
@@ -303,6 +303,8 @@ graph TD
 | 数据库设计 | 数据库工程师 | 后端、算法、运维 | `hrm-dev/docs/db.md` | 命名规范（§6.5）、无 `SELECT *`（§6.7）、主智能体 Review | 是 |
 | 接口契约 | 后端工程师（架构师评审） | 前端、测试、架构师 | `hrm-dev/docs/api.md` | 入参/出参/错误码完整；主智能体 Review | 是 |
 | 部署手册 | 运维工程师 | 主智能体、运维 | `hrm-dev/docs/deploy.md` | 与 §5 一致（Nginx 四关键项、回滚路径） | 是 |
+| **例行巡检报告** | 运维工程师 | 主智能体 | `hrm-dev/docs/ops-checkup-{YYYYMMDD}.md`（**新增**） | 六项齐全（磁盘水位 / 容器与托管进程 / 数据服务连通 / 证书与链路 / 日志轮转 / 备份可恢复性），每项含命令 + 阈值 + 处置建议；未获取项须以「未获取（原因）」占位并附手工核实步骤；**A 档只读，不需 C 档授权**（依据 `ops-agent-optimization.md` v2.1） | 是 |
+| **例行巡检报告（安全）** | 网络安全工程师 | 主智能体 | `hrm-dev/docs/security-checkup-{YYYYMMDD}.md`（**新增**） | 六项齐全（依赖与供应链 / 配置与占位残留 / 对外暴露面 / 鉴权与越权回归 / 日志异常迹象 / 证书与私钥落点与权限），每项含检查对象 + 阈值 + 处置建议；未获取项须以「未获取（原因）」占位；**A 档只读，不需 C 档授权**（依据 `security-agent-checkup-plan.md` v2） | 是 |
 | 测试用例 | 测试工程师 | 主智能体、各实现角色 | `hrm-dev/docs/test-cases.md` | 覆盖正常/边界/异常（本方 SKILL.md） | 是 |
 | 变更日志 | 主智能体 | 全角色 | `hrm-dev/docs/update-log.md` | 每次变更同步（§13） | 是 |
 | Demo 设计规范（系列） | UI/UX 设计师 + 前端 + 架构师 | 前端、测试 | `hrm-dev/docs/demo-*.md`（实测成员：`demo-design.md`、`demo-ux-improvement.md`、`demo-ui-redesign.md`、`demo-milestones.md`、`demo-leave-design.md`、`demo-sync-config-design.md`、`demo-mobile-nav-redesign.md`、`demo-pc-refactor.md`、`demo-staff-refactor.md`、`demo-staff-ui-redesign.md`、`demo-boss-module-plan.md`、`demo-boss-ui-spec.md`、`demo-system-settings-ui.md`、`demo-docker-deploy.md`、`demo-functional-test-report.md`） | 与 Demo 实测一致；文档与实测出入以实测为准（SESSION-STATE 先例） | 是 |

@@ -22,6 +22,7 @@ import com.qiujie.mapper.HrProfileMapper;
 import com.qiujie.mapper.HrSalaryMapper;
 import com.qiujie.mapper.StationMapper;
 import com.qiujie.service.employee.EmployeeService;
+import com.qiujie.service.audit.OperationAuditWriter;
 import com.qiujie.service.hr.port.PayrollSettlementPort;
 import com.qiujie.service.hr.support.HrConstants;
 import com.qiujie.service.registration.support.RegistrationConstants;
@@ -80,7 +81,7 @@ class HrFlowServiceApproveTest {
         service = new HrFlowServiceImpl(hrFlowMapper, hrFlowStepMapper, registrationMapper,
                 mock(HrProfileMapper.class), mock(HrSalaryMapper.class), employeeMapper, mock(DepartmentMapper.class),
                 stationMapper, employeeService, mock(HrSalaryWriter.class), mock(PayrollSettlementPort.class),
-                new HrProperties());
+                new HrProperties(), mock(OperationAuditWriter.class));
 
         flow = new HrFlow();
         flow.setId(1L);
@@ -137,7 +138,7 @@ class HrFlowServiceApproveTest {
         request.setInitialPassword("Init1234");
         request.setDeptId(2L);
         request.setStationId(3L);
-        request.setPosition("分拣员");
+        request.setPosition("店员");
         request.setBasicSalary(new BigDecimal("5000"));
         request.setPostSalary(new BigDecimal("2000"));
         request.setPerformanceBase(new BigDecimal("1000"));
@@ -151,7 +152,7 @@ class HrFlowServiceApproveTest {
         service = new HrFlowServiceImpl(hrFlowMapper, hrFlowStepMapper, registrationMapper,
                 mock(HrProfileMapper.class), mock(HrSalaryMapper.class), employeeMapper, departmentMapper,
                 stationMapper, employeeService, mock(HrSalaryWriter.class), mock(PayrollSettlementPort.class),
-                new HrProperties());
+                new HrProperties(), mock(OperationAuditWriter.class));
         when(stationMapper.selectById(anyLong())).thenReturn(enabledStation());
         when(employeeMapper.selectCount(any())).thenReturn(0L);
         when(employeeMapper.insert(any(Employee.class))).thenAnswer(inv -> {
@@ -180,15 +181,52 @@ class HrFlowServiceApproveTest {
     }
 
     @Test
-    @DisplayName("R-6：岗位双写（employee.position 权威 + hr_flow.position 留痕）")
+    @DisplayName("R-6：岗位双写（employee.position 权威 + hr_flow.position 留痕，须一致）")
     void approveDoubleWritesPosition() {
         stubCommonHappyPath();
 
         service.approveOnboarding(1L, approveRequest());
 
-        assertEquals("分拣员", flow.getPosition());
-        assertEquals("分拣员", created[0].getPosition());
+        assertEquals("店员", flow.getPosition());
+        assertEquals("店员", created[0].getPosition());
         assertEquals(flow.getPosition(), created[0].getPosition(), "双写点须一致");
+    }
+
+    @Test
+    @DisplayName("岗位非法值（不在 店员/站长/管理员 白名单）→ 400")
+    void approveRejectsInvalidPosition() {
+        HrOnboardingApproveRequest request = approveRequest();
+        request.setPosition("分拣员");
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.approveOnboarding(1L, request));
+        assertEquals(ErrorCode.BAD_REQUEST.getCode(), ex.getCode());
+        assertTrue(ex.getMessage().contains("岗位"), "文案须点明岗位取值");
+    }
+
+    @Test
+    @DisplayName("岗位缺失（空白）→ 400 必填")
+    void approveRejectsBlankPosition() {
+        HrOnboardingApproveRequest request = approveRequest();
+        request.setPosition("   ");
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.approveOnboarding(1L, request));
+        assertEquals(ErrorCode.BAD_REQUEST.getCode(), ex.getCode());
+    }
+
+    @Test
+    @DisplayName("合法三值（店员/站长/管理员）均可通过审批并双写一致")
+    void approveAcceptsAllThreePositions() {
+        for (String position : List.of("店员", "站长", "管理员")) {
+            setUp();
+            stubCommonHappyPath();
+            HrOnboardingApproveRequest request = approveRequest();
+            request.setPosition(position);
+
+            service.approveOnboarding(1L, request);
+
+            assertEquals(position, flow.getPosition(), "hr_flow.position 应写入 " + position);
+            assertEquals(position, created[0].getPosition(), "employee.position 应写入 " + position);
+        }
     }
 
     @Test

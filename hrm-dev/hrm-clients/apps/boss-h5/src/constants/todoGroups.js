@@ -25,6 +25,13 @@ export const BOSS_TODO_GROUPS = [
     params: { status: 'PENDING_APPROVAL', pageNum: 1, pageSize: 3 }
   },
   {
+    // C-1 后员工异议落 OBJECTED：异议单必须独立成组，不能并进「待审核」（否则异议单不再进待办）
+    key: 'payrollObjections',
+    title: '待处理工资单异议',
+    to: '/boss/payroll',
+    params: { status: 'OBJECTED', pageNum: 1, pageSize: 3 }
+  },
+  {
     key: 'flows',
     title: '进行中入离职',
     to: '/boss/flow',

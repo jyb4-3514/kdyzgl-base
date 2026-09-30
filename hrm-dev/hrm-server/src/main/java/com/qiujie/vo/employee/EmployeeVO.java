@@ -27,6 +27,8 @@ public class EmployeeVO {
     private Long stationId;
     private String stationName;
     private String role;
+    /** 岗位（取值 店员 / 站长 / 管理员；未登记为 null） */
+    private String position;
     private Integer status;
 
     /** 是否已修改过初始密码（C-06 补字段，对齐 Mock toEmployeeVO） */

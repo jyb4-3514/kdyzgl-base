@@ -1,12 +1,15 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog, showSuccessToast } from 'vant'
 import PageNav from '@kdyzgl/shared/ui/PageNav.vue'
 import PageState from '@kdyzgl/shared/ui/PageState.vue'
+import StatusTag from '@kdyzgl/shared/ui/StatusTag.vue'
 import BossMetricDelta from '../components/BossMetricDelta.vue'
 import { bossConfirm } from '../components/bossConfirm.js'
 import { getHrProfile, getHrSalary, updateHrSalary } from '@/api/hr.js'
+import { getPayrolls } from '@/api/finance.js'
+import { PAYROLL_STATUS } from '@kdyzgl/shared/constants/dict.js'
 import { moneyText, nextMonthFirstDay } from '@/utils/format.js'
 
 /**
@@ -23,6 +26,7 @@ import { moneyText, nextMonthFirstDay } from '@/utils/format.js'
  * 否则后端/Mock 缺省即保留原值，出现「界面有反馈、津贴没落库」的静默失败。
  */
 const route = useRoute()
+const router = useRouter()
 const employeeId = computed(() => Number(route.params.employeeId))
 
 const loading = ref(true)
@@ -61,13 +65,84 @@ const nextTotal = computed(
 )
 const diff = computed(() => nextTotal.value - currentTotal.value)
 
+/* ---------- 历史工资单区块（管理能力扩展 ④） ----------
+ * 位置：页面最末、紧随「调薪留痕」——与「标准薪资历史 ↔ 实发历史」形成对照，且不打断调薪（写）动线。
+ * 数据源：GET /payrolls?employeeId=（ADMIN，契约与 Mock 均支持），不新增接口；下钻进既有 /boss/payroll/:id。 */
+const PAYROLL_PAGE_SIZE = 10
+const payrolls = ref([])
+const payrollsTotal = ref(0)
+const payrollsLoading = ref(true)
+const payrollsError = ref('')
+const payrollsPageNum = ref(1)
+const payrollsFinished = ref(false)
+const payrollsLoadingMore = ref(false)
+
+/** 应用工资单分页结果：首屏同批取数与追加分页共用一套赋值，避免两处口径分叉 */
+function applyPayrollPage(page, append) {
+  const rows = page.list || []
+  payrolls.value = append ? payrolls.value.concat(rows) : rows
+  payrollsTotal.value = page.total || 0
+  payrollsFinished.value = payrolls.value.length >= payrollsTotal.value
+}
+
+async function loadPayrolls() {
+  payrollsLoading.value = true
+  payrollsError.value = ''
+  try {
+    const page = await getPayrolls({ employeeId: employeeId.value, pageNum: 1, pageSize: PAYROLL_PAGE_SIZE })
+    payrollsPageNum.value = 1
+    applyPayrollPage(page, false)
+  } catch (e) {
+    payrollsError.value = e.message || '历史工资单加载失败'
+  } finally {
+    payrollsLoading.value = false
+  }
+}
+
+/** 触底加载下一页：失败只收口本区块，不影响上方档案与调薪表单 */
+async function onLoadMorePayrolls() {
+  if (payrollsFinished.value || payrollsLoadingMore.value) return
+  const next = payrollsPageNum.value + 1
+  try {
+    const page = await getPayrolls({ employeeId: employeeId.value, pageNum: next, pageSize: PAYROLL_PAGE_SIZE })
+    payrollsPageNum.value = next
+    applyPayrollPage(page, true)
+  } catch (e) {
+    payrollsFinished.value = true
+  } finally {
+    payrollsLoadingMore.value = false
+  }
+}
+
+function openPayroll(item) {
+  router.push(`/boss/payroll/${item.id}`)
+}
+
 async function load() {
   loading.value = true
   error.value = ''
+  payrollsLoading.value = true
+  payrollsError.value = ''
   try {
-    const [profileData, salaryData] = await Promise.all([getHrProfile(employeeId.value), getHrSalary(employeeId.value)])
+    // 历史工资单与档案/薪资同批并发；工资单失败独立降级为区块错误，不影响上方可用
+    const [profileData, salaryData, payrollResult] = await Promise.all([
+      getHrProfile(employeeId.value),
+      getHrSalary(employeeId.value),
+      getPayrolls({ employeeId: employeeId.value, pageNum: 1, pageSize: PAYROLL_PAGE_SIZE }).then(
+        (data) => ({ ok: true, data }),
+        (e) => ({ ok: false, error: e })
+      )
+    ])
     profile.value = profileData
     salary.value = salaryData
+    payrollsPageNum.value = 1
+    if (payrollResult.ok) applyPayrollPage(payrollResult.data, false)
+    else {
+      payrolls.value = []
+      payrollsTotal.value = 0
+      payrollsFinished.value = true
+      payrollsError.value = (payrollResult.error && payrollResult.error.message) || '历史工资单加载失败'
+    }
     form.value = {
       basicSalary: salaryData.current.basicSalary,
       postSalary: salaryData.current.postSalary,
@@ -81,6 +156,7 @@ async function load() {
     error.value = e.message || '加载失败'
   } finally {
     loading.value = false
+    payrollsLoading.value = false
   }
 }
 
@@ -411,6 +487,48 @@ onMounted(load)
             <p v-if="!salary.histories.length" class="tip">暂无调薪记录</p>
           </div>
         </template>
+
+        <!-- 历史工资单（管理能力扩展 ④）：页面最末、紧随调薪留痕，点行下钻既有 /boss/payroll/:id -->
+        <div class="section-title">
+          <span>历史工资单</span>
+          <span class="section-title__extra tabular-nums">共 {{ payrollsTotal }} 张</span>
+        </div>
+        <div class="card payroll-card">
+          <div v-if="payrollsLoading" class="payroll-sk" aria-busy="true">
+            <div v-for="i in 2" :key="i" class="skeleton-block payroll-sk__row" />
+          </div>
+
+          <div v-else-if="payrollsError" class="payroll-error" role="alert">
+            <p class="payroll-error__text">{{ payrollsError }}</p>
+            <button type="button" class="payroll-error__retry" @click="loadPayrolls">重新加载</button>
+          </div>
+
+          <van-list
+            v-else
+            v-model:loading="payrollsLoadingMore"
+            :finished="payrollsFinished"
+            finished-text="没有更多了"
+            @load="onLoadMorePayrolls"
+          >
+            <button
+              v-for="item in payrolls"
+              :key="item.id"
+              type="button"
+              class="payroll-row"
+              @click="openPayroll(item)"
+            >
+              <div class="list-item__title">
+                <span class="tabular-nums">{{ item.month }} · {{ item.payrollNo }}</span>
+                <StatusTag :dict="PAYROLL_STATUS" :value="item.status" />
+              </div>
+              <div class="list-item__meta tabular-nums">
+                应发 {{ moneyText(item.grossAmount) }} · <span class="payroll-net">实发 {{ moneyText(item.netAmount) }}</span>
+              </div>
+            </button>
+            <p v-if="!payrolls.length" class="tip">暂无工资单记录</p>
+            <p v-if="!payrolls.length" class="tip">工资单由财务端生成、管理员发布后在此可见</p>
+          </van-list>
+        </div>
       </PageState>
     </div>
   </div>
@@ -489,5 +607,61 @@ onMounted(load)
 .allowance-del:active,
 .allowance-add:active {
   background-color: var(--surface-subtle);
+}
+
+/* 历史工资单区块：两行/条（≥--row-h-2），金额 tabular-nums，实发加粗 */
+.payroll-card {
+  padding: 0 var(--sp-4);
+}
+
+.payroll-row {
+  display: block;
+  width: 100%;
+  min-height: var(--row-h-2);
+  padding: var(--sp-3) 0;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border-line);
+}
+
+.payroll-row:last-of-type {
+  border-bottom: none;
+}
+
+.payroll-net {
+  font-weight: var(--fw-medium);
+  color: var(--text-1);
+}
+
+.payroll-sk {
+  padding: var(--sp-3) 0;
+}
+
+.payroll-sk__row {
+  height: var(--row-h-2);
+  margin-top: var(--sp-2);
+}
+
+.payroll-error {
+  padding: var(--sp-4) 0;
+  text-align: center;
+}
+
+.payroll-error__text {
+  margin: 0;
+  font-size: var(--fs-body);
+  color: var(--color-danger);
+}
+
+.payroll-error__retry {
+  min-height: var(--touch-min);
+  padding: 0 var(--sp-5);
+  margin-top: var(--sp-3);
+  font-size: var(--fs-body);
+  color: var(--color-primary);
+  background: var(--surface-card);
+  border: 1px solid var(--color-primary-icon);
+  border-radius: var(--r-full);
 }
 </style>

@@ -1,5 +1,368 @@
 # 变更日志
 
+- 2026-09-28 · 修复 `hrm-demo` `verify-mock.mjs` 的 `nonCovering` 同型时钟缺陷 + `hrm-clients` 19 处 `find(...)` 取属性加固评估处置 · **测试资产（仅两个测试脚本 + 本行）**：① **`hrm-dev/hrm-demo/scripts/verify-mock.mjs` T17「时间窗外打卡 → 9102」**（原 L1428-1431，现 L1428-1503）。**根因（固定时钟实跑复现）**：旧写法 `shifts1.result.find((s) => !(nowMinutes() >= clockMinutes(s.startTime) - 30 && nowMinutes() <= clockMinutes(s.endTime)))` 从**全部**班次里挑「上班卡时间窗不含当前时刻」者，既**未过滤 `status===1`（启用态）**，又隐含「任意时刻必有班次落在窗外」的假设——该假设不成立：站 1 种子三启用班次 早班 08:00-16:00 / 中班 12:00-20:00 / 晚班 16:00-24:00（`src/shared/mock/attendanceStore.js:62-66`，`buildShifts` 全置 `status:1`），单班次模型 ON 窗 = `[开始-30, 结束]`（`OPEN_AHEAD_MIN=30`，`attendanceStore.js:43,1080-1082`），三窗并集 `[07:30,24:00]`、**交集（同时覆盖）`[15:30,16:00]`** → 该 30 分钟内 `find` 返回 `undefined` → `nonCovering.id` 抛 `TypeError: Cannot read properties of undefined (reading 'id')`（原 L1433）→ **整套门禁崩掉**。以固定 15:30 时钟实跑复现（`node --input-type=module -e "…覆盖 Date…; import('./scripts/verify-mock.mjs')"`，**未改系统时钟**）确认崩在 L1433。**修法（参照 `hrm-clients` 已落地修法，按本工程实际构造、不照搬数值）**：非碰撞时段仍挑现成班次（行为不变）；仅当无「窗外班次」可用时，把早班(id=1) **临时**改到「距当前时刻 ≥120 分钟」的窗口（`nowM>=130` 用 `[00:00, nowM-120]`，否则 `[nowM+120,'24:00']`，**按当前时刻动态构造、非写死**），验证 `9102` 后**立即**用 `shifts1` 快照值 PUT 还原（非硬编码）；**补 `status===1` 过滤**（本处原缺失；缺它则可能把停用班次排给员工 → `saveSchedules` 回 `SHIFT_UNAVAILABLE` → 拿不到 `9102`）；另加 2 分钟余量消除临界分钟抖动。**用例语义未弱化/未删除**：`9102` 断言原样保留。**还原保障**：碰撞窗路径新增一条断言「时间窗外用例后早班已还原种子时段（08:00-16:00）」（还原失败即计入 fail，不静默）。② **`hrm-dev/hrm-clients/scripts/verify-mock.mjs` 19 处 `find(...).属性` 加固评估**（下列行号为本次加固前原行号）：新增 `pickOrNull(list, predicate)` 助手（非数组/未命中返回 `null`，只做「不抛错」，是否通过由断言显式判定、不做静默兜底）；**9 处判定「需加固」并落地**（改后取属性不抛错、缺失即 fail 并给出明确文案）——L5595/5599/5629/5630（`pay0`/`payBase` 的 `BASIC`/`OTHER`/`FULL_ATTEND` 明细项）、L5642/5664（规则项 `FULL_ATTEND` 的 `params.amount`/`enabled`）、L5648（`pay1` 明细项）、L6122（目标调整明细项）、L6421（`db.employees.find(onboardEmpId)`）；**13 处判定「无需加固」故不改**——L1146/1311/4359 已 `|| {}` 兜底（空则断言自然 fail 不崩）、L5162/5183 用 `?.` 可选链（空则 `undefined===45` → fail），L606/686/6629/7674/7675/7676 为固定种子常量（站 8 / `st001_staff` / `id=30` / `admin` 恒存在）、L1451/1768 为排班矩阵同源结构不变量（每行 `days` 必含 `dates`/`today`）。**断言未删未弱化**：仅**新增** 1 条还原校验断言（`hrm-demo` 碰撞窗触发），其余均为**等价改写 + 补失败文案**。**其它时钟依赖自查**：`hrm-demo` 其余时刻相关仅 T18 `nowMin`/`farPeriod`/`around`（L2088-2150，本就按运行时刻动态构造、无同类风险）与「末段 24:00 + 阈值 0」用例（L2210，确定性），**均不改**（理由见上）。**证据（本机实跑）**：`hrm-clients` `npm run verify:mock` **连续两次**→ **共 1025 项 / 通过 1025 / 失败 0**（两次一致）；`hrm-demo` `npm run verify:mock`（= `node scripts/verify-mock.mjs`）**连续两次**→ **共 942 项 / 通过 942 / 失败 0**（两次一致）；`hrm-demo` 固定时钟 **15:29 / 15:30 / 15:45 / 16:00 / 16:01** 五时刻 → 每次 **exit=0 / 无崩溃 / 共 943 项：通过 943 / 失败 0**（943 = 942 + 1 条还原校验断言，即碰撞窗路径确实被走到且还原成功）；三端单测 `boss-h5 139`（17 files）/ `staff-h5 241`（29 files）/ `web 108`（16 files）**均 = 基线、未下降**。**只改上述两个测试脚本 + 本行**；未改业务代码/业务语义、契约、`api.md`/`db.md`、其它 docs、`packages/mock` 业务逻辑；未执行 git/部署/MCP；未声称跑过真机/e2e。**遗留**：无（`hrm-demo` 同型缺陷本轮已修）。
+
+- 2026-09-28 · 修复 `verify-mock.mjs` `nonCovering` 用例的时钟依赖缺陷（上轮登记遗留）· **测试资产（仅测试脚本 + 本行）**：`hrm-dev/hrm-clients/scripts/verify-mock.mjs` T17「时间窗外打卡 → 9102」用例（原 L1505-1520，现 L1505-1580）。**根因（固定时钟实跑复现）**：旧写法从「启用班次」里挑一个「上班卡时间窗不含当前时刻」的班次，隐含假设「任意时刻必有启用班次落在窗外」——该假设不成立：站 1 启用集合 早班 08:00-16:00 / 晚班 16:00-24:00，单班次模型的 ON 窗 = `[开始-30, 结束]`（`packages/mock/src/attendanceStore.js:1351-1354`，`OPEN_AHEAD_MIN=30`），两窗并集 `[07:30,24:00]`；**15:30-16:00 内两窗同时覆盖当前时刻** → `find(...)` 返回 `undefined` → `nonCovering.id` 抛 `TypeError: Cannot read properties of undefined (reading 'id')`（原 L1511 / 现 L1548）→ **整套门禁随之崩掉**。以固定 15:45 时钟实跑复现（`node --input-type=module -e "…覆盖 Date…; import('./scripts/verify-mock.mjs')"`）确认崩在 原 L1511。**修法（与运行时刻无关的确定性构造）**：非碰撞时段仍挑现成班次（行为逐字不变）；仅当无「窗外班次」可用时，把早班(id=1) **临时**改到「距当前时刻 ≥120 分钟」的窗口（`nowM>=130` 用 `[00:00, nowM-120]`，否则用 `[nowM+120, '24:00']`）；验证后**立即**用 `GET /shifts` 快照值 PUT 还原早班（非硬编码）。**为何确定性**：单班次模型 ON 窗 = `[start-30, end]`，构造使 `nowM` 距窗口边界 ≥120 分钟 → `nowM < start-30` 或 `nowM > end` **恒成立** → 打卡必回 `9102`，与运行时刻无关（另加 2 分钟余量 > 脚本从选取到打卡的耗时，消除临界分钟抖动）；早班改后开始时间仍 `< 12:00`（`ordinal 0`），与晚班（`ordinal 1`）维持「一早一晚」→ **不触发 9114**（`attendanceStore.js:620-641`）。**任务书建议修正**：建议中的「临时收窄 `allowEarlyMin/allowLateMin`」对本用例**无效**——该用例走单班次模型（未传 `periodIndex`），ON 窗固定 `[开始-30, 结束]`、与余量字段无关，故**未动规则**（只动班次 + 即时还原）。**还原保障**：碰撞窗路径新增一条断言「时间窗外用例后早班已还原种子时段（08:00-16:00）」（还原失败即计入 fail，不静默）；后续多处依赖早班 08:00-16:00 的断言（T18 等）构成二重兜底。**强耦合回归**：固定时钟 07:29 / 07:31（非碰撞）与 15:29 / 15:30 / 15:45 / 16:00 / 16:01（碰撞窗）**失败均为 0**。**`find(...).x` 空值保护自查**：全脚本「`find(...)` 结果直接取属性」grep 命中 **21 行**（含 2 行 `activeEmployees().find` 误匹配 → 实质 **19 处**：L606/686/1146/1311/1451/1768/4359/5595/5599/5629/5630/5642/5648/5664/6421/6629/7674/7675/7676）；其中 1146/1311/4359 以 `|| {}` 兜底，其余 16 处仅以 `xxx.ok &&` / `!!row &&` 或固定种子数据为前提、**未对 `find` 结果本身加空值保护**，但触发条件均为**数据/响应形态缺失而非运行时刻**，崩溃形态与本缺陷不同，**本轮不修**（超本次缺陷范围，另行登记）。**其它时钟依赖自查**：本脚本时刻相关仅 `nonCovering`（本轮修）与 T18 `nowMin/farPeriod/around`（L2222-2299，本就按运行时刻动态构造，无同类风险）；日期类断言均相对当日推算、与同次 seed 自洽。**其它脚本同型缺陷**：`hrm-dev/hrm-demo/scripts/verify-mock.mjs:1428-1431` 存在**同型缺陷**（且未含 `status===1` 过滤，15:30-16:00 同样 `find` 取到 undefined 后取 `.id` 崩），**本轮未修**（超出本任务「只改 hrm-clients 脚本」的禁改范围），**登记建议单独立项**。**被改动的断言（逐条）**：原用例断言仅 1 条（`9102`），**未删未弱化**；仅**新增** 1 条还原校验断言（仅碰撞窗触发；非碰撞窗总数不变）。**证据（本机实跑）**：`npm run verify:mock` 连续两次（18:46 / 18:48，非碰撞窗）→ **共 1025 项 / 通过 1025 / 失败 0**（两次一致，总数 = 基线）；固定时钟复现/回归：15:29 / 15:30 / 15:45 / 16:00 / 16:01 → **共 1026 项 / 通过 1026 / 失败 0**，07:29 / 07:31 → **1025 / 1025 / 失败 0**；三端单测 `boss-h5 139`（17 files）/ `staff-h5 241`（29 files）/ `web 108`（16 files）**均 = 基线、未下降**。**只改 `hrm-dev/hrm-clients/scripts/verify-mock.mjs` + 本行**；未改 `packages/mock` 业务语义、契约、`api.md`/`db.md`、其它 docs；未执行 git/部署/MCP；未声称跑过真机/e2e。**遗留**：`hrm-demo/scripts/verify-mock.mjs` 同型时钟缺陷（待单独立项）。
+
+- 2026-09-28 · 修复 `verify-mock.mjs` 两条「依赖真实时钟」断言（T18 双段时段用例）· **测试资产（仅测试脚本 + 本行）**：`hrm-dev/hrm-clients/scripts/verify-mock.mjs` 的「时段模型：同一类型在不同时段可各打一次（去重键含 periodIndex）」（原 L2356-2359）与「今日状态按已打时段分别标记 onChecked」（原 L2362-2369）两条断言，在「15:00 之前」运行必然失败。**根因（实跑复现）**：用例本想把城西（站 2）班次改为 早班 00:00-00:30 / 晚班 00:31-01:00 构造「两段窗口都覆盖现在」，但班次定义侧有站点级校验 `validateShiftSet`（启用数 ≤2 且须「一早一晚」`ordinal` 互异，否则 9114，见 `packages/mock/src/attendanceStore.js:620-641`）——晚班 00:31 与早班 00:00 同落午前、`ordinal` 冲突，`PUT /shifts/6` 被**静默拒绝**（返回值未断言），晚班仍为种子 16:00-24:00；其派生窗口 = [16:00-60, 24:00+1440] = [15:00, 次日 24:00]，运行时刻 08:2x 落在窗外 → 打卡被拒 `9102`（`attendanceStore.js:1348-1354`）→ 两条断言失败。即该用例实际拿到的「第 2 段」是 16:00-24:00 晚班而非计划的 00:31-01:00，随运行钟点浮动（>15:00 才偶然通过）。**修法（消除时钟依赖）**：放弃「改班次到 00:xx」这条被校验挡回的路，改用两段本就满足「一早一晚」的构造——早班 00:00-12:00（`ordinal` 0 → periodIndex 0）/ 晚班 12:00-24:00（`ordinal` 1 → periodIndex 1），中班显式停用（避免第 3 条启用撞 9114）；规则余量由 60/1440 改为 **720/1440**，使两段派生窗口 早班 [-720, 2160]、晚班 [0, 2880] **在 00:00–24:00 的任意运行时刻都覆盖「现在」** → 无论何时运行，两段 ON 打卡都成功、去重键含 periodIndex、status 两段各标 onChecked，断言与运行时钟解耦。**未弱化验收**：两条断言仍覆盖「同一 ON 类型在不同时段各打一次」与「今日 status 按时段分别标记 onChecked + onTime 非空」，且「时段数=2 / periods[1]=晚班」语义不变；未放宽为恒真（时段窗口越界 `9102` 仍由动态 `farPeriod`/`around` 用例承担）。**同类风险自查（本脚本时钟/日期依赖）**：① `nonCovering`（L1507-1509，挑「上班窗不含现在」的启用班次做 `9102` 用例）——**同类风险，本轮不修**：站 1 启用 早班(窗口 [07:30,16:00]) ∪ 晚班([15:30,24:00]) 在 **15:30–16:00 重叠**，该 30 分钟内无「非覆盖」启用班次 → `find` 返回 undefined → `nonCovering.id` 抛错崩全套；因站 1 班次与后续 T17/T18 大量断言强耦合（如 L1584 需晚班 16:00-24:00），改动面大于收益，**建议后续单独立项**（改法：按运行时刻临时构造非覆盖班次并即时还原，或改走时段模型路径验 9102）。② 其余 `nowMin`/`aroundStart`/`farPeriod`（L2222-2286）与「末段 24:00 + 阈值 0」用例（L2373）**已按运行时刻动态构造，无同类风险**。③ 日期类（`addDays(new Date(), n)` / `mondayOf(new Date())` / L4414 `Date.now()` 比 SLA / L5829 `runMonth` 等）均为**相对当日推算且与同次 seed 自洽，无同类风险**；未发现以「当月/当日固定值」硬编码的断言。**证据（本机实跑，连续两次相隔数分钟）**：`npm run verify:mock` → **共 1025 项 / 通过 1025 / 失败 0**（两次一致；总数 = 基线 1025 未变，无新增/删除断言）；三端单测 `boss-h5 139`（17 files）/ `staff-h5 241`（29 files）/ `web 108`（16 files），均 = 基线、未下降。**只改 `hrm-dev/hrm-clients/scripts/verify-mock.mjs` + 本行**；未改业务代码/契约/`api.md`/`db.md`/其它 docs/`packages/mock` 业务语义；未执行 git/部署/MCP。**遗留**：`nonCovering` 15:30–16:00 崩溃风险（如上，另行登记）。
+
+- 2026-09-28 · 驿站精灵审批中心「滑到底后无法上滑 / 刷新键无反馈」根因修复 + 打卡规则页时段「可就地改时间」（底层写班次）· **前端 + 设计文档**：① **审批中心上滑卡死（根因）**——`#app` 的 `overflow-x: hidden` 按 CSS Overflow L3 §3.1 会把另一轴的 `visible` **隐式计算为 `auto`**，使 `#app` 成为滚动容器；而 `#app` 高度 auto、自身从不滚动，Vant `PullRefresh` 的 `getScrollParent`（正则 `scroll|auto|overlay`，且 `isElement` 跳过 BODY/HTML）遂把滚动父级误判为 `#app`（其 `scrollTop` 恒 0），`reachTop` 恒真 → 任何「手指下滑 = 内容上滚」都会被 `touchmove` `preventDefault` 吞掉 → 表现为「滑到最底下以后滑不上去」（向下滑不受影响，与实测一致）。修法：`apps/boss-h5` 与 `apps/staff-h5` 的 `src/styles/mobile.scss` 中 `#app` 的 `overflow-x: hidden` 改 **`overflow-x: clip`**（`clip` 只裁剪、不产生滚动容器，另一轴仍 `visible`；横向兜底仍由 `html,body{overflow-x:hidden}` 承担）。② **刷新键「没反应」**：`approval.vue` 刷新按钮补可见反馈——新增本地 `reloading`（文案 `刷新`→`刷新中…`、`:aria-busy` + 降一档 `--text-3`），并给 `reload()` 加**防重入**（旧实现无守卫，连点/下拉叠加请求会互相覆盖「更新于 HH:mm」）；旧版唯一反馈是页顶更新时间行，用户停在页尾时看不到变化 → 被判为按钮失灵。③ **打卡规则页「修改打卡时间」**：`attendanceRule.vue` 时段行由「只读」改「**只读来源 + 可就地改起止**」——行内「修改时间」→ 编辑态（`van-cell` + `van-popup` + `van-time-picker`，**30 分粒度、结束可 24:00**，与 `shiftForm.vue` 同口径）→ **`PUT /shifts/{id}`**（整对象提交、仅变 `startTime`/`endTime`）→ 重拉 `GET /attendance/rule` 刷新派生时段；失败（`9114`/`400`）**服务端文案原样**落行内 `role="alert"` 且不清空草稿；**无启用班次**仍走既有空态 +「去班次管理」（本页不凭空造班次）；与 WiFi 白名单编辑**互斥**；**唯一时间真源仍为班次**（规则页仍不上报 `checkPeriods`，`PUT /rule` 传非空仍 `400`）。时段派生出参 `CheckPeriod[]` 不含班次 id（api.md §4.6.1），故新增按 `stationId` 取班次配对的纯函数 `apps/boss-h5/src/utils/shiftPeriods.js`（**只认启用班次 / 一行一配 / 配不到即只读**，不臆造 id）+ `.spec.js`（11 例）；`api/attendance.js` 新增 `getShiftsSilent`（失败降级为只读并给一行说明，不弹通用报错）。④ 设计文档 `boss-management-ui-design.md` 升 **v1.3**：⑭.0 不变项改写、⑭.1-(3) 两页关系与文案、⑭.4 因果表达、⑪.8 #38、⑫ 新增 #36、新增 ⑭.10、附录 B 自检 5 行。**证据（本机实跑）**：`verify:mock` **共 1025 项 / 通过 1023 / 失败 2**（**总数 = 基线，未降**；这 2 项为**改动前既有**且与本次无关——T18 双段用例把城西班次定为 00:00-00:30 / 00:31-01:00、窗仅覆盖 23:31–01:00，本机 08:10 落在窗外 → `9102`；昨轮日志同套件记录为「1025 通过 / 0 失败」，可反证其为**时段窗口时钟相关**而非本次改动所致，未改任何断言）；单测 `boss-h5 139`（基线 128，+11 新增纯函数用例）/ `staff-h5 241` / `web 108`（均 ≥ 基线）；`boss-h5` 与 `staff-h5` `build:prod` **EXIT=0**；`boss-h5`/`staff-h5` `lint` **0 error**，改动文件 stylelint 0 problem。**影响面**：本次触达**共享样式基座**（两端 `mobile.scss` 规则同名同值）→ 已回归 boss-h5 / staff-h5 两端构建与单测；**未改任何共享组件**（`ActionBar` / `TodoGroup` 未动——触发排查的 `--page-pad-bottom` 108px 与 `ActionBar` inline 形态均与本根因无关）。**只改 `hrm-dev/hrm-clients/` + `boss-management-ui-design.md` + 本行**；未改后端、迁移脚本、`api.md`/`db.md`、Mock 装配与断言、`hrm-admin`/`hrm-demo`；未执行 git/部署/MCP。**遗留**：`build:prod` 仍按既有 vite 配置产出 `*.map`（**未公开、未提交**；如需在生产排除，属部署/配置侧裁定，回报主智能体）。
+
+- 2026-09-27 · 驿站精灵班次管理（boss-h5）+ 考勤明细班次粒度前端适配 + Mock 站点级 9114 / 种子收敛 · **前端 + Mock**：新增 `/boss/shifts` 三路由与 `shift.vue`/`shiftForm.vue`（字段 / 时间选择 30 分粒度含 24:00 / 受控 3 色 / 四态 / A·B 组前置阻断·C 组仅提示）；考勤概览「考勤管理」改 5 项（**班次管理置首**，不进首页宫格）；打卡规则页「网页端维护班次」旧文案改指本端 `/boss/shifts`（**覆盖旧裁定 U-3**）并补「去班次管理」按钮；`schedule.vue` 两处「PC 端维护班次」文案收口；`attendanceDetail.vue` 行 key 改 `employeeId + shiftName` 组合（多班次同员工可多行）；`packages/mock` 新增 `validateShiftSet`（启用数 ≤2 / 一早一晚 → 9114）+ 种子收敛（中班停用，每站启用 2，保 id 空间不破坏排班/时段演示）+ 概况/明细改**班次粒度**（`absentGranularity=PER_SHIFT`）；`scripts/verify-mock.mjs` 适配既有断言并新增（班次 CRUD / 三类 9114 / 明细多行）。**证据（本机实跑）**：`verify:mock` **1025 通过 / 0 失败**（基线 1021，+4）；单测 `web 108` / `boss-h5 128` / `staff-h5 241`（均 = 基线）；三端 `build:prod` **EXIT=0**；`boss-h5` / `web` `lint` **0 error**。**只改 `hrm-dev/hrm-clients/` + 本行**；未改后端、迁移脚本、`api.md`/`db.md`/其它 docs 正文；未执行 git/部署/MCP。
+
+- 2026-09-27 · 打卡时间真源统一 · **前端 + Mock（B2/B3 批次）**：PC `RuleCard.vue` 移除时段编辑（改只读展示 + 「去维护班次」跳排班页）、频次改只读派生、提交不再发 `checkPeriods/checkFrequency/workStartTime/workEndTime`（U-4/U-5）；PC `ShiftManager.vue` 补保留名「全天班」`trim` 后校验 + 启用班次数 >2 / 一早一晚冲突 / 时间重叠前置提示 + 真源说明；boss-h5 `attendanceRule.vue` 同步只读 + 引导「网页端维护班次」（U-3）；staff-h5 打卡页新增「未配置班次」空态（`shiftConfigured=false` / 9113）；`packages/mock` 打卡时段改由站点班次派生（`attendancePeriodsOf`）+ 新增 `checkPeriodsReadonly`/`shiftConfigured` 出参 + `PUT /rule` 非空 `checkPeriods` 回 400 + 班次保留名回 9114，**消除「班次 08:00-16:00/16:00-24:00」与「规则时段 08:00-12:00/14:00-18:00」并存的时间分裂**；`packages/shared` 新增错误码 9113/9114（+ CODE_MESSAGE）；`scripts/verify-mock.mjs` 同步适配断言（T18 段改「改班次」驱动 + 新增 U-5/只读/9113/9114 断言）。**证据**：`verify:mock` 1021 通过 / 0 失败（基线 1013，+8）；三端单测 web 108 / boss-h5 128 / staff-h5 241（均 = 基线）；三端 `build:prod` EXIT=0；`web`/`boss-h5`/`staff-h5` `lint` 0 error。**只改 `hrm-dev/hrm-clients/` + 本行**；未改 `hrm-server`、迁移脚本、契约正文、`hrm-admin`、`hrm-demo`、其它 docs；未执行 git/部署/MCP。
+
+## 2026-09-27 · 打卡时间真源统一 · 契约回填 + 后端遗留项收口（L-1/L-2/L-3）
+
+**任务**：处理 B1 后三项遗留——① **L-1 契约回填** `api.md`：补录已实现未入契约的 `9110~9114` 错误码、出参 `checkPeriodsReadonly`（恒 true）/ `shiftConfigured`、`PUT /rule` 入参废弃口径（`checkPeriods` 非空回通用 `400`；`checkFrequency`/`workStartTime`/`workEndTime` 忽略）、`periodIndex`/`periodName` 语义（`periodIndex = shiftOrdinal(start_time)` 早 0 / 晚 1，非数组下标）+ 存量哨兵 `全天班` 三态读取、班次定义侧校验 `9114`；② **L-2 补卡审批路径错误码统一**：站点无启用班次由旧码 `9101` 改为 `9113`（与申请路径同码同文案），规则未配置 / 原班次序号不存在等**其余不可写情形维持 `9101`**（不扩大影响面）；③ **L-3 考勤明细缺卡改班次粒度**：明细 `ABSENT` 由「按员工去重」改为「按班次单元」，复用概况同源 `ShiftPayrollPolicy`，与概况 `absentCount` 等值。**只改 `hrm-dev/hrm-server/`（main + test）+ `hrm-dev/docs/api.md` + 本日志；未改前端、迁移脚本、`db.md`、方案/评审/UI 文档；未执行 git/部署/MCP；未连库；本机无 JDK → 未编译未运行。**
+
+**改动（文件清单）**：① `service/attendance/impl/AttendanceMakeupServiceImpl.java`：`canWriteRecord(boolean)` 重构为 `writeBlocker(...)` 返回 `ErrorCode`（`null` = 可写）；`approve` 干跑取原因按码抛出——`periods` 为空 → `ATTENDANCE_NO_ENABLED_SHIFT(9113)`；`rule==null` / 员工缺失 / `period 无匹配` → `ATTENDANCE_RULE_NOT_CONFIGURED(9101)`；语义链与申请路径对齐（规则 → 班次派生时段 → 按 `ordinal` 按值查找）。② `service/finance/support/ShiftPayrollPolicy.java`：新增 `absentShiftSet(schedules, records, leaveUnits, boundary, sentinel)`（= `R \ (A ∪ L)`，与 `compute` 的 `absentShifts` 同源），供明细缺卡复用，**不另造判定**。③ `service/attendance/support/AttendanceDetailPolicy.java`：`Member` 增 `shiftStartTime`（保留 2 参兼容构造）；`members` 移除 `ABSENT` 分支（改为「非缺卡」五维度）；新增 `absentMembers(workDate, shouldRows, validOnRecords, boundary, sentinel)`——按员工分组后逐人 `ShiftPayrollPolicy.absentShiftSet`，返回「班次单元缺勤」的应到行（顺序同 `shouldRows`）。④ `service/attendance/support/AttendanceSummaryPolicy.java`：删除因 L-3 而失效的 `actualEmployeeIds`（唯一调用方已迁移，避免死代码）。⑤ `service/attendance/impl/AttendanceRecordServiceImpl.java`：`detail()` 应到行带 `shiftStartTime`，`ABSENT` 分流至 `absentMembers`（构造有效上班卡 `RecordSlot`，含 `periodIndex/periodName`，复用概况载体）；新增私有 `validOnRecords(...)` 过滤 `ON` + 非 `ABNORMAL`。⑥ 单测：`AttendanceMakeupTimeSourceTest` 新增「审批无班次 → 9113」「审批 `periodIndex` 无匹配 → 维持 9101」；`AttendanceDetailPolicyTest` 适配并新增「多班次仅打早班 → 晚班行计入缺卡且与概况 `absentCount` 等值」「单班次存量零变化」「排班缺班次时间不计缺」。⑦ `api.md` v1.4→v1.5：头部「最近修订 / 本次范围（v1.5）」；§2.2 补 `9110~9114` 行 + 91xx 段位注；§4.6 前言加「时段序号/名称统一口径 + 存量哨兵三态」注；§4.6.1/§4.6.2 出参 `checkPeriodsReadonly` 及派生说明；§4.6.3 入参废弃口径（`checkPeriods` 非空回 400）与 `/rule` 出参说明；§4.6.4 `shiftConfigured` + `periods[].periodIndex=ordinal`；§4.6.5 打卡 `periodIndex` 口径 + 9113；§4.6.6 记录 `periodIndex/periodName` 注；§4.6.7 导出第 5 列文案「班次/时段」（列数 13 不变）；§4.6.8 概况改班次粒度口径；§4.6.9 明细缺卡班次粒度；§4.7 前言/§4.7.3/§4.7.4 补卡 `periodIndex` 口径 + 9113 / 9101 分码；§4.8.2/§4.8.3 班次定义侧校验表（9114）；§4.9.3/§4.9.4 排班侧 9110/9111/9112。
+
+**L-3 存量零变化论证**：单班次站点（一天一条排班）下，应到 = 1 个班次单元 R；有效上班卡经三态映射命中该单元（① 哨兵 `全天班` → 覆盖全部班次；② 空名 → 单班次归属该班次；③ 非空非哨兵且 `period_index = ordinal` → 精确命中），故「有卡者不缺、无卡者缺」与改造前按人去重逐项一致；**存量记录全为 `period_index=0` + `period_name='全天班'`，命中哨兵①，结果不变**。唯一潜在差异为「非哨兵非空的旧下标记录落在纯晚班日」——该差异**在概况（B7b 已上线）中同样存在**，属方案 §4.3/§10.2 已登记的存量风险（V-1 待核实），非本次新引入；新增单测「单班次存量零变化」固化哨兵/空名两路径。
+
+**证据（未运行，收敛服务器）**：本机无 JDK/Maven，**未编译、未运行任何测试**（静态审查收敛到服务器阶段）。**服务器验证命令**：`cd hrm-dev/hrm-server && mvn -q -Dtest='AttendanceMakeupTimeSourceTest,AttendanceDetailPolicyTest,AttendanceSummaryPolicyTest,PayrollShiftModelTest' test`；全量基线 `mvn -q test`（**基线 742 项不得下降**；本轮新增 3 个测试方法 + 适配 1 个既有 ABSENT 断言，净增 ≥ 3）。
+
+**被改动的既有断言（逐条）**：① `AttendanceDetailPolicyTest.shouldAndAbsent`：`members("ABSENT", ...)` 调用改为 `absentMembers(WORK_DATE, shouldRows, onRecords(), ...)`（`shouldRows` 增加班次开始时间）；**断言值与语义不变**（`absent.size()==1`、`employeeId==2L`），仅输入载体改班次粒度。② 同文件 `otherDimensions` / `unknownDimension` / `dayStatePriority` / `earliestCard` / `riskRank` 未改。③ `AttendanceMakeupTimeSourceTest.shouldAndAbsent` 等既有断言未改。**无断言弱化或删除**（服务器基线不下降）。
+
+**登记/冲突项**：① **L-2 分码边界**：`writeBlocker` 仅把「站点无启用班次（派生时段为空）」映射 `9113`；`rule==null` / 员工缺失 / `periodIndex` 无匹配仍为 `9101`（与原 `canWriteRecord` 的 `period==null` 语义一致，未扩大影响面）。② **L-3 契约影响（前端展示）**：明细 `dim=ABSENT` 行粒度由「员工」变「员工 × 班次」，**多班次站点同一员工可出现多行**（行数 = 缺卡班次数）。若前端对明细行做「按员工唯一」或固定行数渲染假设，将受影响——**本任务未改前端**，已在 `api.md` §4.6.9 显式声明；建议前端按行渲染（`employeeId + shiftName` 组合键）。③ `AttendanceSummaryPolicy.actualEmployeeIds` 删除：全仓（main+test）确认无其它调用方。④ `api.md` 版本升 v1.5 并新增「本次范围（v1.5）」行，未改动 v1.3/v1.4 既有范围行正文。⑤ 文档权威注：任务书所称「§4.4 排班 / §4.7 考勤」与实际 `api.md` 编号（§4.6 考勤 / §4.7 补卡 / §4.8 班次 / §4.9 排班）有差，本次按**实际章节**回填，未按任务书编号生造章节。
+
+**如何回滚**：反向 diff 上述 5 个后端 main 文件 + 2 个测试文件，撤销 `api.md` v1.5 相关行（或回退到 v1.4），并撤本日志条目。班次单元 / 存量数据未被改写，回滚无损。
+
+
+## 2026-09-27 · 打卡时间真源统一 · 后端实现（B1 批次）
+
+**任务**：按方案 `attendance-time-source-design.md` v1.2（技术评审「有条件通过」定稿轮）落地**后端部分**：打卡时段真源由 `attendance_rule.check_periods` 改为「该驿站启用班次（`attendance_shift`，`status=1` 且未软删，按 `start_time` 升序）」**读时派生**；`period_index = shiftOrdinal(start_time, middayBoundaryMinute)`（早 0 / 晚 1，非数组下标）；三处 `periods.get(periodIndex)` **下标取值改为按 `ordinal` 按值查找**（M1）；`period_name` 改取班次名快照；`workStartTime/workEndTime`/`checkFrequency` 改只读派生；`PUT /rule` 收到非空 `checkPeriods` 拒绝（U-5=通用 400）；新增错误码 `9113`（站点无启用班次）/`9114`（班次定义非法，含保留名）；班次定义侧禁用保留名「全天班」（`trim` 后比对，防空白绕过）。**只改 `hrm-dev/hrm-server/`（main + test）+ 本日志；未改前端、迁移脚本、`api.md`/`db.md`/方案正文；未改历史事实（存量 `attendance_record.period_index/period_name` 不回改）；未执行 git/部署/MCP；未连库；本机无 JDK → 未编译未运行。**
+
+**改动（文件清单）**：① `enums/ErrorCode.java` 新增 `ATTENDANCE_NO_ENABLED_SHIFT(9113)`、`ATTENDANCE_SHIFT_DEFINITION_INVALID(9114)`；② `service/attendance/support/AttendancePeriodResolver.java` 新增 `resolveByShifts`（按启用班次派生，`ordinal<0` 排除并记 `WARN_SCHEDULE_SHIFT_MISSING`）、`findByOrdinal`（按值查找）、`firstStartTime/lastEndTime`、`shiftOrdinal`（复用 `ShiftPayrollPolicy` 唯一实现）；原 `resolve(rule)` 保留供回滚（R-1）；③ `service/attendance/AttendanceShiftService(+Impl)` 新增 `enabledShifts`/`enabledShiftsByStation`（批量预取，规避 N+1）；`defaultShift` 改由「首个启用班次」派生（无启用班次 → null）；`validateShift` **首查**保留名（`trim` 后比对保留名集合，`9114`）+ 新增 `validateShiftSet`（启用班次数 ≤2、`ordinal` 互异，`9114`）；`list()` 保持返回全部班次（含停用，管理页需要），仅派生集合过滤 `status=1`；④ `service/attendance/impl/AttendanceRuleServiceImpl.java`：`saveRule` U-5 拒绝非空 `checkPeriods`（400）+ 删除时段校验/`workStartTime/workEndTime` 重算/时段侧写入（D2/D3/D5/D6/D7/B5）；`toVO` 时段/频次/上下班时间改由班次派生并新增 `checkPeriodsReadonly=true`；`listRules` 批量预取班次（RK-1）；`newRuleDefaults` 不再播种时段（D8/C3，改「提示先配班次」）；⑤ `vo/attendance/AttendanceRuleVO.java` 新增 `checkPeriodsReadonly`；`AttendanceStatusVO.java` 新增 `shiftConfigured`；⑥ `service/attendance/impl/AttendanceRecordServiceImpl.java`：`checkIn` 时段改班次派生 + **按值查找**（`9107`）、无启用班次 `9113`、单班次模型兜底取「首个启用班次」（U-2 无排班仍可打卡）；`todayStatus` 时段/频次改派生 + `shiftConfigured`；⑦ `service/attendance/impl/AttendanceMakeupServiceImpl.java`：补卡申请/审批两处时段改班次派生 + **按值查找**，无启用班次 `9113`。
+
+**证据（未运行，收敛服务器）**：本机无 JDK/Maven，**未编译、未运行任何测试**（静态审查收敛到服务器阶段）。新增单测 5 个文件：`AttendancePeriodResolverShiftTest`（单班次晚班 ordinal=1 / 双班次 / 按值查找 / 脏班次排除 / 哨兵读取零变化）、`AttendanceShiftDefinitionTest`（保留名含空白 → 9114 / 超上限 → 9114 / ordinal 冲突 → 9114 / defaultShift 派生）、`AttendanceRuleTimeSourceTest`（toVO 派生 / 无班次空值 / U-5=400 / 忽略废弃入参）、`AttendanceCheckInTimeSourceTest`（晚班 index=1 成功 / index=0 → 9107 / 双班次精确命中 / 无排班仍可打卡 / 无班次 → 9113）、`AttendanceMakeupTimeSourceTest`（晚班补卡成功 / 无班次 → 9113）。**服务器验证命令**：`cd hrm-dev/hrm-server && mvn -q -Dtest='AttendancePeriodResolver*Test,AttendanceShiftDefinitionTest,AttendanceRuleTimeSourceTest,AttendanceCheckInTimeSourceTest,AttendanceMakeupTimeSourceTest' test`；全量基线 `mvn -q test`（基线 719 项不得下降）。
+
+**登记/冲突项**：① **范围取舍**：实现范围按任务书 §三「需改 22 条 + R-1~R-14」落位；其中 R-10 括注含「启用班次数 ≤2 / `ordinal` 互异」，任务书 §三-5 仅明列保留名——本轮按 R-10 全量实现三项（同为班次定义侧 `9114`）；② `AttendanceRuleServiceImpl.newRuleDefaults` 选「提示先配班次」而非「自动造默认班次」（方案 §10.3 二选一，已留 `TODO(扩展)`）；③ 单班次模型（`periodIndex=null`）记录 `period_index` 由「恒 0」改为「所用班次的 `ordinal`」，避免与计薪班次单元错位（方案 §4.4-4 未明示，属必要一致性修正，已登记）；④ `checkFrequency` 派生取「派生时段数 × 2」（正常数据 = 启用班次数 × 2；脏班次被排除时以可用时段为准）；⑤ 方案 §7「契约变更清单」**未回填 `api.md` 正文**（任务书禁止改契约正文），待后续批次由后端补录。
+
+**如何回滚**：按方案 §9.4 **R-1~R-14** 反向 diff 上述后端文件（含 `ErrorCode` 的 `9113/9114`、`AttendancePeriodResolver`、三处取值点、`toVO`/`defaultShift`/`newRuleDefaults`/`saveRule`），并撤本日志行；列未删、存量数据未改，回滚无损。
+
+## 2026-09-27 · 驿站精灵 · 底部操作栏遮挡根因修复 + 审批详情页操作区内嵌 + 「自动算薪运行」前端下线
+
+**任务**：① 用户反馈「底部按钮滑到底有遮挡」——根因是带 `note` 说明的固定操作栏整栏高出 `--actionbar-h`(56px)，而 `--page-pad-bottom` 未把 note 计入，6 个带 note 页面（flowDetail / payrollDetail / accountForm / attendanceRule / schedule / stationDetail）必现遮挡；② 把 flowDetail、boss/staff `payrollDetail` 三处详情页底部操作区由「固定悬浮」改为「做进页面内容流」（inline，随内容滚动、不遮挡）；③ 移除「自动算薪运行」前端展示（保留后端能力）：boss-h5 页面/路由/入口/api 封装、web 财务页 Tab/PayrollRunPanel/api 封装；④ 补齐通知类型字典 7~10。**只改 `hrm-dev/hrm-clients/`（apps/boss-h5、apps/staff-h5、apps/web、packages/shared、packages/mock）+ 本日志；未改后端、迁移脚本、契约、其它 docs 正文；未执行 git/部署/MCP。**
+
+**改动（文件清单）**：A 组——① `apps/boss-h5/src/styles/tokens.scss`、`apps/staff-h5/src/styles/tokens.scss` 新增 `--actionbar-note-h`（= `8 + 2×18`，按 note 最多两行）并把 `--page-pad-bottom` 改为 `--actionbar-h + --actionbar-note-h + --safe-bottom + --sp-2`（根因修复，两端各一份）；② `packages/shared/src/ui/ActionBar.vue` 新增 `inline` 布尔 prop 与 `.actionbar.actionbar--inline` 样式（默认 false，不动既有固定栏调用方）；③ `apps/boss-h5/src/modules/boss/views/flowDetail.vue`、`apps/boss-h5/src/modules/boss/views/payrollDetail.vue`、`apps/staff-h5/src/views/staff/payrollDetail.vue` 操作区改 `inline` 并移入 `.page` 内容流，页面由 `.page--bar` 改 `.page--loose`（保留全部动作/文案/禁用条件/note/安全区/顶部栏）；④ 删除 `apps/boss-h5|apps/staff-h5/src/views/**/parcelDetail.vue` 与 `packages/shared/src/ui/NoticeReader.vue` 中三处冗余的按页 note 补偿（根因已收口到 Token，含 `reader--note` 类名）。B 组——⑤ 删除 `apps/boss-h5/src/modules/boss/views/payrollRuns.vue`，同步删 `apps/boss-h5/src/router/index.js` 路由、`MeSection.vue` 与 `payrollSettings.vue` 入口、`api/finance.js` 的 `getPayrollRuns/triggerPayrollRun`（全仓仅该页引用，已确认）；⑥ 删除 `apps/web/src/views/finance/components/PayrollRunPanel.vue`，同步删 `apps/web/src/views/finance/index.vue` 的 `run` Tab / 分支 / `runPanelRef` / 刷新分支、`api/finance.js` 同名封装；`model/payrollAutomation.js` 及其 spec 予以保留（后端能力与测试基线，且 `ManualAdjustmentPanel` 仍引用其中函数）；⑦ `packages/shared/src/constants/dict.js` `NOTIFICATION_TYPE` 补 `7=工资单待审核/8=工资单已发布/9=工资单异议退回/10=自动算薪执行失败`，并新增 `NOTIFICATION_PUBLISH_TYPES=[1..6]`；`notificationPublish.vue`（boss）与 `PublishDrawer.vue`（web）的发布类型选项按该常量过滤，避免 7~10 被渲染成永远发不出的选项；`packages/mock/src/routes/notification.js` 的 `PUBLISH_TYPES` 改取 shared 真源（单一来源）。
+
+**证据（本机实跑）**：`npm run verify:mock` **1013 通过 / 0 失败**（= 基线，未删任何断言）；`boss-h5` 单测 **128**、`staff-h5` **241**、`web` **108**（均 = 基线）；三端 `build:prod` **EXIT=0**；`boss-h5` / `web` / `staff-h5` `lint` 均 **0 error**（仅有 max-lines/a11y 等既有 warning）。遮挡核对：根因修复后带 note 的固定栏页面预留 108px+safe > 栏体最大 100px+safe（两行 note），6 个页面末元素均让位；三处内嵌详情页按钮随内容滚动、不遮挡。
+
+**登记/冲突项**：① Mock 的 `payroll-runs` 断言全部保留未删——它们是 API 契约断言（非页面断言），后端能力未下线，故不属「针对已移除页面的断言」，无门禁弱化；② 通知类型 7~9 文案采用 `docs/api.md` §4.12.21 / `db.md` §notification.type 定稿（「工资单待审核 / 已发布 / 异议退回」），类型 10 一致采用后端 `PayrollNotifySupport.java:42-43` 的标题「自动算薪执行失败」；③ 类型 10 的 `biz_id` 为 null，通知阅读页「去处理」本就无按钮（`resolveAction` 对 payroll 需 bizId），按现状保持不变，未新增跳转。
+
+**如何回滚**：反向 diff 上述前端/共享/Mock 改动文件，并用 git 恢复删除的 `payrollRuns.vue` 与 `PayrollRunPanel.vue`，再撤本日志行。
+
+## 2026-09-27 · 驿站精灵 · 审批中心「员工注册」来源标识补齐 + 文档滞后回填
+
+**任务**：补齐上一轮遗漏——后端 `HrFlowVO.source` **已出参**（`HrFlowServiceImpl.toFlowVO` 直出，取值 `ADMIN` / `SELF_REGISTER`，随线上后端发布），前端此前因只对 Mock 数据核对而误判「出参无 source」并降级不显示。本轮：① 前端在入离职数据链路带上 `source` 并按设计 ⑧.4 渲染「注册」胶囊（`source=SELF_REGISTER` 才渲染）；② Mock 补 `source` 种子并可复现两种来源；③ `verify:mock` 新增断言；④ 回填设计文档 ⑫-6 / ⑬.7-C5「组 `to` 未携带 `params.status`」的滞后记载。**只改 `hrm-dev/hrm-clients/`（apps/boss-h5、packages/mock、packages/shared、scripts）+ 设计文档两行 + 本日志；未改后端、迁移脚本、契约、其它 docs 正文；未执行 git/部署/MCP。**
+>
+> **事实澄清**：后端 `source` 实际取值为 `ADMIN`（后台创建）/ `SELF_REGISTER`（员工自助注册），**非任务描述假设的 `REGISTRATION`**；按后端实际值实现，见 `HrConstants.FLOW_SOURCE_ADMIN/SELF_REGISTER` 与 `HrFlowVO.java:26`。
+
+**改动（文件清单）**：① `apps/boss-h5/src/stores/todo.js` `flows` LOADER 行映射透出 `source`（`item.source || null`，出参已含、不改契约）；② `packages/shared/src/ui/TodoGroup.vue` 行头新增 `row-badge` 作用域插槽（不传则零渲染，`TodoList`/`MessagePage` 既有调用方不受影响）；③ `apps/boss-h5/src/modules/boss/views/approval.vue` 在行徽标插槽内自绘 `.reg-chip`（`source=SELF_REGISTER` 才渲染，尺寸复用 `--tag-h`/`--tag-pad-x`/`--fs-micro`/`--r-full`，配色取既有 `--color-info-text`/`--color-info-surface`，**零新增 Token/色值**）；④ `packages/mock/src/hrStore.js` `toFlowVO` 补出参 `source`（存量默认 `ADMIN`）、入职种子混两种来源、四条新建流程路径置 `source`；⑤ `scripts/verify-mock.mjs` 新增 1 条断言（入离职列表带 `source` 且含两种来源）。
+
+**证据（本机实跑）**：`npm run verify:mock` **1013 通过 / 0 失败**（基线 1012，+1 新增，未下降）；`boss-h5` 单测 **128**、`staff-h5` **241**、`web` **108**（均 = 基线）；`boss-h5 build:prod` **EXIT=0**；`boss-h5 lint` **0 error**。
+
+**登记/冲突项**：① 设计 ⑧.4「数据来源」示例写 `source='REGISTRATION'`，与后端实际 `SELF_REGISTER` 不符（本轮按后端实际值实现）；⑧.4/⑫-3/C3 中「出参无 source」的表述亦已滞后（本轮只按要求回填 ⑫-6/⑬.7-C5 两行，其余未动）；② 「员工注册」来源字段现由前端及 Mock 落地，设计文档 ⑧.4 降级分支（字段缺则不渲染）继续保留为兜底。
+
+**如何回滚**：反向 diff 上述 4 个前端/Mock 文件 + 1 个共享组件 + 1 个校验脚本 + 设计文档两行 + 本日志行。
+
+## 2026-09-27 · 驿站精灵 · 首页宫格收敛（10→6）+ 审批中心体验优化（O1–O12）
+
+**任务**：按 UI 规范 `boss-management-ui-design.md` v1.1（② 宫格 6 项 / ⑧ 审批中心最终态 / ⑬.3 O1–O12）落地前端：① 首页宫格 10 → 6 项（移除补卡审批 / 工资单审核 / 入离职审批 / 请假审批 4 项入口，统一由审批中心承接，审批中心前移第 1）；② 审批中心体验优化（汇总筛选条 / 分类 chips 单选筛选 / 下拉刷新 / 行字段增强 / 筛选态差异化空态 / 计数与动作分色 / 可访问性 / 一键审批红线）。**只改 `hrm-dev/hrm-clients/`（apps/boss-h5、packages/shared）+ 本日志；未改后端、迁移脚本、契约、mock、其它 docs 正文；未执行 git/部署/MCP。**
+
+**改动（文件清单）**：① `apps/boss-h5/src/constants/quickEntries.js` 10→6 项、`approvals` 前移第 1；② `apps/boss-h5/src/modules/boss/views/home.vue` `quickData` 删 4 key、`hint`→「待办与概览在前」；③ `apps/boss-h5/src/stores/todo.js` `LOADERS` 补取 `makeups.reason`（行 `note`）与 `payrolls.netAmount`（元信息「实发 …」，出参已含、不改契约）；④ `apps/boss-h5/src/modules/boss/views/approval.vue` 汇总筛选条（页内实现、替代 notice-bar）+ chips 筛选 + 下拉刷新 + 筛选态空态 + aria-live/读屏名 + sessionStorage 筛选持久化，页内**无通过/驳回动作**（红线 8.10）；⑤ `packages/shared/src/ui/TodoGroup.vue` 行模型加可选 `note` + 组头计数/动作分色（跨端共享）。
+
+**证据（本机实跑）**：`npm run verify:mock` **1012 通过 / 0 失败**（= 基线未降）；`boss-h5` 单测 **128**、`staff-h5` **241**、`web` **108**（均 = 基线）；`boss-h5 build:prod` **EXIT=0**；`boss-h5 lint` **0 error**。
+
+**登记/冲突项**：① 组 `to` 携带 `params.status` 的筛选在 `stores/todo.js` `toTarget` 已实现，与设计 ⑫-6/C5「未携带」记载不符（文档滞后，未改代码）；② 「员工注册」胶囊因入离职列表出参无 `source`，按 ⑧.4 降级不显示（C3）；③ 返回恢复滚动位置（L2/C6）超范围，本批仅做到「有快照不闪骨架 + 筛选不丢」。
+
+**如何回滚**：反向 diff 上述 4 个前端文件 + 1 个共享组件 + 本日志行。
+
+## 2026-09-27 · 排班多班次 · B7b 考勤/考核口径按班次统计（后端）
+
+**任务**：按用户裁定「**考勤口径应到和缺卡按班次统计**（基础工资 1500 ÷ 当 30 天 ÷ 2 班 = 25/班）」将考勤概况 `应到/实到/缺卡` 由「按人/天去重」改为**班次粒度**。**只改 `hrm-dev/hrm-server/`（main/test）与本日志；未改前端、迁移脚本、`api.md`/`db.md`/方案/算法文档；未执行 git/部署/MCP；本机无 JDK → 未编译未运行。**
+
+**改动（文件清单）**：
+1. `service/attendance/support/AttendanceSummaryPolicy.java`：新增班次粒度聚合 `summarizeByShift(workDate, ScheduleSlot[], RecordSlot[], middayBoundaryMinute, legacyPeriodSentinel, lateGranularity)`——按员工分组后**复用计薪唯一真源** `ShiftPayrollPolicy.compute`（应到 = 排班班次数、实到 = `|A∩R|`、缺卡 = `|R \ A|`）；正常/迟到/早退仍按有效卡条数。旧 `summarize(int,...)` 保留为 `PER_DAY` 回落口径。
+2. `service/attendance/impl/AttendanceRecordServiceImpl.java`：`summary()` 默认走班次粒度；注入 `AlgoProperties`；`recordRows` 补取 `period_index`；新增 `shiftStartTimes()` 取班次 `start_time` 供 `shiftOrdinal` 判定。
+3. `config/AlgoProperties.java`：`Attendance` 新增 `absentGranularity = "PER_SHIFT"`（算法 §2 键，默认班次粒度、`PER_DAY` 回落）。
+4. `service/attendance/support/AttendanceConstants.java`：新增 `ABSENT_GRANULARITY_PER_SHIFT/PER_DAY` 常量。
+5. `vo/attendance/AttendanceSummaryVO.java`、`entity/AttendanceRecord.java`：注释语义由「人/天」更正为「班次」，**字段名不变**（兼容前端契约）。
+6. `src/test/.../AttendanceSummaryPolicyTest.java`：新增 9 条班次口径单测（含两班全勤不缺卡、单班缺卡=1、应到按班次、多打卡不超额、跨员工不顶缺、迟到早退逐班次、存量单班次零变化、计薪算例），原 2 条旧口径断言保留（未弱化）。
+
+**证据**：本机**未编译未运行**（无 JDK/Maven）。服务器验证命令见下。
+
+**登记/冲突项**：① **计薪折算核验为「已支持、未改」**——`ShiftPayrollPolicy.prorated = 基数 × 实出班次 ÷ 应出班次`，用户算例 `1500÷30÷2=25/班` 等价 `1500×1÷60=25`（已用单测固化）；② 写入侧 `period_index` 现仍为「单班次模型恒写 0」，纯晚班单班次站存在 `period_index(0)` 与 `shiftOrdinal(1)` 错配，属算法 §1.7 **已登记待核实项**（S2b 既有行为），本批**不改写入路径、不回改历史**，读取侧由 `ShiftPayrollPolicy` 三态映射兼容；③ 明细 `AttendanceDetailPolicy` 仍按「员工去重」判 ABSENT，多班次下与概况班次粒度不一致，per `(employee, shift)` 明细行属 §8-4 **契约变更**，本批未动（需另批 + `api.md` 同步）。
+
+**如何回滚**：反向 diff 上述 5 个 main 文件 + 测试文件；`absentGranularity` 置 `PER_DAY` 可即时回落旧口径。
+
+## 2026-09-27 · 驿站精灵 · 账号口径澄清修正（站长=员工账号身份，统一账号列表）
+
+**任务**：按用户澄清「**站长只是身份，不是独立账号体系；账号只有管理员账号（登录驿站精灵 `/boss/`）与员工账号（登录驿站助手 `/staff/`）**」修正前端：驿站详情由「员工账号 + 站长账号」两区块**合并为一个统一账号列表**，身份（员工 / 站长）改为筛选与标识维度。**只改 `apps/boss-h5/` 与 UI 设计文档 ④/⑪、本日志；未改后端、迁移脚本、契约 `api.md`/`db.md`、mock、其它 docs；未执行 git/部署/MCP。**
+
+**改动（文件清单）**：
+1. `apps/boss-h5/src/modules/boss/views/stationDetail.vue`：删除「员工账号 / 站长账号」两区块 → **一个「账号」列表**；新增身份 `FilterChips`（全部 / 员工 / 站长）与搜索框**联动**过滤；行内以 `MiniChip` 展示身份（站长高亮 / 员工中性）+ `StatusTag` 状态；单一「新增账号」按钮（身份筛选为站长时预置 `role=STATION_ADMIN`）；loading / empty / error / normal 四态沿用区块级。
+2. `apps/boss-h5/src/modules/boss/views/accountForm.vue`：字段「角色」→「**身份**」，新增身份语义说明（员工账号上的角色标记，站长与员工共用同一套账号；选站长须归属启用驿站，本页已锁定当前驿站）；入口预置注释改为「身份」。
+3. `apps/boss-h5/src/constants/accounts.js`：`ASSIGNABLE_ROLE_OPTIONS` 收敛为「员工 / 站长」**两项**（原含 `ADMIN`）；注释更新为「员工账号身份选项」并说明口径（`ADMIN` 属系统管理员账号，不在驿站账号维护范围）。
+4. `hrm-dev/docs/boss-management-ui-design.md`：**④**（4.1 IA、4.4 详情树、4.4.1 行结构、4.4.2 站长身份约束、4.5 字段表）与 **⑪ 11.3**（#12/#14/#17）改为「统一账号列表 + 身份维度」，并在 ④ 顶加一行用户口径说明。
+5. **mock 未改**（`packages/mock/src/routes/employee.js` 角色白名单已含 `STATION_ADMIN`，站长 `stationId` 必填已实现）。
+
+**证据（本机实跑）**：`npm run verify:mock` → **1012 通过 / 0 失败**（= 基线，未下降）；`boss-h5` 单测 **128 通过**、`staff-h5` **241**、`web` **108**（均 = 基线，无回归）；`boss-h5 build:prod` **EXIT=0**；`boss-h5 lint` **0 error**（29 warning 均为既有，非本批引入）。
+
+**登记/冲突项（未擅改上游文档）**：① `ASSIGNABLE_ROLE_OPTIONS` 按「身份两项」口径**收窄去掉 `ADMIN`**；若产品不希望收窄，须回报澄清。② 同文档**需求对齐表 G3（第 21 行）/「做」清单（第 34 行）与 ⑫-2/#16** 仍写「员工账号 / 站长账号 两个区块、站长不可分配」，属 ④/⑪ **之外**的正文，本次未改，待主智能体决定是否回填。③ 其它已实现页面（工资单 / 审批中心）经检索**未发现**「站长独立账号体系」表述冲突。
+
+**如何回滚**：反向 diff 上述 3 个前端文件 + UI 文档 ④/⑪ 段落即可。
+
+## 2026-09-27 · 驿站精灵管理能力扩展 · 前端实现（6 项：宫格+财务管理 / 驿站管理 / 工资单详情去步骤条 / 历史工资单 / 排班多班次 / 审批中心）
+
+**任务**：按 UI 规范 `boss-management-ui-design.md`（921 行，②–⑫）与架构 v1.1（§2.4/§2.4.1、§2.9、D-1~D-4）落地**前端部分**：① 首页宫格 7→10 项 + 财务管理页（`payrollSettings.vue` 原地升级、算薪日并入）；② 驿站管理列表/详情/表单/账号维护；③ staff-h5 工资单详情去 `PayrollStatusSteps`；④ `hrDetail.vue` 历史工资单区块；⑤ `schedule.vue` 多班次（`shiftIds[]` 覆盖式 + 上限 2 + 重叠提示）；⑥ 审批中心 `approval.vue`（复用 `stores/todo.js`，排除工单）。**只改 `hrm-dev/hrm-clients/`（apps/boss-h5、apps/staff-h5、packages/mock、scripts/verify-mock.mjs）；不改 hrm-server/hrm-admin/迁移脚本/docs 正文；未执行 git/部署/MCP。**
+
+**改动（文件清单）**：
+1. **② 宫格/财务**：`apps/boss-h5/src/constants/quickEntries.js`（追加审批中心/财务管理/驿站管理 3 项）；`modules/boss/views/home.vue`（`quickData` 补 `approvals`/`stations`）；`stores/todo.js`（新增 `approvalKeys`/`approvalTotal`/`approvalKnown` 派生 + `toTarget` 给字符串 status 组附 `?status=` query）；`components/MeSection.vue`（删「算薪日设置」行、「站点管理」→「驿站管理」）；`modules/boss/views/payrollSettings.vue`（升级为「财务管理」，含员工工资设置/自动算薪运行/相关设置三区块）；`payrollSettingEdit.vue`（标题「员工工资设置」）；`router/index.js`（`/boss/payroll-settings` `meta.title`+`alias:'/boss/finance'`；编辑页标题）。
+2. **② 驿站管理**：`api/org.js` 新增 8 个写封装（createStation/updateStation/updateStationStatus/deleteStation/createEmployee/updateEmployee/updateEmployeeStatus/resetEmployeePassword，全 `silent`）；`modules/boss/views/station.vue` 重构为列表；**新增** `stationDetail.vue`、`stationForm.vue`、`accountForm.vue`；`constants/accounts.js` 上提 `EMPLOYEE_STATUS` + 新增 `ASSIGNABLE_ROLE_OPTIONS`（含站长）；`router/index.js` 新增 5 条路由（`station/create` 静态段先于 `:id`）；`styles/mobile.scss` 增全局 `.fchip` 工具类。
+3. **③** `apps/staff-h5/src/views/staff/payrollDetail.vue`：删「流转状态」区块 + `steps` computed + import；「计算说明」4 行收为明细区尾部时间 caption。
+4. **④** `apps/boss-h5/src/modules/boss/views/hrDetail.vue`：新增「历史工资单」区块（`getPayrolls({employeeId})`，`pageSize=10`，与 profile/salary 同批并发、独立降级，点行下钻 `/boss/payroll/:id`）。
+5. **⑤** `apps/boss-h5/src/modules/boss/views/schedule.vue`：草稿值改数组、集合脏检查、多班次标签（`flex-wrap`）、多选弹层（整行 `aria-pressed` + `aria-live` 计数 + 上限 2/重叠 `role=alert`）、「早班+晚班（全天）」（无时段字段时禁用 + 原因）与「清空（休息）」快捷、覆盖式保存 `shiftIds: []`、复制/清空按集合整体处理。
+6. **⑥** **新增** `apps/boss-h5/src/modules/boss/views/approval.vue` + 路由 `/boss/approval`；`modules/boss/views/payroll.vue` 支持 `?status=` 深链（异议组跳 `OBJECTED`）。
+7. **mock 同步（硬约束）**：`packages/mock/src/attendanceStore.js`（排班行改 `shiftIds` 集合 + 覆盖式保存 + 上限 2/重叠拒绝/去重；`querySchedules` 出参 +`shiftIds[]`、`mySchedules` 出参 +`shifts[]`；`removeShift` 按集合判引用；种子行同步）；`packages/mock/src/routes/attendance.js`（`shiftIds` 类型校验）；`packages/mock/src/routes/employee.js`（`ASSIGNABLE_ROLES` 放开 `STATION_ADMIN` + 站长 `stationId` 必填）。
+8. **门禁**：`scripts/verify-mock.mjs` 新增 10 项断言（站长角色放开/归属校验、多班次 `shiftIds` 集合/覆盖式/上限/重叠/清空）。
+
+**证据（本机实跑）**：`npm run verify:mock` → **1012 项通过 / 0 失败**（基线 1002 + 新增 10，未删任何既有断言）；三端单测 `boss-h5 128`、`staff-h5 241`、`web 108` 全通过（均 = 基线，未弱化）；三端 `build:prod` **EXIT=0**；`boss-h5`/`web` `lint` **0 error**。**注**：`verify:mock` 在本地 15:30–16:00 会因既有时间盲区（`nonCovering` 取不到班次）崩溃（非本批引入），本次以 `TZ=UTC` 运行规避该既有缺陷；未改动该处逻辑。
+
+**登记/冲突项（未擅改上游文档）**：① `PayrollStatusSteps.vue`（staff-h5）移除引用后成死代码，按设计 ⑪#19 **本批不删**、登记；② mock 内部以「一行一格 + `shiftIds` 数组」承载多班次（对外契约 `shiftIds[]` 完全一致），异于后端 `V22` 的「一班一行」存储形态，属 mock 实现细节，已在代码注释登记；③ 前端重叠判定采架构 §2.4 半开区间 `[s,e)` 口径（UI 7.4 曾注「待算法确认」，架构 v1.1 已定稿，故可渲染提示）；④ `.fchip` 仅新增全局工具类并在新页面复用，既有 5 处 scoped 定义未动（避免回归），未完全收口；⑤ 「最后一个管理员（2002）」前端无法可靠预算，改为服务端错误码就地回显（未做前置禁用）。
+
+**如何回滚**：反向 diff 上述 `hrm-clients/` 文件；删除新增 4 个视图（`stationDetail`/`stationForm`/`accountForm`/`approval.vue`）与 `verify-mock.mjs` 新增断言块即可。
+
+## 2026-09-27 · 驿站精灵管理能力扩展 · 后端实现（C-1/C-7/V23 审计/C-2~C-4 排班多班次/C-6）
+
+**任务**：按架构 v1.1（`boss-management-architecture.md` §2.4/§2.4.1/§2.9/§3/§6）与算法 v1.1（`algorithm-multi-shift-scheduling.md` §1.2/§1.3.1/§1.4/§2/§8）落地**后端部分**：角色白名单放开（C-1）、服务端强制改密（C-7/A-⑤）、V23 审计留痕 12 写入点、排班多班次（C-2/3/4/5）、`hr_flow` 列表补 `source`（C-6）。**只改 `hrm-dev/hrm-server/`（main + test）；不改 `hrm-clients/`、不改迁移脚本 `V22`/`V23`、不改 `api.md`/`db.md`/方案/算法/UI/安全文档；未执行 git/部署/MCP；未连库。**
+
+**改动（文件清单）**：
+1. **C-1 角色白名单**：`dto/employee/EmployeeCreateRequest.java`、`EmployeeUpdateRequest.java` 的 `role` 白名单 `^(ADMIN|STAFF)$` → `^(ADMIN|STATION_ADMIN|STAFF)$`；`service/employee/impl/EmployeeServiceImpl.java` 的 `validateDeptAndStation(deptId, stationId, role)` 增条件必填：`STATION_ADMIN` 且 `stationId` 为空 → `2004`，归属驿站停用 → `4004`。**写接口类级 `@RequireRoles({"ADMIN"})` 未放宽**（`EmployeeController`/`StationController` 未改）。
+2. **C-7 服务端强制改密**：新增 `config/PwdChangedInterceptor.java`（白名单外一切业务接口，`pwdChanged=false` 一律拒，写 **HTTP 200 + code 1111**）；`common/SessionInfo.java` 增 `pwdChanged`（登录时快照）、`common/LoginUser.java` 增 `pwdChanged`、`filter/JwtAuthFilter.java` 注入并自愈旧会话、`service/auth/impl/AuthServiceImpl.java` 登录写会话、`config/WebConfig.java` 注册拦截器；`enums/ErrorCode.java` 新增 `1111`。
+3. **V23 审计留痕**：新增 `entity/OperationAuditLog.java`、`mapper/OperationAuditLogMapper.java`、`service/audit/OperationAuditWriter.java`；在 `EmployeeServiceImpl`（create/update/changeStatus/delete/resetPassword/importEmployees 汇总 1 条）、`HrFlowServiceImpl`（createEmployeeForFlow/assignForFlow）、`StationServiceImpl`（create/update/changeStatus/delete）共 **12 写入点**各记 1 条；口令只记布尔标记（`{"password":"SET"/"RESET"}`），`before/after` 走白名单键；写入方式 = **Service 内显式调用 + 与业务写同事务**（T9 定稿）。
+4. **C-2/3/4 排班多班次**：`dto/attendance/ScheduleBatchRequest.java` 增 `shiftIds[]`（保留弃用 `shiftId`）；`vo/attendance/ScheduleSaveResultVO.java`（`{saved,removed}` 语义重定义 `ARCH-C-2b`）、`ScheduleMatrixVO.DayCell`（+`shiftIds[]`）、`MyScheduleVO.Day`（+`shifts[]`）；`service/attendance/impl/AttendanceScheduleServiceImpl.java` 重写保存为**集合差量覆盖**（`ins=T\C`/`del=C\T`/`T∩C` no-op，幂等），落地重叠拒绝（半开区间）、单日上限、`ordinal` 互异三项校验；实体 `AttendanceSchedule` 不映射生成列 `active_shift_key`（已核实，补注释）。
+5. **C-6**：`vo/hr/HrFlowVO.java` 增 `source`，`HrFlowServiceImpl.toFlowVO` 直出（列表与详情共用）；新增 `ErrorCode`：`2004`、`9110`/`9111`/`9112`；`config/AlgoProperties.java` + `application.yml` 外置 `hrm.algo.attendance.{allowShiftOverlap,maxShiftsPerDay,overlapToleranceMinutes,crossMidnightAsNextDay,duplicateShiftPolicy,requireDistinctOrdinalPerDay}`。
+6. **单测**：新增 `EmployeeRoleWhitelistTest`、`PwdChangedInterceptorTest`、`OperationAuditWriterTest`、`AttendanceScheduleServiceImplTest`、`HrFlowSourceOutParamTest`；同步修补既有构造器调用（`PositionOutParamTest`、`HrFlowServiceStepTest`、`HrFlowServiceApproveTest` 各 +1 依赖 mock，**未弱化任何既有断言**）。
+
+**审计写入方式定稿与理由（T9）**：Service 内显式调用 + 同事务（不采 AOP 切面：切面难取「目标名称快照 + before/after 白名单」；同事务保证「业务成功↔审计必在、业务回滚↔审计同回滚」）。`RESET_PASSWORD`/`CREATE` 口令一律布尔标记，全表无明文/散列。
+
+**证据**：本机**无 JDK/Maven**，**未编译、未运行、未连库、未实测**；静态自查 + 全量 diff；**683 项基线未删除任何断言**（仅新增用例与补充构造器 mock）。服务器验证命令见下方「如何验证」。
+
+**登记/冲突项（未擅改上游文档）**：① V23 `target_id` 为 `NOT NULL`，而批量导入无单一目标 → 以**首条导入员工 id** 作代表并在注释说明（如需 0 占位或允许 NULL，须数据库工程师改 DDL）；② `ErrorCode` 专用码值（`1111`/`2004`/`9110~9112`）由后端按 `api.md §2.2` 定稿，须回填 `api.md`；③ `ARCH-C-7` 改密后行为取「删全部会话 → 强制重登」（`changePassword` 既有语义），新会话携带 `pwdChanged=1`，规避 T10「旧标记残留误拒」；④ `maxShiftsPerDay>2` 时按计薪编码容量 2 生效并告警（R2），`REJECT` 重复策略已实现但非默认。
+
+**如何回滚**：反向 diff 上述 `hrm-server/` 文件（未提交 git）；删除新增 5 个测试与 4 个 main 新文件即可。
+
+**如何验证（服务器阶段，本机未跑）**：`cd hrm-dev/hrm-server && mvn -B -Dtest='EmployeeRoleWhitelistTest,PwdChangedInterceptorTest,OperationAuditWriterTest,AttendanceScheduleServiceImplTest,HrFlowSourceOutParamTest' test`；全量回归 `mvn -B test`（基线 683 项不得下降）；`V22`/`V23` 迁移属 C 档，须主智能体三步授权后由运维执行。
+
+## 2026-09-27 · 驿站精灵管理能力扩展 · 数据层修订（`V22` 排班活跃唯一键 + `V23` 操作审计表）
+
+**任务**：承接技术评审 `tech-review-boss-management.md` **打回**（必改项 **M-1 / M-6 / M-7**）与主代理统一裁定，产出修正后的迁移脚本与表结构文档。**只写脚本与文档，不执行任何数据库操作、不连库、不跑 git/部署/MCP**。
+
+**改动（仅 5 个文件：2 新脚本 + 2 同步 + 本日志）**：
+1. **新增** `hrm-server/src/main/resources/db/migration/mysql/V22__attendance_schedule_multi_shift.sql`：`attendance_schedule` 补**生成列** `active_shift_key VARCHAR(64) = IF(is_deleted=0, CONCAT(employee_id,'|',work_date,'|',shift_id), NULL) STORED` + **唯一键** `uk_attendance_schedule_active_shift`（生成列式「活跃唯一」，软删行置 NULL 不占键；评审 M-1）。**保留**两个既有普通索引（表达式唯一键不吃其最左前缀）。脚本头含**含软删行**的预检①（诊断）+ 预检②（仅活跃重复，阻断须 0 行）与回滚段；DDL-only、无 DML。
+2. **新增** `hrm-server/src/main/resources/db/migration/mysql/V23__operation_audit_log.sql`：新表 `operation_audit_log`（追加型，16 列 + 3 索引），覆盖 employee/station 增改启停删重置口令；时间列命名 **`time`**（对齐 `leave_log`/`payroll_log`/`station_payroll_setting_log`，评审 M-7）；`before`/`after`/`changed_fields` 白名单化、口令只记布尔（`{"password":"SET"/"RESET"}`），**绝不落明文/散列**。
+3. **同步** `sql/schema/mysql/init.sql`：`attendance_schedule` 内联生成列 + 唯一键（并更新表注释）；末尾新增 `operation_audit_log` 段；头注释版本 V3..V23、追加型例外清单补 `operation_audit_log`。
+4. **同步** `docs/db.md`（v2.5 → **v2.6**）：§8.3.3 更新、§8.11/§8.12/§8.13/§9.1（新增 Q-DB-11）/§9.3/§9.4（新增 U-15）更新、新增**第 12 章**（V22/V23 五段式 + 一致性核对）；标题表数 43 → **44**。
+5. 迁移编号接续既有最大版本 `V21`（`V22`/`V23`，无冲突）；**未触碰 V1~V21**。
+
+**关键结论**：① 排班「活跃唯一」用生成列式部分唯一（对齐 V16 `employee.phone_active`），与 `@TableLogic` 逻辑删自洽；② 冗余索引取舍：**两个普通索引均保留**（表达式唯一键不能服务 `station_id`/`employee_id`/`work_date` 过滤）；③ 时间列命名核对：既有留痕统一为 `time` → 新表定名 `time`；④ 三处（V22+V23 / `init.sql` / `db.md`）逐列一致。
+
+**证据**：本机无 MySQL，**未编译、未连库、未实跑迁移/预检**，**静态核对**；`SHOW CREATE TABLE`、V22 预检实跑、活跃唯一/软删复用行为、V23 口令脱敏检索**收敛到服务器阶段**（`db.md` §9.4 U-15）。**未执行 git / 部署 / MCP；未写真实数据；未改任何 Java/Vue 代码与方案/算法/UI/安全文档。**
+
+**待确认项（未擅改上游文档）**：① `attendance_shift` 是否补时段/序号字段（`period_type`/`pair_id`），架构 D-6「本批不补」，待**算法/架构确认**后另立 V24+；② 审计范围是否扩展（架构 A-⑥，待主智能体）；③ `action` 取值本表按主代理指令用 `CHANGE_STATUS`（架构 §3.2 原写 `STATUS`），须与后端 `api.md` 定稿同步。
+
+**如何回滚**：删除 `V22`/`V23` 两脚本、还原 `init.sql` 与 `db.md`（反向 diff，均未提交 git）；两脚本自身亦附人工回滚段（V22 先删索引后删列 + 表注释还原；V23 `DROP TABLE`）。
+
+## 2026-09-27 · B4a 两处单测失败修复（后端 test 侧）
+
+**任务**：修复服务器实跑下 B4a 批次 2 项失败（只改 `hrm-dev/hrm-server/` test，不改 main / 前端 / 迁移脚本 / 方案 / 算法 / 契约 / `db.md`）。
+
+**根因与改动**：
+1. `PayrollServiceImplB4aTest.manualAdjustmentSummary_includesItemUpdate` —— **测试侧数据缺陷**：`api.md` §4.12.22 明确 `deductionCount/deductionTotal/netImpact` 仅取 `ITEM_ADD`（语义不变，`PayrollServiceImpl.java` 805-820 仅按 `ITEM_ADD` 的 `after.items[*].itemType` 归集），而用例的 `ITEM_ADD` 留痕只含 `ADDITION 200`，却断言 `deductionCount=1/deductionTotal=30/netImpact=170`。已在同一留痕 `after.items` 补入 `DEDUCTION 30`（`addCount` 仍为 1），断言与实现均未改动。
+2. `NotificationServiceImplTest.publishStillAllowsAnnouncement` —— **测试侧缺登录态**：`NotificationServiceImpl.publish` 内 `currentUserId()`（`PayrollServiceImpl.java`→`NotificationServiceImpl.java` 318-325）在 `UserContext` 为空时抛 `UNAUTHORIZED`；用例未造会话。已补 `UserContext.set(LoginUser(...))` 并加 `@AfterEach UserContext.clear()`（`publishRejectsPayrollTypes` 在类型校验处即抛错、不触达登录态，不受影响）。
+
+**证据**：本机无 JDK/Maven，**未编译未运行**，收敛到服务器阶段：`mvn -B -Dtest=PayrollServiceImplB4aTest,NotificationServiceImplTest test`（公告白名单 1..6 未被放宽，7/8/9 仍拒）。
+
+**如何回滚**：反向 diff 上述两个测试文件（未提交 git）。
+
+## 2026-09-27 · 薪资结算自动化 · 前端第二批（新增页面与交互 I-1~I-10，仅 `hrm-clients` 三端）
+
+**任务**：按 `payroll-ui-design.md`（v1.0）与 `api.md` v1.4 §4.12 落地新增页面与交互（只改 `hrm-dev/hrm-clients/`；不改后端 / 迁移脚本 / 方案 / 契约 / `db.md` / 设计规范）。
+
+**改动**：
+1. **共享字典** `packages/shared/src/constants/dict.js` 新增纯展示字典：`PAYROLL_RUN_STATUS`（RUNNING/SUCCESS/FAILED/SKIPPED）、`PAYROLL_RUN_TRIGGER`（AUTO/CATCH_UP/MANUAL，附兼容别名 `PAYROLL_RUN_TRIGGER_TYPE`）、`PAYROLL_SKIP_CODE`、`PAYROLL_SETTING_LOG_ACTION`（ENABLE 文案「启用自动算薪」）、`PAYROLL_LOG_ACTION`。
+2. **Mock 数据层** `packages/mock/src/financeStore.js`：新增驿站算薪配置 + 变更历史（I-1/I-2/I-3/I-9）、自动算薪运行记录 + 触发（I-4/I-5）、`payroll_log` 追加型留痕（I-7，`employeeId`+`month` 冗余定位列）、`payPayroll`（I-8）、手工调整对账汇总（I-10）；并把 SUBMIT/APPROVE/REJECT/PUBLISH/REPUBLISH/CONFIRM/OBJECTION/PAY/ITEM_ADD/ITEM_UPDATE/GENERATE_* 逐点写入留痕；补 9405 覆盖重建**保留 MANUAL 明细**（C-7 ②）。
+3. **Mock 路由** `packages/mock/src/routes/finance.js`：注册 I-1~I-10 端点（`payroll-settings`、`payroll-settings/:id/logs`、`payroll-runs/trigger`、`payroll-runs`、`payrolls/:id/items/add`、`payrolls/:id/pay`、`payrolls/:id/logs`、`payrolls/manual-adjustments/summary`），静态段先于 `:id` 注册。
+4. **API 封装**：`apps/boss-h5/src/api/finance.js` 与 `apps/web/src/api/finance.js` 补齐 10 个端点封装（含 silent 与错误码分支说明）。
+5. **boss-h5 页面**：新增 `payrollSettings.vue`（`/boss/payroll-settings`，列表+筛选+四态）、`payrollSettingEdit.vue`（`/boss/payroll-settings/:stationId`，草稿+启用二次确认+校验 9406/9407/9408+变更历史 ENABLE 醒目）、`payrollRuns.vue`（`/boss/payroll-runs`，运行记录+手工触发无 force，9410/9415/SKIPPED 统一处置）；`payrollDetail.vue` 增强加扣款（I-6）、改金额+必填事由（C-3）、操作留痕（I-7，ADMIN 视角）、确认发放（I-8）、重新发布（C-2）、PAID 冻结可视；路由与「我的 · 管理与配置」入口。
+6. **web 页面**：财务管理域新增 Tab「自动算薪运行」`PayrollRunPanel.vue`、「手工调整对账」`ManualAdjustmentPanel.vue`（合计行 + 下钻降级）、「算薪日设置」`PayrollSettingsPanel.vue`；`PayrollDetailDrawer.vue` 增加扣款弹层、操作留痕、PAID 归档声明、`pay`/再发布动作文案；`usePayrollActions.js` 接住 `pay`（四要素确认）与 OBJECTED 再发布文案；抽 `model/payrollAutomation.js` 纯函数供面板复用。
+7. **门禁与单测**：`scripts/verify-mock.mjs` 新增 I-1~I-10 断言（+52 项）；`apps/web` 新增 `payrollAutomation.spec.js`（+6 项）。
+
+**证据（本机实跑，Node 可用）**：`npm run verify:mock` → **1002/1002 通过**（第一批 950 基线不降）；三端 `npm run test` → web 108 / staff 241 / boss 128 **全通过**（既有断言未弱化）；三端 `npm run build:prod` → **EXIT=0**；web/boss-h5 `npm run lint` → **0 error**（仅既有 max-lines 等 warning）。**未执行 git / 部署 / MCP、未连库、未写真实凭据、未改 `hrm-admin`/`hrm-server`。**
+
+**登记项（未擅改上游文档）**：
+1. **命名差异**：任务描述写 `PAYROLL_RUN_TRIGGER_TYPE`，设计规范 §11.2 定名 `PAYROLL_RUN_TRIGGER`；本批以设计规范为准，并导出兼容别名，避免两处口径分裂。
+2. **I-10 下钻 gap（设计 §12 冲突 15）**：I-10 汇总真源为 `payroll_log.employee_id+month`，而 I-7 以 `payroll_id` 为键；覆盖重建删除旧单后按 `payroll_id` 取不到留痕 —— 本批按 §8.2 实现为「先按 employee+month 反查单据 id → 调 I-7；取不到则展示「该员工当月单据已被重建覆盖，历史留痕暂不可下钻」降级文案」，并登记建议契约补充「按 employeeId+month 查 ITEM_ADD 留痕」出口。**不改契约。**
+3. **端承载差异**：设计 §3 注「本轮不要求 boss-h5 承载运行记录（web 为主）」，任务要求 boss-h5 为主承载；本批两端均实现（boss-h5 列表+手工触发、web 表格视图），页面路由见上。
+4. **mock 侧补漏 C-7 ②**：既有 `generatePayrolls` 覆盖重建未保留 `source=MANUAL` 明细（与契约 §4.12.5 ② 不符），本批在 mock 侧补上并重算合计（仅 mock 演示层，非后端实现）。
+
+**如何回滚**：反向 diff 上述 `hrm-clients/` 文件（未提交 git）。
+
+## 2026-09-27 · 薪资结算自动化 · 前端第一批（状态与字典同步，`hrm-clients` 三端）
+
+**任务**：对齐后端 8 态与 C-1~C-7 行为（仅改 `hrm-dev/hrm-clients/` 前端工程，不改后端 / 迁移脚本 / 方案 / 契约 / `db.md`）。
+
+**改动**：共享字典 `dict.js`（`PAYROLL_STATUS` +`OBJECTED`(warning/solid)、`PAID`(success/outline)；`PAYROLL_FILTERS` +2）；`errorCode.js`（`FINANCE_CODE` +9406~9413/9415 与 `CODE_MESSAGE`）；`shared/ui/StatusTag.vue`（`DICT_COLORS[PAYROLL_STATUS]` +`OBJECTED` 实底白字）；mock `financeStore.js`/`routes/finance.js`（8 态标签与动作、`isItemEditable`/`isOverwritable` 判据拆分、C-1 异议落 `OBJECTED`、C-2 再发布来源含 `OBJECTED` 且非法来源显式 9403、C-3 事由必填回 9412 且不覆盖 `detail`、C-6 员工可见集 +`PAID`、C-7 9405 按驿站收敛、种子补 `OBJECTED`/`PAID`）；web（4 处 NPE 安全取值、抽屉可编辑集改 `isItemEditable`+保存事由、`PayrollStatusSteps` 增 `PAID` 步与 `OBJECTED` 分支、`usePayrollObjections` 改查 `OBJECTED`、`GeneratePayrollDialog` 判据改名）；boss-h5（`payrollDetail` 状态判定与步骤/文案、`todoGroups`+`stores/todo` 新增异议待办组）；staff-h5（`payrollDetail` 9403 文案与 `PAID` 步骤/文案、列表空态异议说明）；门禁与单测断言随契约同步（`verify-mock.mjs`、boss `todo.spec.js`）。
+
+**证据（本机实跑，Node v24.19.0）**：`npm run verify:mock` → **950/950 通过**；三端 `npm run test` → web 102 / staff 241 / boss 128 **全通过**；三端 `npm run build:prod` → **EXIT=0**。**未执行 git / 部署 / MCP、未连库、未写真实凭据。**
+
+**如何回滚**：反向 diff 上述 `hrm-clients/` 文件（未提交 git）。
+
+## 2026-09-27 · B4a 小批修补（后端 + `api.md`）：自动提交待审、对账纳入改金额、通知类型 10 口径
+
+**任务**：按主智能体裁定，修补 B4a 三处缺口（不改前端 / 迁移脚本 / 方案 / 算法 / `db.md`）。
+
+**改动**：
+1. **自动算薪生成后自动提交待审（Q6）**：`PayrollRunTxHandler` 新增 `submitOne`（`REQUIRES_NEW`，复用 `PayrollService.submit`）；`PayrollRunServiceImpl.runPipeline` 成功分支在 `generate` 后**逐单独立事务**自动 submit，失败单**保持 `DRAFT`**、写 `payroll_log(AUTO_SUBMIT_SKIPPED, operator_type=SYSTEM)` 留痕并计入 `skippedCount`，**不回滚已生成/已提交**；`PayrollRunNotifier.onSucceeded` 改签名为「已落 `PENDING_APPROVAL` 的 id + 数量」，type 7 只推确已待审单据；`PayrollRunVO` 增 `submittedCount/skippedCount`（仅触发响应内存态）。**手工 `POST /payrolls/generate`（I-3）行为不变（落 `DRAFT`）**。
+2. **对账视图 I-10 纳入 `ITEM_UPDATE`（改金额）**：`PayrollService.manualAdjustmentSummary` 同时统计 `ITEM_ADD` 与 `ITEM_UPDATE`；`ITEM_UPDATE` 净影响按 `after − before` 差值计（加款方向为正、扣款方向为负）；`PayrollManualAdjustmentEmployeeVO` 增 `addCount/updateCount/updateIncreaseTotal/updateDecreaseTotal/totalNetImpact`（既有字段语义不变）。
+3. **通知类型 10 口径**：`api.md` §4.12.21 标注「来源：算法 v1.3 §13 失败告警；方案 §4.5 原仅定义 7/8/9」；§4.12.12 补 `AUTO_SUBMIT_SKIPPED` 动作值；§4.12.18 补自动提交口径与 I-4 出参；§4.12.22 更新计入动作与出参表。
+
+**产出**：`hrm-dev/hrm-server/src/main/**`（`PayrollService(+Impl)`、`PayrollRunTxHandler`、`PayrollRunServiceImpl`、`PayrollRunNotifier(+Real/Noop)`、`PayrollLogAction`、`PayrollRunVO`、`PayrollManualAdjustmentEmployeeVO`）、`src/test/**`（`PayrollRunServiceImplTest`、`PayrollServiceImplB4aTest`、`PayrollServiceImplB2Test`、`RealPayrollRunNotifierTest`、新增 `PayrollRunTxHandlerTest`）、`hrm-dev/docs/api.md`。
+
+**方案/上游冲突（登记，未擅改上游文档）**：
+1. **自动提交的事务边界**：方案 §2.10 字面为「同一驿站事务内调用 submit」，与「submit 失败不回滚已生成、逐单隔离」的修补口径冲突；实现改为**逐单独立事务**（`REQUIRES_NEW`），需主代理同步方案 §2.10。
+2. **新增审计动作 `AUTO_SUBMIT_SKIPPED`**：`payroll_log.action` 为 `VARCHAR(32)`（无需 DDL），但 `db.md` §8.6.6 / 方案 §4.5 的取值清单未含该值，需数据库工程师同步（本批已写入 `api.md` §4.12.12）。
+3. **`submittedCount/skippedCount` 未持久化**：`payroll_run` 无对应列，仅随 I-4 触发响应返回；如需 I-5 列表可见须走结构变更（超出本批范围）。
+
+**证据**：本机**无 JDK / Maven / DB**，**未编译、未运行测试**；改/新增单测按 Mockito 无容器写法编写，收敛到服务器阶段运行。**未执行 git / 部署 / MCP、未连库、未写真实凭据。**
+
+**如何验证（服务器）**：`cd hrm-dev/hrm-server; mvn -q test`；重点用例：`PayrollRunTxHandlerTest`、`PayrollRunServiceImplTest`（自动提交成功 / 部分失败）、`PayrollServiceImplB4aTest`（ITEM_UPDATE 汇总方向、跳过失痕）、`PayrollServiceImplB2Test`（手工路径仍 DRAFT）、`RealPayrollRunNotifierTest`。全量回归 651 项基线**不得下降**。
+
+**如何回滚**：`git checkout -- hrm-dev/docs/api.md hrm-dev/docs/update-log.md` 并反向 diff 上述代码文件。
+
+## 2026-09-27 · B4a 薪资通知联动（类型 7/8/9 + 失败告警 10）与手工调整对账视图（后端，改代码 + `api.md`）
+
+**任务**：按 `payroll-automation-design.md` v1.5 §4.5 与 `security-payroll-automation-review.md` M-7，落地通知白名单拆分、类型 7/8/9 投递点、`PayrollRunNotifier` 真实实现（含失败/僵死回收告警）、手工调整对账汇总 I-10 与 `fail_reason`/`payroll_log` 脱敏兜底。
+
+**产出（代码，`hrm-dev/hrm-server/`）**：
+- 白名单拆分：`NotificationServiceImpl` 拆出 `PUBLISH_TYPES{1..6}`（公告，**不放宽**）/ `SYSTEM_TYPES{7,8,9,10}`（薪资系统段），`sendSystem` 放行集 = 两者并集（1..10，兼容工单 1/2、请假 5/6）；新增 `NotificationService#findAdminEmployeeIds()`（管理员接收人单一真源，`role=ADMIN AND status=1`）。
+- 通知收口：新增 `service/finance/support/PayrollNotifySupport`（类型 7/8/9 与告警 10，`try/catch` + `NOTIFY_SKIP` 应用日志留痕、统一截断）；新增 `service/finance/port/impl/RealPayrollRunNotifier`（`@Primary`，取代 B3 的 `NoopPayrollRunNotifier`）；投递点：`PayrollServiceImpl.publish` → type 8（**以 DB 落库状态复核，仅 `PUBLISHED` 才投**）、`objection` → type 9（`OBJECTED`）。
+- 对账视图 I-10：新增 `PayrollManualAdjustmentQuery` / `PayrollManualAdjustmentSummaryVO` / `PayrollManualAdjustmentEmployeeVO`，`PayrollService#manualAdjustmentSummary` 与 `PayrollController GET /api/v1/finance/payrolls/manual-adjustments/summary`（ADMIN）；汇总以 `payroll_log.employee_id + month` 冗余定位列为准。
+- 脱敏：`PayrollRunFailureSupport.describe` 追加 `ClientLogSanitizer.scrub` 二次兜底。
+
+**产出（契约）**：`api.md` **v1.3 → v1.4**；接口总数 **89 → 90**；财务域 **24 → 25**（工资单 13 → 14）；新增 §4.12.22（I-10）；§4.12.21 补类型 10 与「已落地」标注；§4.12.19 登记项 7 标记闭环；§4.12.20 权限补 I-10；§4.0 概览补 I-10 行与计数。
+
+**方案/上游冲突（停下登记，未擅改上游文档）**：
+1. **`SYSTEM_TYPES` / `sendSystem` 放行集**：任务/方案字面为 `SYSTEM_TYPES={7,8,9}`，但 `sendSystem` 现为多域系统联动出口——工单域投递 **1/2**（`WorkOrderConstants.NOTIFY_ASSIGN/NOTIFY_FLOW`）、请假域投递 **5/6**；若按字面收窄至 `{7,8,9}` 会**回归**工单/请假通知（未捕获的 `BusinessException` 还会回滚其写事务）。故实现为：`sendSystem` 放行集 = `PUBLISH_TYPES{1..6}` ∪ `SYSTEM_TYPES{7,8,9,10}`（即 1..10）；**安全边界落在公告端点 `publish`，其仍只认 `PUBLISH_TYPES{1..6}`、绝不放行 7/8/9**。
+2. **失败告警通知类型**：`payroll-automation-design.md` §4.5 仅定义 7/8/9；算法 §9 TODO-4「失败/耗尽告警通知类型」为**开放项**。本批取号 **10**（`sendSystem` 白名单新增）并写入契约，**如需改号须同步上游文档**。
+3. **type 7 触发点语义**：方案 §2.10 期望「自动生成 + 自动 submit 落 `PENDING_APPROVAL`」后再发 type 7；当前 `generate` 仍落 `DRAFT`（自动 submit 未实现，属 B3 范围外）。本批按任务口径「生成草稿后」触发 type 7，**文案与状态存在偏差，待自动 submit 落地后对齐**。
+4. **type 7 扇出方式**：`biz_id=payroll.id` 要求逐单，故按「(管理员 × 生成单)」逐条投递；单站生成单量大时通知量随之增长（登记，如后续需合并须先定口径）。
+5. **I-10 计入动作范围**：汇总仅计 `ITEM_ADD`；`ITEM_UPDATE`（改金额）未纳入，待口径确认（`TODO(扩展)`）。
+
+**证据**：本机**无 JDK / Maven / DB**，**未编译、未运行测试**；新增/改动单测已按 Mockito 无容器写法编写，收敛到服务器阶段运行。**未执行 git / 部署 / MCP、未连库、未写真实凭据。**
+
+**影响范围**：`hrm-dev/hrm-server/src/main/**`（通知/财务 service、support、port、controller、dto、vo）、`hrm-dev/hrm-server/src/test/**`（新增 4 个测试类 + 2 处既有测试构造参数）、`hrm-dev/docs/api.md`、本日志。未改前端 / 迁移脚本 / 方案 / 算法 / `db.md`。
+
+**如何验证（服务器）**：`cd hrm-dev/hrm-server; mvn -q test`；重点用例：`NotificationServiceImplTest`、`RealPayrollRunNotifierTest`、`PayrollServiceImplB4aTest`、`PayrollRunFailureSupportTest`。全量回归 651 项基线**不得下降**。
+
+**如何回滚**：`git checkout -- hrm-dev/docs/api.md hrm-dev/docs/update-log.md` 并反向 diff 上述代码文件（新增类删除、改动类还原，含两处既有测试构造参数）。
+
+**遗留 / TODO(扩展)**：① 失败告警连续失败节流（`alert-after-consecutive-fail-days` / `alert-repeat-interval-days`）本批仅做「失败即告警」，节流待补；② type 7 触发点待「自动 submit」落地后对齐；③ I-10 是否纳入 `ITEM_UPDATE` 待口径确认；④ 失败告警类型 10 待上游文档确认。
+
+## 2026-09-27 · B0 财务域契约补录（后端，仅改 `api.md`，未触代码）
+
+**任务**：把「薪资结算自动化与全链路留痕」全部接口正式收录进 `hrm-dev/docs/api.md`，按正式上线标准、并入既有结构（不写文末追补）。口径真源 `payroll-automation-design.md` v1.5 §2 / §3 / §4。
+
+**缺口核对（改前）**：`api.md` v1.2 财务域（`/api/v1/finance/**`）**整段缺失**——§4.0 概览 65 端点的 12 个分组中**无财务组**，§4 接口明细无财务章节，§2.2 错误码未展开 94xx。代码侧实际存在 **15** 个财务端点（`PayrollController` 10 + `PayrollRuleController` 5）。
+
+**产出**：`api.md` **v1.2 → v1.3**，行数 **1514 → 1904**；**接口总数 65 → 89**（财务域 **24** = 既有 15 + 方案新增 9）；文档头补「本次范围」行。
+- **§2.2 错误码**：新增 94xx 明细 **9401~9416（16 条）**，其中 `9406~9416` 为本批新增（含 **`9414` / `9416` 作废、号段不复用**），`9401~9405` 随财务域契约首次展开；§2.1 展开段位声明补 94xx。
+- **§4.0 概览**：补财务域 **24 行**（工资单 13 + 计薪规则 5 + 算薪配置 4 + 自动算薪 2），计数说明改写为「89 = 65 + 财务域 24」。
+- **新增 §4.12 财务 / 工资单接口**（章节号接 §4.11 连续）：§4.12.1 8 态状态机 + 动作矩阵 + 三判据拆分 + `assertMutable`；§4.12.2~§4.12.14 工资单 13 端点（含 **I-6 / I-7 / I-8**）；§4.12.15 计薪规则 5 端点；§4.12.16 算薪配置 **I-1/I-2/I-3**；§4.12.17 **I-9**；§4.12.18 自动算薪 **I-4/I-5**；§4.12.19 **C-1~C-7** 变更汇总 + 登记项；§4.12.20 权限与端准入；§4.12.21 通知类型 **7/8/9**（公告白名单维持 1..6，系统联动走独立 `SYSTEM_TYPES{7,8,9}`）。
+
+**逐条对应**：新增 **I-1~I-9** 逐条落 §4.12.16（I-1/I-2/I-3）、§4.12.17（I-9）、§4.12.18（I-4/I-5）、§4.12.12（I-6）、§4.12.14（I-7）、§4.12.13（I-8）；变更 **C-1~C-7** 在既有端点条目内就地标注（C-1 §4.12.10 / C-2 §4.12.8 / C-3 §4.12.11 / C-4 §4.12.9 / C-5 §4.12.6·§4.12.7 / C-6 §4.12.2~§4.12.4 / C-7 §4.12.5），无重复收录、无遗漏。
+
+**方案与代码不一致（只登记，未改代码；11 条）**：① `PayrollStateMachine` 仍 6 态、无 `pay`、`isEditable` 单判据，`isItemEditable`/`isOverwritable`/`assertMutable` 未落地；② `PayrollStatus` 枚举与 `counts` 键序仍 6 态；③ `EMPLOYEE_VISIBLE_STATUS` 仍 `{PUBLISHED,CONFIRMED}`，未加 `PAID`；④ `PayrollGenerateGuard` 9405 仍「账期全局级」，未按驿站收敛；⑤ `updateItems` 以 `400` 文案承载「项不存在/非 MANUAL/金额非数字」且覆盖 `item.detail`，`9411`/`9412` 未使用；⑥ 规则删除保护复用 `9403`（同码两语义）；⑦ `PUBLISH_TYPES={1..6}`，无 `SYSTEM_TYPES{7,8,9}` 与 `findAdminEmployeeIds()`；⑧ `payroll-settings`/`payroll-runs` 后端无 Controller；⑨ `ErrorCode.java` 94xx 段现仅 `9401~9405`，`9406~9416` 未定义；⑩ `9406`/`9415`/`9409` 在方案 §4.1 端点错误码列未逐条钉死；⑪ 加扣款金额方向为主代理解释、待用户最终确认。
+
+**证据**：本机无 JDK/MySQL，**未运行构建与测试**；核对方式为只读代码与文档（逐条比对 `payroll-automation-design.md` §4.1/§4.2 与 `ErrorCode.java`、两个 Controller）。
+
+**影响范围**：仅 `hrm-dev/docs/api.md`（+ 本日志）。未改任何 Java/Vue、未改方案/算法/`db.md`/迁移脚本；未执行 git/部署/MCP；未写入真实凭据（示例均为占位值）。
+
+**如何验证**：`api.md` §4.0 概览行数应为 89、财务域 24 行；§2.2 含 9401~9416；§4.12.19 的 C 项与 §4.12.1~§4.12.18 的 I 项逐条可数。
+
+**如何回滚**：`git checkout -- hrm-dev/docs/api.md hrm-dev/docs/update-log.md`（纯文本，反向 diff 即可）。
+
+**遗留**：I-1~I-5、I-9 契约先行、后端未实现（方案 §6 批次 B1~B5）；上述 11 条不一致项待后续实现批次闭环。
+
+## 2026-09-25 · 网络安全工程师「例行安全巡检」子域落地 + 两个每日定时任务建立
+
+**一、动机**：`express-station-security-engineer` 原为**纯事件驱动**（无人派活即零动作）；依赖漏洞、暴露面漂移、证书与私钥落点、日志异常迹象均随时间劣化却无人巡检。与运维侧（已由 `ops-agent-optimization.md` 补齐例行巡检）形成对称。
+
+**二、闸门流程（§8 第 8 条 / P0.6 / L8）**：方案 `docs/security-agent-checkup-plan.md` → 技术评审工程师独立评估：**v1 判「打回」**（4 条分级红线：S6 证书阈值「≤3 天」无源且与运维口径冲突、引用不存在的条款号 `§7.2.5`、红线清单遗漏 2 条、与运维侧职责重叠未划界）→ 修订 **v2**（R1–R7 全闭环）→ **「有条件通过」**（2 条引用/表述类必改 R8/R9，修订后**已闭环 → 进入可报审**）。评审报告：`docs/tech-review-security-agent-checkup.md`。
+
+**三、连带修正（跨方案一致性）**：评审发现 `ops-agent-optimization.md` 的 V2b 行残留「证书剩余 ≤15 天」与其 §3.A A4 已定案口径冲突 → 修正为「证书剩余天数**不属** V2b 范围，以 A4 为准」，该方案版本升至 **v2.3**；随后对 ops v2.2/v2.3 新增项（宝塔流程定稿 + 可执行命令）做**轻量复评**（评审建议），结论「有条件通过」，其必改项 **B-R1**（§7 落地约束仍写「L2 前不得写命令」与 L2 已关闭矛盾）已修订闭环。评审报告：`docs/tech-review-ops-agent-optimization.md`（含 R8/R9 闭环核对 + ops 复评两章）。
+
+**四、落地内容（安全角色）**：新增 **A 档只读、可自驱**的「例行安全巡检」子域 —— 六项 S1–S6（依赖与供应链 / 配置与占位残留 / 对外暴露面 / 鉴权与越权回归 / 日志异常迹象 / 证书与私钥落点与权限）、噪声控制 N1–N3、降级路径；新增产物 `hrm-dev/docs/security-checkup-{YYYYMMDD}.md`。**与运维巡检划界**：证书剩余天数归运维 A4 唯一判（安全只判落点与权限）；8080 单一托管归运维 A2（安全只判对外暴露）。**边界不变**：不给 MCP 直调权限、不改 §10 权限四档、**不削弱任何既有安全红线**（并补齐并强化「不以 root 运行应用进程为前提给放行结论」「不获取/轮换凭据」）。
+
+**五、定时任务（用户裁定）**：用户 2026-09-25 裁定「允许 SSH + 宝塔 MCP **只读**接入生产」「巡检每天一次」，并据此建立两个 TRAE 定时任务：**运维每日巡检 07:00**、**安全每日巡检 07:30**；产物分别为 `ops-checkup-{YYYYMMDD}.md` 与 `security-checkup-{YYYYMMDD}.md`，**当天文件已存在则跳过**，异常项只给处置建议、C 档动作一律不执行。**前置声明**：定时任务仅在到点时 IDE 在运行才执行，**不构成「保证每天必跑」**（已记入两方案 H5）。
+
+**同步文件**：`.trae/agents/express-station-security-engineer/SKILL.md`、`智能体配置.md` §4、`.trae/rules/智能体调度规则.md` §2、`hrm-dev/docs/agent-team-design.md` §4.9 + §5、`hrm-dev/docs/security-agent-checkup-plan.md`（新增 v2）、`hrm-dev/docs/tech-review-security-agent-checkup.md`（新增）、`hrm-dev/docs/ops-agent-optimization.md`（→ v2.3）、`hrm-dev/docs/tech-review-ops-agent-optimization.md`（追加两章）、本日志。
+
+**影响范围**：角色配置、方案与评审文档、定时任务登记；**未触碰业务代码，未在生产执行任何写操作**。**回滚**：`git checkout --` 上述文件；定时任务可在 IDE 定时任务列表暂停或删除。
+
+**遗留（未验证，待只读核实后回填）**：L1 生产只读通道与最小必要权限范围；L2 依赖漏洞核查的权威数据源（官方公告/CVE 渠道）；L3 认证日志只读可读范围；运维侧 L1（证书链层数）/ L3（nginx 载体）仍未关闭；S5 聚集阈值与巡检数值阈值为暂定值。
+
+## 2026-09-25 · 运维工程师优化——用户裁定回填（L2 关闭 / 巡检周期定案 / 证书续期口径）
+
+**用户 2026-09-25 裁定（R22 口径先行）**：
+1. **现网发布走宝塔** → 方案 L2 由此关闭。角色配置的「部署执行与回滚」段由「待 L2 核实占位」**定稿为宝塔流程**（满足技术评审必改项 R3 的前置条件）：`cd /www/wwwroot/kdyzgl-base && git pull` → 上线前备份数据库 → `RESTART_MODE=bt bash hrm-dev/deploy/deploy.sh`；回滚 `deploy.sh --rollback`（或指定备份 jar）。附验证五项（Flyway / `HEALTH_TIMEOUT=180` / 登录接口冒烟 / 8080 单一托管 / `X-Forwarded-For` 透传）。
+2. **SSL 证书到期前 3 天自动续期** → L1 **部分关闭**：A4 判定标准改为「剩余 ≤3 天仍未续期即判异常」；**链层数仍无出处、待核实**。
+3. **巡检周期＝每天一次 + 每次部署后一次** → 原 H2 关闭，`TODO(扩展)` 去除。
+4. （数值阈值 系统盘 80% / 数据盘 85% / 备份 24h 仍为暂定——用户裁定的是**周期**，未另行指定数值。）
+
+**同步文件**：`.trae/agents/express-station-ops-engineer/SKILL.md`（周期 / A4 / 部署段定稿）、`智能体配置.md` §9（部署流程 + 巡检口径）、`hrm-dev/docs/ops-agent-optimization.md`（→ **v2.2**：L1 部分关闭、L2 关闭、§3.C 定稿、H1–H6 更新）、本日志。
+
+**未重评说明**：v2.2 的变更为**用户裁定回填**（R22 用户口径优先），未新增方案作者主张；技术评审「有条件通过」的 R3 前置条件（L2）已由裁定满足。如需评审方复核该判断，可发起。
+
+**影响范围**：仅角色配置与文档，未触碰业务代码、未连服务器、未调 MCP、未执行部署。**回滚**：`git checkout --` 上述文件。
+
+**遗留**：L1 链层数、L3 nginx 载体（`/data/www/kdyzzhxt/courier-server/nginx/nginx.conf` 单文件 `ro` 挂载是否仍成立）须只读复核后回填；巡检数值阈值为暂定值。
+
+## 2026-09-25 · 运维工程师角色配置优化（方案 → 技术评审 → 落地，A+B+C+D）
+
+**背景**：`express-station-ops-engineer` 在无派活时零动作（使用者反馈「躺平」）。根因四条：① 职责域只有「执行」且全落 C 档、MCP 归主智能体独占（§10.5）→ 无自驱面；② 无例行职责与周期性产物；③ 角色配置里的部署命令（`cd /www/wwwroot/kdyzgl`、`systemctl restart kdyzgl-server`、`cp target/*.jar`）与 `deploy.md` 记载的任一流程**都不一致** → 一旦唤起会照错路径执行；④ 现网运维面（`/data` 数据盘约束、hids 日志轮转、宿主 MySQL 3307）未写入角色配置。
+
+**闸门流程（§8 第 8 条 / P0.6 / L8）**：方案 `docs/ops-agent-optimization.md` → 技术评审工程师独立评估：**v1 判「打回」**（2 条分级红线：与 `deploy.md:101`「现网必须显式 `-f docker-compose.yml`」未声明冲突；SSL/acme 主张无源）→ 修订 **v2** → **「有条件通过」**（六维中五项满足，3 条必改 R1–R3 不影响主干）→ 落地前按 R1–R3 修订为 **v2.1**。评审报告：`docs/tech-review-ops-agent-optimization.md`（含 v1 结论 + 重评两段）。
+
+**落地内容**：
+- **A 例行巡检与容量治理（A 档只读，可自驱，不需 C 档授权）**：六项固定巡检（磁盘水位 / 容器与托管进程 / 数据服务连通 / 证书与链路 / 日志轮转 / 备份可恢复性），每项含「命令 + 阈值 + 处置建议」三要素。
+- **B 新增周期性产物**：`docs/ops-checkup-{YYYYMMDD}.md`，并登记 `agent-team-design.md` §5 产物台账。
+- **C 部署/回滚段修正**：**按必改项 R3，L2 核实完成前不写入可执行命令，改为「待 L2 核实」占位**；同时显式列出严禁恢复的错误写法；补齐 Nginx 变更载体与生效方式、**单文件 bind mount 原地改写保 inode 硬坑**（`deploy.md:1059-1067`）。
+- **D 免 MCP 工作方式**：产出「操作清单 + 待执行命令脚本（凭据用 `change_me_*` 占位）」，交主智能体代发执行。
+- **E 降级路径**：未获取项以「未获取（原因）」占位 + 附手工核实步骤；不得推断填值（§4.1）。
+- 边界不变：**不给 MCP 直调权限**（§10.5）、不改 §10 权限四档、不承担任何一类安全评估（操作安全评估归主智能体 §10.3，技术安全评估归网络安全工程师 §7.2）。
+
+**同步文件**：`.trae/agents/express-station-ops-engineer/SKILL.md`、`智能体配置.md` §9、`.trae/rules/智能体调度规则.md` §2、`hrm-dev/docs/agent-team-design.md` §4.8 + §5、本日志。
+
+**影响范围**：仅角色配置与文档，**未触碰业务代码、未连服务器、未调 MCP、未执行部署**。**如何回滚**：`git checkout --` 上述文件（纯文本，反向 diff 即可）。
+
+**遗留（未验证，待只读核实后回填）**：**L1** 现网 SSL 证书链层数与续期机制（仓库无出处，v1 误引已撤回）→ 决定巡检 A4 的判定标准；**L2** 现网发布流程（宝塔/`deploy.sh` 与容器编排两套并存，§11 未声明前者退役）→ 决定 §3.C 最终命令；**L3** nginx.conf 载体是否仍为 `/data/www/kdyzzhxt/courier-server/nginx/nginx.conf` 单文件 `ro` 绑定挂载。**巡检阈值（系统盘 80% / 数据盘 85% / 证书剩余 15 天）与巡检周期为暂定值，待用户确认**，已落 `TODO(扩展)`。
+
+## 2026-09-27 · 数据层同步设计 v1.1 claim 槽位语义（V20 / init.sql / db.md，静态产出未执行）
+
+**背景**：技术评审 `tech-review-payroll-automation.md` **必改项 2** 判定数据层三方（`V20` / `init.sql` / `db.md`）仍为方案 v1.0 语义；安全评估 `security-payroll-automation-review.md` **REG-01（高）/ M-1** 指认幂等硬防线三处产物不一致。本次由数据库工程师同步修订，**仅改数据层产物，未触碰 Java/Vue、方案与算法文档**。
+
+**修订内容（三方逐项一致）**：
+- **`V20__payroll_automation.sql`**：`payroll_run.success_key` → **`claim_key`**（`CHAR(7)` 不变）；唯一键 `uk_payroll_run_success (station_id, success_key)` → **`uk_payroll_run_claim (station_id, claim_key)`**；新增 **`skip_code VARCHAR(24) NULL`**（`payroll_run` 16→17 列）；claim 语义写明「`RUNNING`/`SUCCESS`/`SKIPPED` 写 `target_month` 占位、`FAILED` 置 NULL 释放」；表 COMMENT 改「占位行 RUNNING/SUCCESS/SKIPPED 每驿站每账期至多一行」；`is_deleted` 注释补「只增不删」；`station_payroll_setting.payroll_day` 注释「建议 1-28」→**「1-31（月末钳位）」**；表头引用由 v1.0 初稿改 v1.1。保持 DDL-only、无 DML、含回滚注释段。
+- **`sql/schema/mysql/init.sql`**：与修订后 V20 **逐列一致**（`skip_code` 列序、`claim_key`、`uk_payroll_run_claim`、表/列 COMMENT、`payroll_day` 1-31）。
+- **`docs/db.md`（v2.3 → v2.4）**：§8.6.5 `payroll_day` 改 1-31 钳位；§8.6.7 全节按 claim 槽位语义重写（列名/唯一键/占位规则/SKIPPED/FAILED 语义 + 补 `skip_code`）；**删除 v1.0 反向断言**（「`RUNNING`/`FAILED`/`SKIPPED` 可多行」「`success_key` 仅 SUCCESS 写值」）；§8.6.3 `idx_payroll_emp_month_bill` 用途由「生成幂等」改「生成查重（普通索引，非唯一）」；§8.11/§8.12/§9.1 Q-DB-7/Q-DB-9/§9.3（16→17 列）/§9.4 U-13 断言改为「第二条 `RUNNING` 触发 1062」；§5.3 快照核对结论更新。
+
+**影响范围**：仅仓库静态文档/脚本，**未连接数据库、未执行迁移、未改 git**；`V20` 执行仍属 C 档，须主智能体三步授权。**如何验证**：三方对读 `success_key`→`claim_key`、`skip_code`、`uk_payroll_run_claim`、`payroll_day`、8 态枚举序。**如何回滚**：反向 diff（均为文本）。
+
+**遗留（待架构师 v1.2 确认，本次未自行改表结构）**：安全评估 M-4 建议「`payroll_log` 增冗余定位列（`employee_id` + `month` 或 `payroll_no`）防孤儿」——属**可能改表结构**项，本次**不加列**，登记为待架构师 v1.2 确认项。
+
 ## 2026-09-26 · 员工注册 B1/B2/B3/B4/B5 落地 + C 档迁移 V16~V19 执行（含端到端安全验收）
 
 **一、用户授权**：执行迁移（C 档三步授权已给）；**Q2 裁定＝移除注册页「设置密码」字段**（因"不激活 + 管理员发一次性口令 + 不复用注册密码"，该字段无作用且误导）。

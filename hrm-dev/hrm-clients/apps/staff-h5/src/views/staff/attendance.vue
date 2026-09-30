@@ -52,6 +52,12 @@ onUnmounted(att.stopClock)
       <PageState v-if="!att.rule" :empty="true" empty-text="该驿站尚未配置打卡规则">
         <template #empty-action><p class="tip">请联系站长或管理员在「打卡规则」中完成配置后再打卡</p></template>
       </PageState>
+      <!-- 站点未配置启用班次：无打卡时间基准（后端 9113 / shiftConfigured=false），禁用打卡并引导联系管理员 -->
+      <PageState v-else-if="!att.shiftConfigured" :empty="true" empty-text="该驿站尚未配置班次">
+        <template #empty-action>
+          <p class="tip">本站点尚未配置班次，无法确定上下班时间；请联系管理员在「排班管理」维护班次后再打卡</p>
+        </template>
+      </PageState>
       <template v-else>
         <ClockHero :time="att.clockText" :date-text="att.dateText" :station-name="auth.user.stationName" />
         <div class="section-title">
@@ -64,7 +70,7 @@ onUnmounted(att.stopClock)
           <span class="section-title__extra tabular-nums">已完成 {{ att.doneCount }}/{{ att.requireTotal }}</span>
         </div>
         <div v-if="!att.periods.length" class="card">
-          <p class="period-empty">规则未配置打卡时段，请联系站长在「打卡规则」中配置时段后再打卡。</p>
+          <p class="period-empty">该驿站尚未配置启用班次，暂无打卡时段；请联系管理员在「排班管理」维护班次后再打卡。</p>
         </div>
         <PeriodCard
           v-for="period in att.periodsWithState"

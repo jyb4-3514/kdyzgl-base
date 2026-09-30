@@ -7,7 +7,7 @@ import PageNav from '@kdyzgl/shared/ui/PageNav.vue'
 import StationPicker from '@kdyzgl/shared/ui/StationPicker.vue'
 import { publishNotification } from '@/api/notification.js'
 import { getEmployees, getStationList } from '@/api/org.js'
-import { NOTIFICATION_TYPE, PUBLISH_SCOPE } from '@kdyzgl/shared/constants/dict.js'
+import { NOTIFICATION_TYPE, NOTIFICATION_PUBLISH_TYPES, PUBLISH_SCOPE } from '@kdyzgl/shared/constants/dict.js'
 import { DEMO_CODE } from '@kdyzgl/shared/constants/errorCode.js'
 
 /**
@@ -36,8 +36,11 @@ const count = ref(null)
 const countLoading = ref(false)
 const countError = ref('')
 
+/** 只列公告端点可发的类型（1~6）；7~10 为系统联动类型，不应出现在手工发布表单里 */
 const typeOptions = computed(() =>
-  Object.entries(NOTIFICATION_TYPE).map(([value, item]) => ({ value: Number(value), label: item.label }))
+  Object.entries(NOTIFICATION_TYPE)
+    .filter(([value]) => NOTIFICATION_PUBLISH_TYPES.includes(Number(value)))
+    .map(([value, item]) => ({ value: Number(value), label: item.label }))
 )
 /** 移动端只支持两种范围：多选员工是 PC 的能力（B4.6），字典里仍保留 EMPLOYEE 以便与契约一致 */
 const scopeOptions = computed(() => ['ALL', 'STATION'].map((value) => ({ value, label: PUBLISH_SCOPE[value].label })))

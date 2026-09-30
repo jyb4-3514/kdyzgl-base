@@ -27,9 +27,10 @@ import { ATTENDANCE_CODE, CODE } from '@kdyzgl/shared/constants/errorCode.js'
  * 时间基准：排班与打卡记录均以「今天」为锚点由固定种子 PRNG 生成，同一天内刷新结果稳定；
  * 跨天时数据相对新的一天重排（与 parcelStore 的「近 N 天」口径一致）。
  *
- * 时段模型（T18）：规则新增 checkFrequency（每日 2 次 / 4 次）+ checkPeriods（时段明细），
- * 管理端可自定义上下班时间与打卡频次；workStartTime / workEndTime 退化为派生值（首时段开始 / 末时段结束），
- * 时段是唯一真源，保证「改了时段，展示与统计口径同步变化」。打卡记录按 periodIndex + periodName 归属时段。
+ * 时段真源统一（打卡时间真源 = 班次）：打卡时段 checkPeriods、上下班时间 workStartTime / workEndTime、
+ * 频次 checkFrequency **不再是规则侧的独立配置**，而是读取时由「该驿站启用班次」实时派生的只读值
+ * （见 attendancePeriodsOf）；规则侧即便提交这些字段也一律忽略（U-4 / U-5），
+ * 保证「排班改哪里、打卡就跟哪里，永远一致」。打卡记录按 periodIndex + periodName 归属时段。
  *
  * TODO(扩展): 打卡/排班/规则的写操作目前只存活于当前会话，刷新即回到种子态。
  * 若演示需要「三端刷新后写操作仍在」，参照 overlay.js 增加考勤写操作覆盖层（localStorage + 版本化 KEY）。
@@ -53,33 +54,37 @@ const DEMO_EMPLOYEE_IDS = [3, 4]
 const FENCE_ORIGIN = { longitude: 117.201, latitude: 31.821 }
 
 /**
- * 班次预设：早/中/晚三班，覆盖「正常出勤 / 跨零点收班」两类演示场景
+ * 班次预设：早/中/晚三条记录，覆盖「正常出勤 / 跨零点收班 / 停用态」演示场景。
  * 配色全部取自 demo-ui-redesign.md 2.2 设计 Token：
  * 早班 #0958D9（blue-700）、中班 #FA8C16（orange-500）、晚班 #1F2937（neutral-800）
  * 晚班为何用中性深色：夜间班次的语义即「深色」，且该文档明确要求「删除紫色 AI 默认风」，
  * 原契约给的 #722ED1 不在 Token 色板内，故改用色板内的 neutral-800。
+ *
+ * 种子收敛（设计 ⑫-31）：中班 status=0（停用）。定义侧站点级校验要求「启用班次数 ≤2 且一早一晚」
+ * （后端 9114），早/中/晚三班全启用会同时撞「超上限」与「ordinal 冲突」；保留三条记录而不删，
+ * 是为了不打断依赖 shiftId 1/2/3 与站点 2/3/4 班次编号的既有排班 / 时段演示与断言。
+ * 启用集合 = 早班（ordinal 0）+ 晚班（ordinal 1），正是一早一晚且互不重叠。
  */
 const SHIFT_SEED = [
-  { shiftName: '早班', startTime: '08:00', endTime: '16:00', color: '#0958D9' },
-  { shiftName: '中班', startTime: '12:00', endTime: '20:00', color: '#FA8C16' },
-  { shiftName: '晚班', startTime: '16:00', endTime: '24:00', color: '#1F2937' }
+  { shiftName: '早班', startTime: '08:00', endTime: '16:00', color: '#0958D9', status: 1 },
+  { shiftName: '中班', startTime: '12:00', endTime: '20:00', color: '#FA8C16', status: 0 },
+  { shiftName: '晚班', startTime: '16:00', endTime: '24:00', color: '#1F2937', status: 1 }
 ]
+
+/** 启用班次上限：打卡时段最多 2 段（一早一晚），超限服务端回 9114 */
+const MAX_ENABLED_SHIFTS = 2
+/** 午前 / 午后界值（分钟）：与后端 middayBoundaryMinute 默认值同口径（12:00） */
+const MIDDAY_BOUNDARY_MIN = 12 * 60
 
 const WEEK_DAYS = 7
 
 /**
- * 打卡频次默认配置
- * 为什么只有 2 / 4 两档：2 次 = 一个时段（上班卡 + 下班卡），4 次 = 两个时段各一对卡，
- * 覆盖「朝九晚六一班制」与「上下午两班倒」两类驿站用工场景，再多档对演示无增量价值。
+ * 站点班次计划：决定该驿站参与打卡的时段数（单班 1 段 / 双班 2 段）。
+ * 为什么要显式列计划而不从「启用班次数」推：演示站点仍保留早/中/晚三班用于排班演示，
+ * 而打卡时段真源要求「互不重叠、上限 2」（后端 9114）。故此处按站点声明段数，
+ * 具体时段的时间与名称**全部取自班次种子**，mock 不再独立维护一套时段时间（消除时间分裂）。
  */
-const DUAL_FREQUENCY_STATIONS = [2, 3]
-/** 双时段预设：中间留出午休，避免两段首尾相接被误判为同一段 */
-const DUAL_PERIOD_SEED = [
-  { name: '上午班', startTime: '08:00', endTime: '12:00' },
-  { name: '下午班', startTime: '14:00', endTime: '18:00' }
-]
-/** 单时段预设：全天一班，与历史 workStartTime / workEndTime 口径保持一致 */
-const SINGLE_PERIOD_SEED = [{ name: '全天班', startTime: '08:00', endTime: '18:00' }]
+const DUAL_SHIFT_STATIONS = [2, 3]
 /** 时间窗左右余量默认值：与旧单班次模型的「提前 30 分钟 / 延后 60 分钟」同口径，避免升级后打卡手感突变 */
 const ALLOW_EARLY_MIN = 30
 const ALLOW_LATE_MIN = 60
@@ -146,8 +151,9 @@ function ensureBuilt() {
 }
 
 function build() {
-  rules = buildRules()
+  // 先建班次再建规则：规则里的打卡时段是「由该驿站班次派生」的只读值，派生时必须已有班次可查
   shifts = buildShifts()
+  rules = buildRules()
   seq.rule = rules.length
   seq.shift = shifts.length
   seq.schedule = 0
@@ -182,9 +188,8 @@ function ruleSeed(stationId) {
   const sid = Number(stationId)
   const station = db.stations.find((s) => s.id === sid)
   const offset = sid - 1
-  // 时段是唯一真源：先定频次与时段，workStartTime / workEndTime 只做派生，不再独立维护
-  const checkFrequency = DUAL_FREQUENCY_STATIONS.includes(sid) ? 4 : 2
-  const checkPeriods = (checkFrequency === 4 ? DUAL_PERIOD_SEED : SINGLE_PERIOD_SEED).map((p) => ({ ...p }))
+  // 打卡时段是派生值：直接取该驿站班次（不再独立维护时间），频次 = 时段数 × 2（U-4 只读派生）
+  const periods = attendancePeriodsOf(sid)
   return {
     stationId: sid,
     ruleName: `${stationName(sid)}默认打卡规则`,
@@ -199,12 +204,12 @@ function ruleSeed(stationId) {
     longitude: Number((FENCE_ORIGIN.longitude + offset * 0.012).toFixed(6)),
     latitude: Number((FENCE_ORIGIN.latitude + (offset % 3) * 0.008).toFixed(6)),
     radius: 300,
-    checkFrequency,
-    checkPeriods,
+    checkFrequency: periods.length * 2,
+    checkPeriods: periods.map((p) => ({ name: p.name, startTime: p.startTime, endTime: p.endTime })),
     allowEarlyMin: ALLOW_EARLY_MIN,
     allowLateMin: ALLOW_LATE_MIN,
-    workStartTime: checkPeriods[0].startTime,
-    workEndTime: checkPeriods[checkPeriods.length - 1].endTime,
+    workStartTime: periods.length ? periods[0].startTime : null,
+    workEndTime: periods.length ? periods[periods.length - 1].endTime : null,
     lateThresholdMin: 30,
     earlyLeaveThresholdMin: 30,
     status: 1
@@ -223,24 +228,29 @@ function buildShifts() {
         endTime: seed.endTime,
         color: seed.color,
         restMinutes: 60,
-        status: 1
+        status: seed.status === undefined ? 1 : seed.status
       })
     })
   })
   return list
 }
 
-/** 某驿站的第 k 个班次（k=0 早班 / 1 中班 / 2 晚班） */
+/**
+ * 启用种子下标：只有启用班次才参与排班轮转（停用班次「不再被排班引用」，与设计 ⑭.3 一致）。
+ * 早班（0）+ 晚班（2）即种子收敛后的启用集合。 */
+const ENABLED_SEED_INDEXES = SHIFT_SEED.map((seed, index) => (seed.status === 0 ? -1 : index)).filter((i) => i >= 0)
+
+/** 某驿站的第 k 条班次记录（k=0 早班 / 1 中班 / 2 晚班；编号口径保持不变以兼容既有排班/时段演示） */
 const shiftIdOf = (stationId, k) => shifts[(stationId - 1) * SHIFT_SEED.length + k].id
 const shiftById = (id) => shifts.find((s) => s.id === Number(id))
 
-/** 演示账号今日班次：优先取「上班卡时间窗覆盖当前时刻」的班次，凌晨无班次覆盖时退回早班 */
+/** 演示账号今日班次：优先取「上班卡时间窗覆盖当前时刻」的启用班次，凌晨无班次覆盖时退回首个启用班次 */
 function coveringShiftIndex() {
   const now = minutesOfDay(clockOf(new Date()))
-  const hit = SHIFT_SEED.findIndex(
-    (s) => now >= minutesOfDay(s.startTime) - OPEN_AHEAD_MIN && now <= minutesOfDay(s.endTime)
+  const hit = ENABLED_SEED_INDEXES.find(
+    (i) => now >= minutesOfDay(SHIFT_SEED[i].startTime) - OPEN_AHEAD_MIN && now <= minutesOfDay(SHIFT_SEED[i].endTime)
   )
-  return hit >= 0 ? hit : 0
+  return hit === undefined ? ENABLED_SEED_INDEXES[0] : hit
 }
 
 function weekDates(weekStart) {
@@ -276,17 +286,20 @@ function buildSchedules() {
         (dayIndex + employeeIndex) % REST_CYCLE_DAYS === REST_CYCLE_DAYS - 1
       )
         return
-      // 轮转排班：保证任意一天三种班次都有人上，时间窗/迟到早退各分支都能取到样本
+      // 轮转排班：在启用班次间轮转（停用班次不参与），保证任意一天各启用班次都有人上，
+      // 时间窗/迟到早退各分支都能取到样本
       const shiftIndex =
         isToday && DEMO_EMPLOYEE_IDS.includes(employee.id)
           ? demoShiftIndex
-          : (employeeIndex + dayIndex) % SHIFT_SEED.length
+          : ENABLED_SEED_INDEXES[(employeeIndex + dayIndex) % ENABLED_SEED_INDEXES.length]
       seq.schedule += 1
       schedules.push({
         id: seq.schedule,
         stationId: STATION_ID,
         employeeId: employee.id,
         workDate,
+        // 多班次：单日班次集合以 shiftIds 承载，shiftId 保留 = 首条（兼容旧读取方）
+        shiftIds: [shiftIdOf(STATION_ID, shiftIndex)],
         shiftId: shiftIdOf(STATION_ID, shiftIndex),
         createTime: formatDateTime(addDays(day, -3))
       })
@@ -344,21 +357,49 @@ function verifyFields(random, plan, rule) {
   }
 }
 
-/** 规则时段（判定期口径）：规则未配置时段时用标准工时兜底，保证判定不因脏数据整体失效 */
-function periodsOf(rule) {
-  const list =
-    Array.isArray(rule.checkPeriods) && rule.checkPeriods.length
-      ? rule.checkPeriods
-      : [{ name: '全天班', startTime: rule.workStartTime, endTime: rule.workEndTime }]
-  return list.map((p, index) => ({ periodIndex: index, name: p.name, startTime: p.startTime, endTime: p.endTime }))
+/**
+ * 打卡时段（判定期真源）：由该驿站启用班次派生，mock 不再独立维护一套时段时间。
+ * 取数规则：启用班次按开始时间升序 → 逐个纳入「与已选时段互不重叠」的班次 → 段数由站点班次计划封顶（≤2）。
+ * periodIndex = 段序号（0 早 / 1 晚），name = 班次名，起止 = 班次起止（与后端「班次为唯一时间真源」同口径）。
+ */
+function attendancePeriodsOf(stationId) {
+  const sid = Number(stationId)
+  const limit = DUAL_SHIFT_STATIONS.includes(sid) ? 2 : 1
+  const ordered = shifts
+    .filter((s) => s.stationId === sid && s.status === 1)
+    .slice()
+    .sort((a, b) => minutesOfDay(a.startTime) - minutesOfDay(b.startTime))
+  const chain = []
+  for (const shift of ordered) {
+    if (chain.length >= limit) break
+    const cur = shiftInterval(shift)
+    // 与已选时段重叠的班次跳过：periodIndex 定位与时间窗判定都要求时段互不重叠
+    const overlap = chain.some((picked) => {
+      const iv = shiftInterval(picked)
+      return iv.start < cur.end && cur.start < iv.end
+    })
+    if (overlap) continue
+    chain.push(shift)
+  }
+  return chain.map((shift, index) => ({
+    periodIndex: index,
+    name: shift.shiftName,
+    startTime: shift.startTime,
+    endTime: shift.endTime
+  }))
+}
+
+/** 该驿站是否已配置启用班次：供 status 下发 shiftConfigured，前端据此渲染「无班次不可打卡」空态 */
+export function stationShiftConfigured(stationId) {
+  ensureBuilt()
+  return shifts.some((s) => s.stationId === Number(stationId) && s.status === 1)
 }
 
 /**
  * 打卡记录：只在与排班对应的日子上产生，且今天只生成「时刻已到」的卡（防时序矛盾）
  *
- * 时段切分为什么按「排班班次」均分而不是直接照搬规则时段：记录必须与员工当天的排班自洽，
- * 否则会出现「排的是晚班、卡却打在上下午」这类矛盾数据；频次只决定切几段，段名取规则声明的名称，
- * 这样管理端自定义的时段名能直接出现在记录列表里。
+ * 时段切分口径：记录必须与员工当天的排班自洽，故时段数量与名称取自「该驿站班次派生的打卡时段」，
+ * 记录时间按员工当日排班班次均分——保证「排的哪一班、卡就落在对应的时段序号与名称上」。
  */
 function buildRecords(random) {
   const todayText = formatDate(new Date())
@@ -372,13 +413,14 @@ function buildRecords(random) {
     const rule = rules.find((r) => r.stationId === schedule.stationId)
     const shift = shiftById(schedule.shiftId)
     const employee = db.employees.find((e) => e.id === schedule.employeeId)
-    const declared = Array.isArray(rule.checkPeriods) ? rule.checkPeriods : []
-    const periodCount = Math.max(1, Math.round(Number(rule.checkFrequency) / 2) || declared.length || 1)
+    // 段数与段名取自「该驿站班次派生的打卡时段」，不再读规则里已废弃的 checkPeriods
+    const periods = attendancePeriodsOf(schedule.stationId)
+    const periodCount = Math.max(1, periods.length || 1)
     const startMin = minutesOfDay(shift.startTime)
     const span = (minutesOfDay(shift.endTime) - startMin) / periodCount
 
     for (let periodIndex = 0; periodIndex < periodCount; periodIndex += 1) {
-      const periodName = (declared[periodIndex] && declared[periodIndex].name) || `第 ${periodIndex + 1} 段`
+      const periodName = (periods[periodIndex] && periods[periodIndex].name) || `第 ${periodIndex + 1} 段`
       const onBase = startMin + span * periodIndex
       const offBase = startMin + span * (periodIndex + 1)
 
@@ -410,6 +452,8 @@ function buildRecords(random) {
 /* ==================== VO 组装 ==================== */
 
 function toRuleVO(rule) {
+  // 时段 / 上下班时间 / 频次一律实时由该驿站班次派生（只读），不再回显规则里已废弃的写入值
+  const periods = attendancePeriodsOf(rule.stationId)
   return {
     id: rule.id,
     stationId: rule.stationId,
@@ -423,12 +467,14 @@ function toRuleVO(rule) {
     longitude: rule.longitude,
     latitude: rule.latitude,
     radius: rule.radius,
-    checkFrequency: rule.checkFrequency,
-    checkPeriods: (rule.checkPeriods || []).map((p) => ({ ...p })),
+    checkFrequency: periods.length * 2,
+    checkPeriods: periods.map((p) => ({ name: p.name, startTime: p.startTime, endTime: p.endTime })),
+    // 只读派生标记：时段与上下班时间由该驿站班次决定，规则侧不再可写（U-4 / U-5）
+    checkPeriodsReadonly: true,
     allowEarlyMin: rule.allowEarlyMin,
     allowLateMin: rule.allowLateMin,
-    workStartTime: rule.workStartTime,
-    workEndTime: rule.workEndTime,
+    workStartTime: periods.length ? periods[0].startTime : null,
+    workEndTime: periods.length ? periods[periods.length - 1].endTime : null,
     lateThresholdMin: rule.lateThresholdMin,
     earlyLeaveThresholdMin: rule.earlyLeaveThresholdMin,
     status: rule.status,
@@ -450,23 +496,36 @@ function toShiftVO(shift) {
   }
 }
 
-/** 未排班时的兜底班次：按规则标准工时合成，避免「今天没排班」直接把打卡判成失败 */
+/**
+ * 未排班时的兜底班次：取该驿站首个启用班次（不再按规则上下班时间合成）。
+ * 无启用班次时返回 null —— 此时站点不具备打卡时间基准，由调用方按「未配置班次」给出空态/9113。
+ */
 function defaultShiftOf(rule) {
+  const first = shifts
+    .filter((s) => s.stationId === rule.stationId && s.status === 1)
+    .slice()
+    .sort((a, b) => minutesOfDay(a.startTime) - minutesOfDay(b.startTime))[0]
+  if (!first) return null
   return {
     id: null,
     stationId: rule.stationId,
     stationName: stationName(rule.stationId),
-    shiftName: '默认班次',
-    startTime: rule.workStartTime,
-    endTime: rule.workEndTime,
-    color: SHIFT_SEED[0].color,
-    restMinutes: 0,
+    shiftName: first.shiftName,
+    startTime: first.startTime,
+    endTime: first.endTime,
+    color: first.color,
+    restMinutes: first.restMinutes,
     status: 1
   }
 }
 
 /* ==================== 打卡规则 ==================== */
 
+/**
+ * 可写字段白名单：时段相关（checkPeriods / checkFrequency / workStartTime / workEndTime）已改为
+ * 由班次派生（只读），故不在可写集内——即便请求体带上也会被忽略（U-4 / U-5），
+ * 防止出现「管理员以为改了时段、实际被派生值覆盖」的静默失效。
+ */
 const RULE_WRITABLE = [
   'ruleName',
   'enableWifi',
@@ -477,12 +536,8 @@ const RULE_WRITABLE = [
   'longitude',
   'latitude',
   'radius',
-  'checkFrequency',
-  'checkPeriods',
   'allowEarlyMin',
   'allowLateMin',
-  'workStartTime',
-  'workEndTime',
   'lateThresholdMin',
   'earlyLeaveThresholdMin',
   'status'
@@ -513,11 +568,6 @@ export function saveRule(stationId, payload = {}) {
   RULE_WRITABLE.forEach((key) => {
     if (payload[key] !== undefined) rule[key] = payload[key]
   })
-  // 时段是唯一真源：只要本次提交带了时段，就把上下班时间重算一遍，避免两个口径各说各话
-  if (Array.isArray(rule.checkPeriods) && rule.checkPeriods.length) {
-    rule.workStartTime = rule.checkPeriods[0].startTime
-    rule.workEndTime = rule.checkPeriods[rule.checkPeriods.length - 1].endTime
-  }
   rule.updateTime = formatDateTime(new Date())
   return toRuleVO(rule)
 }
@@ -557,17 +607,97 @@ export function updateShift(id, patch) {
   return toShiftVO(shift)
 }
 
+/** 班次开始时间落点：午前(0) / 午后(1)，与后端 ordinal 口径一致（一早一晚才能区分打卡时段） */
+const ordinalOfShift = (startTime) => (minutesOfDay(startTime) < MIDDAY_BOUNDARY_MIN ? 0 : 1)
+
+/**
+ * 班次定义侧站点级校验（validateShiftSet，违反回 9114）：与后端 AttendanceShiftServiceImpl 同口径。
+ * - 启用班次数（含本次，编辑时排除被编辑自身）≤ MAX_ENABLED_SHIFTS；
+ * - 启用班次 ordinal（一早一晚）须互异。
+ * 停用（status=0）班次不计入；单条字段级校验（名称/时间/颜色）由路由层 validateShift 承担。
+ * @returns {null | { code:number, message:string }}
+ */
+export function validateShiftSet({ shiftId = null, shift }) {
+  ensureBuilt()
+  const id = shiftId == null ? null : Number(shiftId)
+  const existing = id == null ? null : shiftById(id)
+  const sid = existing ? existing.stationId : Number(shift && shift.stationId)
+  const others = shifts.filter((s) => s.stationId === sid && s.status === 1 && s.id !== id)
+  const nextEnabled = shift && Number(shift.status) === 1 ? others.concat([shift]) : others
+  if (nextEnabled.length > MAX_ENABLED_SHIFTS) {
+    return {
+      code: ATTENDANCE_CODE.SHIFT_DEFINITION_INVALID,
+      message: `启用班次数不能超过 ${MAX_ENABLED_SHIFTS} 个（当前将达 ${nextEnabled.length} 个），请先停用多余班次`
+    }
+  }
+  const ordinals = nextEnabled.map((s) => ordinalOfShift(s.startTime))
+  if (new Set(ordinals).size !== ordinals.length) {
+    return {
+      code: ATTENDANCE_CODE.SHIFT_DEFINITION_INVALID,
+      message: '启用班次需一早一晚（存在同落午前/午后的班次，打卡时段无法区分）'
+    }
+  }
+  return null
+}
+
 /** 删除班次：被排班引用时拒绝（删掉会让历史排班指向空班次，打卡判定失去时间基准） */
 export function removeShift(id) {
   ensureBuilt()
   const index = shifts.findIndex((s) => s.id === Number(id))
   if (index < 0) return false
-  if (schedules.some((s) => s.shiftId === Number(id))) return 'IN_USE'
+  if (schedules.some((s) => shiftIdsOf(s).includes(Number(id)))) return 'IN_USE'
   shifts.splice(index, 1)
   return true
 }
 
 /* ==================== 排班 ==================== */
+
+/** 单日班次上限（架构 A-② 裁定 = 2，与计薪序号编码 epochDay×2+ordinal 绑定） */
+const MAX_SHIFTS_PER_DAY = 2
+
+/** 某排班行的班次集合：多班次以 shiftIds 承载，历史行回落到单值 shiftId */
+function shiftIdsOf(schedule) {
+  if (!schedule) return []
+  if (Array.isArray(schedule.shiftIds)) return schedule.shiftIds.slice()
+  return schedule.shiftId == null ? [] : [schedule.shiftId]
+}
+
+/** 班次集合按开始时间升序（展示与「首条」口径一致：最早班次排在前） */
+function orderedShiftIds(schedule) {
+  return shiftIdsOf(schedule).sort((a, b) => {
+    const sa = shiftById(a)
+    const sb = shiftById(b)
+    return (sa ? minutesOfDay(sa.startTime) : 0) - (sb ? minutesOfDay(sb.startTime) : 0)
+  })
+}
+
+/** 班次区间（半开 [start, end)，00:00 作为 24:00 收班时分钟数为 1440），用于重叠判定 */
+function shiftInterval(shift) {
+  return { start: minutesOfDay(shift.startTime), end: minutesOfDay(shift.endTime) }
+}
+
+/** 集合内是否存在时间重叠（重叠判定口径由架构 §2.4 定为半开区间 [s,e)） */
+function hasOverlap(ids) {
+  const intervals = ids
+    .map((id) => shiftById(id))
+    .filter(Boolean)
+    .map(shiftInterval)
+  for (let i = 0; i < intervals.length; i += 1) {
+    for (let j = i + 1; j < intervals.length; j += 1) {
+      if (intervals[i].start < intervals[j].end && intervals[j].start < intervals[i].end) return true
+    }
+  }
+  return false
+}
+
+/** 目标班次集合逐个校验：存在 / 同驿站 / 启用（否则 9106，与单值口径一致） */
+function validateShiftTarget(stationId, ids) {
+  for (const id of ids) {
+    const shift = shiftById(id)
+    if (!shift || shift.stationId !== stationId || shift.status !== 1) return { code: ATTENDANCE_CODE.SHIFT_UNAVAILABLE }
+  }
+  return null
+}
 
 /** 按周查询排班矩阵：7 天 × 员工，供 PC 排班表直接铺表格 */
 export function querySchedules({ stationId, weekStart }) {
@@ -583,13 +713,20 @@ export function querySchedules({ stationId, weekStart }) {
       employeeName: employee.real_name,
       days: dates.map((workDate) => {
         const schedule = rowOf(employee.id, workDate)
-        return { workDate, scheduleId: schedule ? schedule.id : null, shiftId: schedule ? schedule.shiftId : null }
+        const ids = orderedShiftIds(schedule)
+        return {
+          workDate,
+          scheduleId: schedule ? schedule.id : null,
+          // shiftId 保留 = 首条（最早班次），新增 shiftIds = 当日班次集合（只增不减，向后兼容）
+          shiftId: ids.length ? ids[0] : null,
+          shiftIds: ids
+        }
       })
     }))
   return { weekStart: dates[0], weekEnd: dates[WEEK_DAYS - 1], dates, shifts: listShifts(sid), employees }
 }
 
-/** 我的排班（员工端）：按周返回本人 7 天的班次明细 */
+/** 我的排班（员工端）：按周返回本人 7 天的班次明细；shifts 为当日班次数组，旧字段保留 = 首条 */
 export function mySchedules(employeeId, weekStart) {
   ensureBuilt()
   const eid = Number(employeeId)
@@ -597,24 +734,41 @@ export function mySchedules(employeeId, weekStart) {
   const dates = weekDates(start)
   const list = dates.map((workDate) => {
     const schedule = schedules.find((s) => s.employeeId === eid && s.workDate === workDate)
-    const shift = schedule ? shiftById(schedule.shiftId) : null
+    const ids = orderedShiftIds(schedule)
+    const first = ids.length ? shiftById(ids[0]) : null
+    const shifts = ids
+      .map((id) => shiftById(id))
+      .filter(Boolean)
+      .map((shift) => ({
+        scheduleId: schedule ? schedule.id : null,
+        shiftId: shift.id,
+        shiftName: shift.shiftName,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+        color: shift.color,
+        restMinutes: shift.restMinutes
+      }))
     return {
       workDate,
       scheduleId: schedule ? schedule.id : null,
-      shiftId: shift ? shift.id : null,
-      shiftName: shift ? shift.shiftName : null,
-      startTime: shift ? shift.startTime : null,
-      endTime: shift ? shift.endTime : null,
-      color: shift ? shift.color : null,
-      restMinutes: shift ? shift.restMinutes : null
+      shiftId: first ? first.id : null,
+      shiftName: first ? first.shiftName : null,
+      startTime: first ? first.startTime : null,
+      endTime: first ? first.endTime : null,
+      color: first ? first.color : null,
+      restMinutes: first ? first.restMinutes : null,
+      shifts
     }
   })
   return { weekStart: dates[0], weekEnd: dates[WEEK_DAYS - 1], dates, list }
 }
 
 /**
- * 批量保存排班：唯一性 = employeeId + workDate，在 Service 层查重（与一期一致，不依赖数据库唯一索引），
- * 同一员工同一天重复提交即覆盖；shiftId 传空表示清空该天排班。
+ * 批量保存排班（多班次）：唯一性 = employeeId + workDate（一格一条集合）。
+ * - 新契约：item.shiftIds 存在即为准（含空数组 = 清空该天）；该天目标集合**整体覆盖**当前集合（A-④）。
+ *   返回 saved = 覆盖后班次行数（|T|），removed = 本次被移除的班次行数（|C\T|），与架构 §2.4.1 ARCH-C-2b 一致。
+ * - 旧契约：仅传单值 shiftId 时保持旧语义（saved∈{0,1}、removed∈{0,1}），与旧客户端可观察等价。
+ * - 校验：存在 / 同驿站 / 启用（9106）；单日上限 2；时间重叠拒绝（半开区间 [s,e)）；重复静默去重。
  */
 export function saveSchedules({ stationId, items }) {
   ensureBuilt()
@@ -629,6 +783,45 @@ export function saveSchedules({ stationId, items }) {
     if (!employee || employee.station_id !== sid) return { code: 400, message: `员工 ${employeeId} 不属于该驿站` }
 
     const index = schedules.findIndex((s) => s.employeeId === employeeId && s.workDate === workDate)
+    const current = shiftIdsOf(index >= 0 ? schedules[index] : null)
+
+    if (Array.isArray(item.shiftIds)) {
+      // 集合语义：去重（重复静默去重）→ 上限 → 逐个存在性 → 重叠
+      const target = [...new Set(item.shiftIds.map(Number))].filter((id) => Number.isFinite(id))
+      if (target.length > MAX_SHIFTS_PER_DAY)
+        return { code: 400, message: `单日最多选择 ${MAX_SHIFTS_PER_DAY} 个班次` }
+      const invalid = validateShiftTarget(sid, target)
+      if (invalid) return invalid
+      if (hasOverlap(target)) return { code: 400, message: '所选班次时间有重叠，请调整' }
+
+      if (!target.length) {
+        if (index >= 0) {
+          schedules.splice(index, 1)
+          result.removed += current.length
+        }
+        continue
+      }
+      if (index >= 0) {
+        schedules[index].shiftIds = target
+        schedules[index].shiftId = target[0]
+      } else {
+        seq.schedule += 1
+        schedules.push({
+          id: seq.schedule,
+          stationId: sid,
+          employeeId,
+          workDate,
+          shiftIds: target,
+          shiftId: target[0],
+          createTime: formatDateTime(new Date())
+        })
+      }
+      result.saved += target.length
+      result.removed += current.filter((id) => !target.includes(id)).length
+      continue
+    }
+
+    // 旧契约（单值）：shiftId 传空表示清空该天排班
     if (item.shiftId == null || item.shiftId === '') {
       if (index >= 0) {
         schedules.splice(index, 1)
@@ -636,17 +829,19 @@ export function saveSchedules({ stationId, items }) {
       }
       continue
     }
-
     const shift = shiftById(item.shiftId)
     if (!shift || shift.stationId !== sid || shift.status !== 1) return { code: ATTENDANCE_CODE.SHIFT_UNAVAILABLE }
-    if (index >= 0) schedules[index].shiftId = shift.id
-    else {
+    if (index >= 0) {
+      schedules[index].shiftIds = [shift.id]
+      schedules[index].shiftId = shift.id
+    } else {
       seq.schedule += 1
       schedules.push({
         id: seq.schedule,
         stationId: sid,
         employeeId,
         workDate,
+        shiftIds: [shift.id],
         shiftId: shift.id,
         createTime: formatDateTime(new Date())
       })
@@ -661,7 +856,8 @@ export function saveSchedules({ stationId, items }) {
  * - employeeIds 缺省 = 该驿站全部在职员工（status=1）
  * - weekdays 缺省 = 日期范围内每天；传入则只保留命中星期的日期（0=周日 … 6=周六，与 JS getDay 一致）
  * - skipExisting 默认 true：已存在排班的「人 + 日」组合直接跳过，不覆盖；置 false 时覆盖为本次班次
- * 返回 { created, skipped, total }，total = 参与判定的「人 × 日」组合数 = created + skipped
+ * 返回 { created, skipped, total }，total = 参与判定的「人 × 日」组合数 = created + skipped。
+ * 铺排为**覆盖式**（该格 = [所选班次]），不追加多班次（架构 A-④：不开放追加模式）。
  */
 export function saveSchedulesByStation({
   stationId,
@@ -697,14 +893,17 @@ export function saveSchedulesByStation({
         result.skipped += 1
         return
       }
-      if (index >= 0) schedules[index].shiftId = shift.id
-      else {
+      if (index >= 0) {
+        schedules[index].shiftIds = [shift.id]
+        schedules[index].shiftId = shift.id
+      } else {
         seq.schedule += 1
         schedules.push({
           id: seq.schedule,
           stationId: sid,
           employeeId: employee.id,
           workDate,
+          shiftIds: [shift.id],
           shiftId: shift.id,
           createTime: formatDateTime(new Date())
         })
@@ -743,8 +942,9 @@ export function exportRecords(filters) {
 
 /**
  * 出勤口径的公共取数：概况与明细共用，杜绝「明细人数与概况对不上」。
- * 口径（唯一真源）：应到 = 当日有排班者；有效卡 = 非 ABNORMAL（校验未通过的异常卡不算已完成打卡）。
- * 判定表达式只此一处，改口径必同时影响 attendanceSummary 与 attendanceDetail。
+ * 口径（唯一真源，api.md §4.6.8）：应到 = 当天排班班次数（一天两班计 2）；有效卡 = 非 ABNORMAL。
+ * 缺卡按**班次粒度**（absentGranularity=PER_SHIFT）：某班次无匹配有效上班卡即缺。
+ * 单班次站点行为与改造前逐项一致；判定表达式只此一处，改口径必同时影响概况与明细。
  */
 function attendanceScope(workDate, sid) {
   const inScope = (row) => row.workDate === workDate && (sid == null || row.stationId === sid)
@@ -755,35 +955,71 @@ function attendanceScope(workDate, sid) {
   }
 }
 
+/** 应到「班次行」：某排班行的每个班次算一行（应到 / 缺卡均按此粒度） */
+function shouldShiftRows(shouldRows) {
+  const rows = []
+  shouldRows.forEach((schedule) => {
+    orderedShiftIds(schedule).forEach((id) => {
+      const shift = shiftById(id)
+      if (shift) rows.push({ employeeId: schedule.employeeId, shiftId: id, shift })
+    })
+  })
+  return rows
+}
+
+const pairKey = (employeeId, shiftId) => `${employeeId}|${shiftId}`
+
 /**
- * 打卡概况：应到 = 当天排班人数，实到 = 当天有有效上班卡的人数，
+ * 有效卡映射到「该员工当日的排班班次」：卡时间距哪个班次开始最近即认到该班（一卡只计一个班）。
+ * 单班次场景必然命中唯一班次，行为与改造前一致；无排班（不在应到集合）的卡不入 A∩R。
+ */
+function mapCardsToShifts(cards, pairs) {
+  const rows = []
+  cards.forEach((card) => {
+    const candidates = pairs.filter((p) => p.employeeId === card.employeeId)
+    if (!candidates.length) return
+    const at = minutesOfDay(String(card.checkTime).slice(11, 16))
+    let hit = candidates[0]
+    let gap = Math.abs(minutesOfDay(hit.shift.startTime) - at)
+    candidates.forEach((c) => {
+      const g = Math.abs(minutesOfDay(c.shift.startTime) - at)
+      if (g < gap) {
+        gap = g
+        hit = c
+      }
+    })
+    rows.push({ employeeId: card.employeeId, shiftId: hit.shiftId, shift: hit.shift, card })
+  })
+  return rows
+}
+
+/**
+ * 打卡概况（api.md §4.6.8）：应到 = 当天排班班次数；实到 = 有效上班卡映射到班次后与应到取交 |A∩R|。
  * 异常卡（校验未通过）不计入实到与正常/迟到/早退，避免「校验没通过也算出勤」。
  */
 export function attendanceSummary(stationId, date) {
   ensureBuilt()
   const workDate = date || formatDate(new Date())
   const sid = stationId == null || stationId === '' ? null : Number(stationId)
-  const { shouldRows, onCards, offCards } = attendanceScope(workDate, sid)
-  const actualCount = new Set(onCards.map((r) => r.employeeId)).size
+  const scope = attendanceScope(workDate, sid)
+  const pairs = shouldShiftRows(scope.shouldRows)
+  const onRows = mapCardsToShifts(scope.onCards, pairs)
+  const offRows = mapCardsToShifts(scope.offCards, pairs)
+  const attended = new Set(onRows.map((r) => pairKey(r.employeeId, r.shiftId)))
+  const actualCount = pairs.filter((p) => attended.has(pairKey(p.employeeId, p.shiftId))).length
   return {
     date: workDate,
-    shouldCount: shouldRows.length,
+    shouldCount: pairs.length,
     actualCount,
-    normalCount: onCards.filter((r) => r.status === 'NORMAL').length,
-    lateCount: onCards.filter((r) => r.status === 'LATE').length,
-    earlyLeaveCount: offCards.filter((r) => r.status === 'EARLY_LEAVE').length,
-    absentCount: Math.max(0, shouldRows.length - actualCount)
+    normalCount: onRows.filter((r) => r.card.status === 'NORMAL').length,
+    lateCount: onRows.filter((r) => r.card.status === 'LATE').length,
+    earlyLeaveCount: offRows.filter((r) => r.card.status === 'EARLY_LEAVE').length,
+    absentCount: Math.max(0, pairs.length - actualCount)
   }
 }
 
 /** 明细维度白名单：六个码与 attendanceSummary 的六个计数字段一一对应 */
 export const ATTENDANCE_DETAIL_DIMS = ['SHOULD', 'ACTUAL', 'NORMAL', 'LATE', 'EARLY_LEAVE', 'ABSENT']
-
-/** 该人当天某类型有效卡：多时段时取最早一张作代表（列表只展示一组上下班时间） */
-const cardOf = (cards, employeeId) =>
-  cards
-    .filter((r) => r.employeeId === employeeId)
-    .reduce((early, cur) => (!early || cur.checkTime < early.checkTime ? cur : early), null)
 
 /** 到达态优先级：无有效上班卡=缺卡 > 迟到 > 早退（到达后签退）> 正常，与员工端 dayStatusOf 同序（除异常） */
 const dayStateOf = (on, off) => {
@@ -793,41 +1029,68 @@ const dayStateOf = (on, off) => {
   return 'NORMAL'
 }
 
-const shiftNameOf = (shiftId) => {
-  const shift = shiftById(shiftId)
-  return shift ? shift.shiftName : null
-}
-
-/** 每维度的名单来源（人）：只决定「谁在名单里」，行内容统一由 buildDetailRow 补齐 */
-function detailMembers(dim, { shouldRows, onCards, offCards }) {
-  const idsWithStatus = (cards, status) => [...new Set(cards.filter((r) => r.status === status).map((r) => r.employeeId))]
-  if (dim === 'SHOULD') return shouldRows.map((s) => ({ employeeId: s.employeeId, shiftName: shiftNameOf(s.shiftId) }))
-  if (dim === 'ABSENT') {
-    const actualIds = new Set(onCards.map((r) => r.employeeId))
-    return shouldRows
-      .filter((s) => !actualIds.has(s.employeeId))
-      .map((s) => ({ employeeId: s.employeeId, shiftName: shiftNameOf(s.shiftId) }))
+/**
+ * 每维度的「班次行」来源：只决定哪些（员工 × 班次）在名单里，行内容统一由 buildDetailRow 补齐。
+ * 缺卡为班次粒度（api.md §4.6.9）：同一员工某班次无匹配有效上班卡即出一行，多班次站点可出多行。
+ */
+function detailMembers(dim, scope) {
+  const pairs = shouldShiftRows(scope.shouldRows)
+  const onRows = mapCardsToShifts(scope.onCards, pairs)
+  const offRows = mapCardsToShifts(scope.offCards, pairs)
+  const attended = new Set(onRows.map((r) => pairKey(r.employeeId, r.shiftId)))
+  const cardOfPair = (rows, employeeId, shiftId) =>
+    rows.find((r) => r.employeeId === employeeId && r.shiftId === shiftId) || null
+  const member = (employeeId, shift, onRow, offRow) => ({
+    employeeId,
+    shift,
+    onCard: onRow ? onRow.card : null,
+    offCard: offRow ? offRow.card : null
+  })
+  if (dim === 'SHOULD')
+    return pairs.map((p) =>
+      member(p.employeeId, p.shift, cardOfPair(onRows, p.employeeId, p.shiftId), cardOfPair(offRows, p.employeeId, p.shiftId))
+    )
+  // 缺卡是「应到差集」而非打卡事实：只标该班次无有效上班卡，不承载任何打卡时间
+  // （与既有断言「缺卡明细每行无任何打卡时间」一致）
+  if (dim === 'ABSENT')
+    return pairs
+      .filter((p) => !attended.has(pairKey(p.employeeId, p.shiftId)))
+      .map((p) => member(p.employeeId, p.shift, null, null))
+  if (dim === 'ACTUAL') {
+    // 同一（员工 × 班次）只出一行：多时段同班多次上班卡去重
+    const seen = new Set()
+    return onRows
+      .filter((r) => {
+        const key = pairKey(r.employeeId, r.shiftId)
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .map((r) => member(r.employeeId, r.shift, r, cardOfPair(offRows, r.employeeId, r.shiftId)))
   }
-  if (dim === 'ACTUAL') return [...new Set(onCards.map((r) => r.employeeId))].map((employeeId) => ({ employeeId }))
-  if (dim === 'NORMAL' || dim === 'LATE') {
-    return idsWithStatus(onCards, dim).map((employeeId) => ({ employeeId }))
-  }
-  if (dim === 'EARLY_LEAVE') return idsWithStatus(offCards, 'EARLY_LEAVE').map((employeeId) => ({ employeeId }))
+  if (dim === 'NORMAL' || dim === 'LATE')
+    return onRows
+      .filter((r) => r.card.status === dim)
+      .map((r) => member(r.employeeId, r.shift, r, cardOfPair(offRows, r.employeeId, r.shiftId)))
+  if (dim === 'EARLY_LEAVE')
+    return offRows
+      .filter((r) => r.card.status === 'EARLY_LEAVE')
+      .map((r) => member(r.employeeId, r.shift, cardOfPair(onRows, r.employeeId, r.shiftId), r))
   return []
 }
 
-/** 组装明细行（§14.4 契约）：一个人 + 当天在该维度的事实，六个维度结构一致 */
-function buildDetailRow({ employeeId, shiftName }, { onCards, offCards }) {
+/** 组装明细行（§4.6.9 契约）：一个「员工 × 班次」+ 当天在该维度的事实，六个维度结构一致 */
+function buildDetailRow({ employeeId, shift, onCard, offCard }) {
   const employee = db.employees.find((e) => e.id === employeeId)
-  const on = cardOf(onCards, employeeId)
-  const off = cardOf(offCards, employeeId)
+  const on = onCard || null
+  const off = offCard || null
   const representative = on || off
   return {
     employeeId,
     employeeName: (employee && employee.real_name) || `员工 #${employeeId}`,
     stationId: employee ? employee.station_id : null,
     stationName: employee ? stationName(employee.station_id) || '' : '',
-    shiftName: shiftName || null,
+    shiftName: shift ? shift.shiftName : null,
     periodName: representative ? representative.periodName : null,
     onCheck: on ? { time: on.checkTime, status: on.status } : null,
     offCheck: off ? { time: off.checkTime, status: off.status } : null,
@@ -836,7 +1099,7 @@ function buildDetailRow({ employeeId, shiftName }, { onCards, offCards }) {
   }
 }
 
-/** 排序（§14.6.2）：迟到/早退按命中卡时间倒序，缺卡按姓名，应到按风险优先，实到/正常按上班卡时间倒序 */
+/** 排序（§4.6.9）：迟到/早退按命中卡时间倒序，缺卡按姓名，应到按风险优先，实到/正常按上班卡时间倒序 */
 function sortDetailRows(dim, rows) {
   const byName = (a, b) => a.employeeName.localeCompare(b.employeeName, 'zh')
   const hitTime = (row) => (row.onCheck ? row.onCheck.time : row.offCheck ? row.offCheck.time : '')
@@ -858,7 +1121,7 @@ export function attendanceDetail({ dim, stationId, date }) {
   const workDate = date || formatDate(new Date())
   const sid = stationId == null || stationId === '' ? null : Number(stationId)
   const scope = attendanceScope(workDate, sid)
-  const list = detailMembers(dim, scope).map((member) => buildDetailRow(member, scope))
+  const list = detailMembers(dim, scope).map(buildDetailRow)
   sortDetailRows(dim, list)
   return { dim, date: workDate, total: list.length, list }
 }
@@ -939,14 +1202,17 @@ const validCard = (employeeId, workDate, checkType, periodIndex) => {
 export function todayStatus(employee, stationId) {
   ensureBuilt()
   const workDate = formatDate(new Date())
-  const rule = rules.find((r) => r.stationId === Number(stationId)) || null
+  const sid = Number(stationId)
+  const rule = rules.find((r) => r.stationId === sid) || null
   const schedule = schedules.find((s) => s.employeeId === employee.id && s.workDate === workDate) || null
   const scheduled = schedule ? shiftById(schedule.shiftId) : null
   const onRecord = validCard(employee.id, workDate, 'ON')
   const offRecord = validCard(employee.id, workDate, 'OFF')
 
+  // 打卡时段由该驿站班次派生（唯一时间真源）；规则未配置时不展开时段，但 shiftConfigured 仍如实反映班次有无
+  const derived = attendancePeriodsOf(sid)
   const periods = rule
-    ? periodsOf(rule).map((p) => {
+    ? derived.map((p) => {
         const on = validCard(employee.id, workDate, 'ON', p.periodIndex)
         const off = validCard(employee.id, workDate, 'OFF', p.periodIndex)
         return {
@@ -964,20 +1230,23 @@ export function todayStatus(employee, stationId) {
         }
       })
     : []
+  const checkFrequency = periods.length * 2
 
   return {
     workDate,
     hasSchedule: !!schedule,
-    // 未排班时返回规则合成的兜底班次，员工端只需渲染一个班次区块，不必区分两种来源
+    // 未排班时回落该驿站首个启用班次（无启用班次则为 null，前端渲染「未配置班次」空态）
     shift: scheduled && scheduled.status === 1 ? toShiftVO(scheduled) : rule ? defaultShiftOf(rule) : null,
+    // 该驿站是否配置了启用班次：false → 前端禁用打卡并提示「请联系管理员」（对应后端 9113）
+    shiftConfigured: derived.length > 0,
     onChecked: !!onRecord,
     offChecked: !!offRecord,
     onRecord,
     offRecord,
-    checkFrequency: rule ? rule.checkFrequency : null,
+    checkFrequency: rule ? checkFrequency : null,
     // 规则要求摘要：打卡页顶部一句话讲清「今天要打几次卡」
     requireSummary: rule
-      ? `${rule.ruleName}｜每日 ${rule.checkFrequency} 次打卡（${periods.map((p) => p.name).join('、')}）`
+      ? `${rule.ruleName}｜每日 ${checkFrequency} 次打卡（${periods.map((p) => p.name).join('、')}）`
       : null,
     periods,
     rule: rule ? toRuleVO(rule) : null
@@ -1055,13 +1324,13 @@ export function checkIn({ employee, stationId, checkType, wifiSsid, longitude, l
   const now = new Date()
   const nowMinutes = now.getHours() * 60 + now.getMinutes()
 
-  const periods = periodsOf(rule)
+  const periods = attendancePeriodsOf(sid)
   const usePeriod = periodIndex !== undefined && periodIndex !== null
   // 非整数索引取不到时段，与越界同一处理（前端只可能是索引对不上，不必再分码）
   const period = usePeriod ? periods[periodIndex] : null
   if (usePeriod && !period) return { code: ATTENDANCE_CODE.PERIOD_NOT_FOUND }
 
-  // 时段模型以规则时段为时间基准，不依赖排班；单班次模型仍需班次，否则迟到早退无从判定
+  // 时段模型以班次派生的时段为时间基准，不依赖排班；单班次模型仍需班次，否则迟到早退无从判定
   let shift = null
   if (!usePeriod) {
     const schedule = schedules.find((s) => s.employeeId === employee.id && s.workDate === workDate) || null
@@ -1069,6 +1338,8 @@ export function checkIn({ employee, stationId, checkType, wifiSsid, longitude, l
     // 排班存在但班次被删除/停用：时间基准已失效，不能静默按默认班次判定
     if (schedule && (!scheduledShift || scheduledShift.status !== 1)) return { code: ATTENDANCE_CODE.SHIFT_UNAVAILABLE }
     shift = scheduledShift || defaultShiftOf(rule)
+    // 该驿站无任何启用班次：无打卡时间基准，按「未配置班次」拒绝（对应 9113）
+    if (!shift) return { code: ATTENDANCE_CODE.NO_ACTIVE_SHIFT }
   }
 
   const startMin = minutesOfDay(usePeriod ? period.startTime : shift.startTime)
@@ -1107,7 +1378,11 @@ export function checkIn({ employee, stationId, checkType, wifiSsid, longitude, l
         ? enabled.every((k) => matched.includes(k))
         : enabled.some((k) => matched.includes(k))
   const fields = { checkMode, wifiSsid, wifiMatched, longitude, latitude, distance, locationMatched }
-  const periodFields = { periodIndex: usePeriod ? periodIndex : 0, periodName: (usePeriod ? period : periods[0]).name }
+  // 时段名取班次名（真源）；单班次模型（未传 periodIndex）回落到首个时段或本班次名
+  const periodFields = {
+    periodIndex: usePeriod ? periodIndex : 0,
+    periodName: (usePeriod ? period : periods[0] || shift).name
+  }
 
   if (!pass) {
     // 校验未通过的尝试仍落一条异常卡留痕，但错误码按「首个未通过项」返回，便于前端给出针对性提示
@@ -1219,7 +1494,9 @@ export function applyMakeup({ employee, stationId, workDate, periodIndex, checkT
   const sid = Number(stationId)
   const rule = rules.find((r) => r.stationId === sid)
   if (!rule) return { code: ATTENDANCE_CODE.RULE_NOT_CONFIGURED } // 9101
-  const period = periodsOf(rule)[periodIndex]
+  // 站点无启用班次 → 无打卡时间基准，按「未配置班次」拒绝（9113），与打卡同一码
+  if (!stationShiftConfigured(sid)) return { code: ATTENDANCE_CODE.NO_ACTIVE_SHIFT } // 9113
+  const period = attendancePeriodsOf(sid)[periodIndex]
   if (!period) return { code: ATTENDANCE_CODE.PERIOD_NOT_FOUND } // 9107
 
   const duplicated = makeups.some(
@@ -1284,7 +1561,7 @@ export function approveMakeup({ id, approved, approveRemark, approver }) {
 function writeMakeupRecord(makeup, dryRun = false) {
   const employee = db.employees.find((e) => e.id === makeup.employeeId)
   const rule = rules.find((r) => r.stationId === makeup.stationId)
-  const period = rule ? periodsOf(rule)[makeup.periodIndex] : null
+  const period = rule ? attendancePeriodsOf(makeup.stationId)[makeup.periodIndex] : null
   if (!employee || !period) return null
   // 申请到审批期间本人又正常打了卡：同槽位不再补录，避免一个槽位出现两条正常卡
   if (validCard(makeup.employeeId, makeup.workDate, makeup.checkType, makeup.periodIndex)) return true
@@ -1325,7 +1602,8 @@ function buildMakeups() {
     const sid = plan.stationId
     const rule = rules.find((r) => r.stationId === sid)
     if (!rule) return
-    const periods = periodsOf(rule)
+    const periods = attendancePeriodsOf(sid)
+    if (!periods.length) return
     // 演示账号（st001_admin / st001_staff）不参与补卡种子：今日打卡演示入口不能被历史申请干扰
     const pool = activeEmployees().filter(
       (e) => e.station_id === sid && e.status === 1 && !DEMO_EMPLOYEE_IDS.includes(e.id)
@@ -1399,6 +1677,7 @@ function ensureScheduleFor(employee, stationId, workDate) {
     stationId,
     employeeId: employee.id,
     workDate,
+    shiftIds: [shiftIdOf(stationId, (employee.id + Number(workDate.slice(-2))) % SHIFT_SEED.length)],
     shiftId: shiftIdOf(stationId, (employee.id + Number(workDate.slice(-2))) % SHIFT_SEED.length),
     createTime: formatDateTime(addDays(localDate(workDate), -3))
   })

@@ -15,8 +15,8 @@ import java.time.LocalDateTime;
 /**
  * 打卡记录（打卡事实，db.md §8.3.4，DDL: V5__attendance.sql）。
  * <p>
- * {@code status} 是打卡事实枚举（NORMAL/LATE/EARLY_LEAVE/ABNORMAL）；出勤口径（应到=排班人数、
- * 实到=非 ABNORMAL 上班卡）在 Service 聚合，本表只存事实。
+ * {@code status} 是打卡事实枚举（NORMAL/LATE/EARLY_LEAVE/ABNORMAL）；出勤口径（应到=排班班次数、
+ * 实到=有效上班卡映射到班次后与应到取交）在 Service 聚合，本表只存事实。
  * 补卡补录行无设备校验，校验列（checkMode/wifiSsid/wifiMatched/经纬度/distance/locationMatched）置 null。
  */
 @Data

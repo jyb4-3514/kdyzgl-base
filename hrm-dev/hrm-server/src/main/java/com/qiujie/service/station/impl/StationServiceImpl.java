@@ -7,6 +7,7 @@ import com.qiujie.enums.ErrorCode;
 import com.qiujie.exception.BusinessException;
 import com.qiujie.mapper.EmployeeMapper;
 import com.qiujie.mapper.StationMapper;
+import com.qiujie.service.audit.OperationAuditWriter;
 import com.qiujie.service.station.StationService;
 import com.qiujie.util.DesensitizeUtil;
 import com.qiujie.vo.common.IdVO;
@@ -15,15 +16,20 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * 驿站服务实现（api.md 4.5）。
+ * <p>
+ * 增改启停删均写审计留痕（ARCH-S-2 / §3.3 #8~#11）：写入方式与事务口径见
+ * {@link OperationAuditWriter} 类头（T9 定稿：Service 内显式 + 与业务写同事务）。
  */
 @Service
 @RequiredArgsConstructor
@@ -31,6 +37,8 @@ public class StationServiceImpl implements StationService {
 
     private final StationMapper stationMapper;
     private final EmployeeMapper employeeMapper;
+    /** 操作审计留痕出口（ARCH-S-2 / §3.3） */
+    private final OperationAuditWriter operationAuditWriter;
 
     @Override
     public List<StationVO> list(Integer status) {
@@ -74,6 +82,7 @@ public class StationServiceImpl implements StationService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public IdVO create(StationRequest request) {
         checkCodeUnique(request.getCode(), null);
         Station station = new Station();
@@ -85,10 +94,14 @@ public class StationServiceImpl implements StationService {
         station.setRemark(request.getRemark());
         station.setStatus(1); // 新增默认启用
         stationMapper.insert(station);
+        // 审计留痕（§3.3 #8）
+        operationAuditWriter.record(OperationAuditWriter.TARGET_STATION, station.getId(), station.getStationName(),
+                OperationAuditWriter.ACTION_CREATE, null, stationSnapshot(station));
         return new IdVO(station.getId());
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void update(Long id, StationRequest request) {
         Station exist = stationMapper.selectById(id);
         if (exist == null) {
@@ -98,6 +111,7 @@ public class StationServiceImpl implements StationService {
         if (!exist.getCode().equals(request.getCode())) {
             checkCodeUnique(request.getCode(), id);
         }
+        Map<String, Object> before = stationSnapshot(exist);
         // 可选字段以请求体为准（null 即清空），UpdateWrapper 显式 set 以支持置空
         LambdaUpdateWrapper<Station> wrapper = new LambdaUpdateWrapper<Station>()
                 .eq(Station::getId, id)
@@ -110,9 +124,15 @@ public class StationServiceImpl implements StationService {
                 // wrapper 更新不走实体自动填充，手动维护 update_time（决策 D8）
                 .set(Station::getUpdateTime, LocalDateTime.now());
         stationMapper.update(null, wrapper);
+        // 审计留痕（§3.3 #9）
+        operationAuditWriter.record(OperationAuditWriter.TARGET_STATION, id, request.getStationName(),
+                OperationAuditWriter.ACTION_UPDATE, before,
+                stationSnapshot(request.getCode(), request.getStationName(), request.getContactPerson(),
+                        request.getContactPhone(), request.getAddress(), exist.getStatus(), request.getRemark()));
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void changeStatus(Long id, Integer status) {
         if (status == null || (status != 0 && status != 1)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "状态取值仅支持 0=停用/1=启用");
@@ -126,9 +146,15 @@ public class StationServiceImpl implements StationService {
         update.setId(id);
         update.setStatus(status);
         stationMapper.updateById(update);
+        // 审计留痕（§3.3 #10）：动作名与 V23 DDL 统一定名 CHANGE_STATUS
+        operationAuditWriter.record(OperationAuditWriter.TARGET_STATION, id, exist.getStationName(),
+                OperationAuditWriter.ACTION_CHANGE_STATUS,
+                Map.of("status", exist.getStatus() == null ? 0 : exist.getStatus()),
+                Map.of("status", status));
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         Station exist = stationMapper.selectById(id);
         if (exist == null) {
@@ -141,6 +167,28 @@ public class StationServiceImpl implements StationService {
             throw new BusinessException(ErrorCode.STATION_HAS_EMPLOYEES);
         }
         stationMapper.deleteById(id); // 逻辑删除
+        // 审计留痕（§3.3 #11）
+        operationAuditWriter.record(OperationAuditWriter.TARGET_STATION, id, exist.getStationName(),
+                OperationAuditWriter.ACTION_DELETE, stationSnapshot(exist), null);
+    }
+
+    /** 驿站快照（审计白名单键：编码/名称/联系人/电话/地址/状态/备注） */
+    private Map<String, Object> stationSnapshot(Station station) {
+        return stationSnapshot(station.getCode(), station.getStationName(), station.getContactPerson(),
+                station.getContactPhone(), station.getAddress(), station.getStatus(), station.getRemark());
+    }
+
+    private Map<String, Object> stationSnapshot(String code, String stationName, String contactPerson,
+                                                String contactPhone, String address, Integer status, String remark) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("code", code);
+        map.put("stationName", stationName);
+        map.put("contactPerson", contactPerson);
+        map.put("contactPhone", contactPhone);
+        map.put("address", address);
+        map.put("status", status);
+        map.put("remark", remark);
+        return map;
     }
 
     /** 驿站编码活跃唯一校验（决策 D7：Service 查重，不建数据库唯一索引） */

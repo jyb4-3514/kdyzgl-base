@@ -185,8 +185,12 @@
   --tabbar-h: 50px;
   --navbar-h: 44px;
   --actionbar-h: 56px;
+  /* 说明文案（note）最大占位 = 上 padding 8 + 2 行 × 18（--lh-caption）。
+     为什么按两行算：带 note 的固定操作栏整栏会高出 --actionbar-h，而 note 在 320~375px 下会折行；
+     底部预留量必须按「含 note 的最大高度」给，否则末元素被固定栏盖住（原按 56 预留即此根因）。 */
+  --actionbar-note-h: calc(var(--sp-2) + var(--lh-caption) * 2);
   /* 固定底栏页面与 Tabbar 页面的底部留白，避免末元素被固定栏盖住 */
-  --page-pad-bottom: calc(var(--actionbar-h) + var(--safe-bottom) + var(--sp-2));
+  --page-pad-bottom: calc(var(--actionbar-h) + var(--actionbar-note-h) + var(--safe-bottom) + var(--sp-2));
   --page-pad-bottom-tab: calc(var(--tabbar-h) + var(--safe-bottom) + var(--sp-2));
 
   /* 固定底栏向上投影：仅移动端有固定底栏，不进真源 */

@@ -51,6 +51,13 @@ public final class AttendanceConstants {
     /** 下班卡最晚可打：班次结束后 60 分钟 */
     public static final int CLOSE_DELAY_MIN = 60;
 
+    // ==================== 应到 / 缺卡粒度（hrm.algo.attendance.absentGranularity） ====================
+
+    /** 班次粒度：应到 = 排班班次数、缺卡 = |R 去掉 A|（B7b 用户已裁定，默认） */
+    public static final String ABSENT_GRANULARITY_PER_SHIFT = "PER_SHIFT";
+    /** 旧按人去重口径：应到 = 有排班人数、缺卡 = 应到 − 实到（回落开关） */
+    public static final String ABSENT_GRANULARITY_PER_DAY = "PER_DAY";
+
     // ==================== 派生班次 / 时段兜底 ====================
 
     public static final String DEFAULT_SHIFT_NAME = "默认班次";

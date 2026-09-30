@@ -18,6 +18,7 @@ import {
   rejectOnboardingFlow
 } from '@/api/hr.js'
 import { getStationList } from '@/api/org.js'
+import { POSITION_OPTIONS, isPositionOption } from '@kdyzgl/shared/constants/dict.js'
 import { valueText } from '@/utils/format.js'
 
 /**
@@ -78,6 +79,7 @@ const stations = ref([])
 const stationsLoading = ref(true)
 const stationsError = ref('')
 const showStation = ref(false)
+const showPosition = ref(false)
 
 const form = ref({
   remark: '',
@@ -101,6 +103,26 @@ const needAccount = computed(() => stepKey.value === 'CREATE_ACCOUNT')
 const needAssign = computed(() => stepKey.value === 'ASSIGN_STATION')
 const needSalary = computed(() => stepKey.value === 'SET_SALARY')
 const isOnboarding = computed(() => type.value === 'onboarding')
+
+/** 岗位为枚举三值（用户裁定，与 PC 审批台同源）：选择器列与回显文案都由 shared 常量派生 */
+const positionColumns = computed(() => POSITION_OPTIONS.map((item) => ({ text: item.label, value: item.value })))
+const positionText = computed(() => {
+  const hit = POSITION_OPTIONS.find((item) => item.value === form.value.position)
+  return hit ? hit.label : '请选择'
+})
+
+/** 选择器用独立 v-model（不改 form，确认时才落值），与既有时段选择器同一交互口径 */
+const positionPickerValue = ref([])
+
+function openPosition() {
+  positionPickerValue.value = form.value.position ? [form.value.position] : []
+  showPosition.value = true
+}
+
+function onPositionConfirm({ selectedValues }) {
+  form.value.position = selectedValues[0] || ''
+  showPosition.value = false
+}
 
 const stepItems = computed(() => {
   const data = flow.value
@@ -160,7 +182,8 @@ async function load() {
       ...form.value,
       remark: '',
       stationId: data.stationId,
-      position: data.position || '',
+      // 岗位为枚举三值（用户裁定）：非枚举的历史值不预填，由审批人在选择器里显式选择
+      position: isPositionOption(data.position) ? data.position : '',
       role: data.role || 'STAFF'
     }
   } catch (e) {
@@ -203,9 +226,14 @@ function buildBody() {
       stepError.value = '请选择归属驿站'
       return null
     }
+    // 定岗岗位必填且限枚举三值（用户裁定，与 PC 审批台同口径）
+    if (!isPositionOption(data.position)) {
+      stepError.value = '请选择岗位'
+      return null
+    }
     return {
       stationId: data.stationId,
-      position: data.position.trim() || undefined,
+      position: data.position,
       role: data.role,
       remark: data.remark.trim() || undefined
     }
@@ -313,7 +341,7 @@ onMounted(() => {
 <template>
   <div class="flow-detail">
     <PageNav :title="isOnboarding ? '入职办理' : '离职办理'" />
-    <div class="page" :class="actions.length ? 'page--bar' : 'page--loose'">
+    <div class="page page--loose">
       <PageState :loading="loading" :error="error" @retry="load">
         <section class="hero hero--deep flow-hero">
           <div class="flex-between">
@@ -373,7 +401,7 @@ onMounted(() => {
                 is-link
                 @click="showStation = true"
               />
-              <van-field v-model="form.position" label="岗位" placeholder="如：快递员 / 分拣员" />
+              <van-cell title="岗位" :value="positionText" is-link @click="openPosition" />
               <van-field label="角色" input-align="right">
                 <template #input>
                   <van-radio-group v-model="form.role" direction="horizontal" class="role-group">
@@ -440,9 +468,16 @@ onMounted(() => {
           <p v-if="!flow.steps.some((item) => item.status === 'DONE')" class="tip">暂无已办理步骤</p>
         </div>
       </PageState>
-    </div>
 
-    <ActionBar :actions="actions" :note="actionNote" :submitting="submitting" @select="onAction" />
+      <!-- 操作区做进内容流（inline）：随页面滚动，滑到底即见，不再固定悬浮遮挡内容 -->
+      <ActionBar
+        inline
+        :actions="actions"
+        :note="actionNote"
+        :submitting="submitting"
+        @select="onAction"
+      />
+    </div>
 
     <van-popup v-model:show="showReject" round position="bottom" safe-area-inset-bottom>
       <div class="reject-pop">
@@ -466,6 +501,16 @@ onMounted(() => {
           <van-button block type="danger" :loading="submitting" @click="submitReject">确认驳回</van-button>
         </div>
       </div>
+    </van-popup>
+
+    <van-popup v-model:show="showPosition" round position="bottom" safe-area-inset-bottom>
+      <van-picker
+        v-model="positionPickerValue"
+        title="选择岗位"
+        :columns="positionColumns"
+        @confirm="onPositionConfirm"
+        @cancel="showPosition = false"
+      />
     </van-popup>
 
     <StationPicker

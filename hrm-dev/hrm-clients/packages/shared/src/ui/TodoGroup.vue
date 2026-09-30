@@ -5,7 +5,7 @@ import StatusTag from './StatusTag.vue'
 /**
  * 待办分组（D2-5，Molecule）
  *
- * 结构：分组标题（分组名 + N 条 + 查看全部 ›）→ 明细行（主文案 + 元信息 + 状态标签）× ≤3。
+ * 结构：分组标题（分组名 + N 条 + 查看全部 ›，计数与动作分色）→ 明细行（主文案 + 元信息 + 状态标签 + 可选 note）× ≤3。
  * 为什么每组只渲染 3 行 + 一个「查看全部」：消息页是「快照」不是第二个业务列表，
  * 全量明细属于各自业务页的职责（A4-2）。
  *
@@ -19,7 +19,7 @@ const props = defineProps({
   to: { type: [String, Object], required: true },
   /** 待办条数：null 表示该组取数失败（显示 `···`，绝不用 0 冒充） */
   total: { type: Number, default: null },
-  /** [{ key, title, meta, tag?: { dict, value } }] */
+  /** [{ key, title, meta, note?, tag?: { dict, value } }]；note 为可选第三行（1 行省略，未传不渲染） */
   rows: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   error: { type: String, default: '' }
@@ -37,8 +37,8 @@ const moreLabel = computed(() => `查看全部${props.total == null ? '' : ` ${p
     <header class="todo-group__head">
       <h3 class="todo-group__title">{{ title }}</h3>
       <router-link class="todo-group__more" :to="to" :aria-label="moreLabel">
-        <span class="tabular-nums">{{ totalText }}</span>
-        <span aria-hidden="true">· 查看全部 ›</span>
+        <span class="todo-group__count tabular-nums">{{ totalText }}</span>
+        <span class="todo-group__more-action" aria-hidden="true">· 查看全部 ›</span>
       </router-link>
     </header>
 
@@ -56,9 +56,13 @@ const moreLabel = computed(() => `查看全部${props.total == null ? '' : ` ${p
         <router-link class="todo-group__link" :to="to">
           <span class="todo-group__row-head">
             <span class="todo-group__row-title">{{ row.title }}</span>
+            <!-- 行徽标插槽：调用方自绘（如审批中心「注册」来源胶囊），不传则零渲染，既有调用方不受影响 -->
+            <slot name="row-badge" :row="row" />
             <StatusTag v-if="row.tag" :dict="row.tag.dict" :value="row.tag.value" />
           </span>
           <span v-if="row.meta" class="list-item__meta">{{ row.meta }}</span>
+          <!-- 可选第三行：不改既有调用方（未传 note 时为 undefined，不渲染） -->
+          <span v-if="row.note" class="todo-group__note">{{ row.note }}</span>
         </router-link>
       </li>
     </ul>
@@ -91,15 +95,20 @@ const moreLabel = computed(() => `查看全部${props.total == null ? '' : ` ${p
   line-height: var(--lh-h3);
 }
 
-/* 「查看全部」是次要动作：色降一档，但保留 44 高触控 */
+/* 组头计数与动作分色（设计 ⑧.3 / O7）：计数是数值事实用 --text-2，动作才是可点主色，
+ * 避免两者同色时把「N 条」误读成链接；整条仍保留 44 高触控。 */
 .todo-group__more {
   display: inline-flex;
   gap: var(--sp-1);
   align-items: center;
   min-height: 44px;
   font-size: var(--fs-caption);
-  color: var(--color-primary);
+  color: var(--text-2);
   text-decoration: none;
+}
+
+.todo-group__more-action {
+  color: var(--color-primary);
 }
 
 .todo-group__rows {
@@ -134,6 +143,18 @@ const moreLabel = computed(() => `查看全部${props.total == null ? '' : ` ${p
   font-size: var(--fs-body);
   font-weight: var(--fw-medium);
   color: var(--text-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 可选 note 行：高度随内容（1 行），1 行省略；零新增 Token（字号 / 色 / 上边距均取自既有） */
+.todo-group__note {
+  display: block;
+  overflow: hidden;
+  margin-top: var(--sp-1);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--text-2);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

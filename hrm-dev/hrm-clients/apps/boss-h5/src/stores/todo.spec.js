@@ -127,7 +127,15 @@ describe('useTodoStore · 会话与加载态', () => {
   it('counts 按分组 key 收敛，供首页宫格按 key 取角标', async () => {
     const store = useTodoStore()
     await store.refresh()
-    expect(store.counts).toEqual({ orders: 2, makeups: null, payrolls: 0, flows: 0, leaves: 0 })
+    // C-1 新增「待处理工资单异议」组（payrollObjections，查 OBJECTED），与「待审核」并列
+    expect(store.counts).toEqual({
+      orders: 2,
+      makeups: null,
+      payrolls: 0,
+      payrollObjections: 0,
+      flows: 0,
+      leaves: 0
+    })
   })
 
   it('未登录时不发请求并清空快照', async () => {

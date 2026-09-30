@@ -9,8 +9,9 @@ import java.util.List;
 /**
  * 打卡规则服务（3 接口：GET rule / GET rule/list / PUT rule）。
  * <p>
- * 规则是考勤域的核心真源：时段（{@code checkPeriods}）决定打卡时间判定，{@code workStartTime/workEndTime} 为其派生值。
- * 供同域其它服务（记录/排班）复用规则读取与出参组装，避免出参口径多写一份。
+ * <b>真源统一（方案 v1.2）</b>：打卡时间的唯一真源是「该驿站启用班次」；{@code checkPeriods} /
+ * {@code workStartTime} / {@code workEndTime} 均为<b>读取时由班次派生</b>的只读出参，{@code checkFrequency}
+ * 只读派生（= 启用班次数 × 2）。供同域其它服务（记录/补卡）复用规则读取与出参组装，避免出参口径多写一份。
  */
 public interface AttendanceRuleService {
 

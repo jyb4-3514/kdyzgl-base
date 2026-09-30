@@ -17,11 +17,13 @@ import com.qiujie.entity.Department;
 import com.qiujie.entity.Employee;
 import com.qiujie.entity.Station;
 import com.qiujie.enums.ErrorCode;
+import com.qiujie.enums.RoleEnum;
 import com.qiujie.exception.BusinessException;
 import com.qiujie.mapper.DepartmentMapper;
 import com.qiujie.mapper.EmployeeMapper;
 import com.qiujie.mapper.StationMapper;
 import com.qiujie.service.auth.support.TrustedDeviceRegistry;
+import com.qiujie.service.audit.OperationAuditWriter;
 import com.qiujie.service.employee.EmployeeService;
 import com.qiujie.service.support.ImportRowValidator;
 import com.qiujie.util.DesensitizeUtil;
@@ -53,6 +55,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -91,6 +94,8 @@ public class EmployeeServiceImpl implements EmployeeService {
     private final SessionUtil sessionUtil;
     /** 受信设备登记（M4）：禁用 / 删除 / 重置密码属安全事件，须一并使其已信任设备失效 */
     private final TrustedDeviceRegistry trustedDeviceRegistry;
+    /** 操作审计留痕出口（ARCH-S-2 / §3.3；写入方式见 {@link OperationAuditWriter} 类头 T9 定稿） */
+    private final OperationAuditWriter operationAuditWriter;
 
     /** 导入账号统一初始密码（首登强制改密兜底） */
     @Value("${hrm.employee-init-password}")
@@ -123,6 +128,7 @@ public class EmployeeServiceImpl implements EmployeeService {
     // ==================== 写操作 ====================
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public IdVO create(EmployeeCreateRequest request) {
         // 活跃数据查重：账号（1003）/ 手机号（2003）
         if (existsActiveUsername(request.getUsername(), null)) {
@@ -131,7 +137,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         if (existsActivePhone(request.getPhone(), null)) {
             throw new BusinessException(ErrorCode.PHONE_EXISTS);
         }
-        validateDeptAndStation(request.getDeptId(), request.getStationId());
+        validateDeptAndStation(request.getDeptId(), request.getStationId(), request.getRole());
         LocalDate entryDate = parseEntryDate(request.getEntryDate());
 
         Employee employee = new Employee();
@@ -148,10 +154,21 @@ public class EmployeeServiceImpl implements EmployeeService {
         employee.setEntryDate(entryDate);
         employee.setRemark(request.getRemark());
         employeeMapper.insert(employee);
+
+        // 审计留痕（§3.3 #1）：口令只记布尔标记 SET，绝不落明文/散列
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("username", employee.getUsername());
+        after.put("realName", employee.getRealName());
+        after.put("role", employee.getRole());
+        after.put("stationId", employee.getStationId());
+        after.put(OperationAuditWriter.PASSWORD_FLAG_KEY, "SET");
+        operationAuditWriter.record(OperationAuditWriter.TARGET_EMPLOYEE, employee.getId(), employee.getRealName(),
+                OperationAuditWriter.ACTION_CREATE, null, after);
         return new IdVO(employee.getId());
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void update(Long id, EmployeeUpdateRequest request) {
         Employee exist = employeeMapper.selectById(id);
         if (exist == null) {
@@ -170,8 +187,12 @@ public class EmployeeServiceImpl implements EmployeeService {
         if (existsActivePhone(request.getPhone(), id)) {
             throw new BusinessException(ErrorCode.PHONE_EXISTS);
         }
-        validateDeptAndStation(request.getDeptId(), request.getStationId());
+        validateDeptAndStation(request.getDeptId(), request.getStationId(), request.getRole());
         LocalDate entryDate = parseEntryDate(request.getEntryDate());
+
+        Map<String, Object> before = employeeSnapshot(exist.getRealName(), exist.getPhone(),
+                exist.getGender() == null ? 0 : exist.getGender(), exist.getDeptId(), exist.getStationId(),
+                exist.getRole(), exist.getEntryDate(), exist.getRemark());
 
         // 可选字段以请求体为准（null 即清空归属/备注），UpdateWrapper 显式 set 以支持置空
         LambdaUpdateWrapper<Employee> wrapper = new LambdaUpdateWrapper<Employee>()
@@ -187,9 +208,17 @@ public class EmployeeServiceImpl implements EmployeeService {
                 // wrapper 更新不走实体自动填充，手动维护 update_time（决策 D8）
                 .set(Employee::getUpdateTime, LocalDateTime.now());
         employeeMapper.update(null, wrapper);
+
+        // 审计留痕（§3.3 #2）：变更字段白名单由 Writer 按 before/after 差异剪裁
+        Map<String, Object> after = employeeSnapshot(request.getRealName(), request.getPhone(),
+                request.getGender() == null ? 0 : request.getGender(), request.getDeptId(), request.getStationId(),
+                request.getRole(), entryDate, request.getRemark());
+        operationAuditWriter.record(OperationAuditWriter.TARGET_EMPLOYEE, id, request.getRealName(),
+                OperationAuditWriter.ACTION_UPDATE, before, after);
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         Employee exist = employeeMapper.selectById(id);
         if (exist == null) {
@@ -203,10 +232,14 @@ public class EmployeeServiceImpl implements EmployeeService {
             throw new BusinessException(ErrorCode.LAST_ADMIN_PROTECTED);
         }
         employeeMapper.deleteById(id); // 逻辑删除
+        // 审计留痕（§3.3 #4）：被删对象快照，口令不涉及
+        operationAuditWriter.record(OperationAuditWriter.TARGET_EMPLOYEE, id, exist.getRealName(),
+                OperationAuditWriter.ACTION_DELETE, employeeIdentitySnapshot(exist), null);
         forceOffline(id);              // 强制下线
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void changeStatus(Long id, EmployeeStatusRequest request) {
         Employee exist = employeeMapper.selectById(id);
         if (exist == null) {
@@ -225,12 +258,18 @@ public class EmployeeServiceImpl implements EmployeeService {
         update.setId(id);
         update.setStatus(status);
         employeeMapper.updateById(update);
+        // 审计留痕（§3.3 #3）：动作名与 V23 DDL 统一定名 CHANGE_STATUS
+        operationAuditWriter.record(OperationAuditWriter.TARGET_EMPLOYEE, id, exist.getRealName(),
+                OperationAuditWriter.ACTION_CHANGE_STATUS,
+                Map.of("status", exist.getStatus() == null ? 0 : exist.getStatus()),
+                Map.of("status", status == null ? 0 : status));
         if (status == 0) {
             forceOffline(id); // 禁用即强制下线，存量 Token 立即 401
         }
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void resetPassword(Long id, PasswordResetRequest request) {
         Employee exist = employeeMapper.selectById(id);
         if (exist == null) {
@@ -246,6 +285,10 @@ public class EmployeeServiceImpl implements EmployeeService {
         update.setPassword(passwordEncoder.encode(request.getNewPassword()));
         update.setPwdChanged(0); // 下次登录强制改密
         employeeMapper.updateById(update);
+        // 审计留痕（§3.3 #5）：口令只记布尔标记 RESET，绝不落明文/散列
+        operationAuditWriter.record(OperationAuditWriter.TARGET_EMPLOYEE, id, exist.getRealName(),
+                OperationAuditWriter.ACTION_RESET_PASSWORD, null,
+                Map.of(OperationAuditWriter.PASSWORD_FLAG_KEY, "RESET"));
         forceOffline(id);
     }
 
@@ -329,6 +372,7 @@ public class EmployeeServiceImpl implements EmployeeService {
 
         // 5. 全部通过 → 单事务批量入库；初始密码统一 → BCrypt 散列只计算 1 次复用（决策 D4 性能要求）
         String initPasswordHash = passwordEncoder.encode(employeeInitPassword);
+        Long firstEmployeeId = null;
         for (EmployeeImportRow row : rows) {
             Employee employee = new Employee();
             employee.setUsername(row.getUsername());
@@ -344,7 +388,16 @@ public class EmployeeServiceImpl implements EmployeeService {
             employee.setEntryDate(row.getEntryDate());
             employee.setRemark(row.getRemark());
             employeeMapper.insert(employee);
+            if (firstEmployeeId == null) {
+                firstEmployeeId = employee.getId();
+            }
         }
+
+        // 审计留痕（§3.3 #6）：批量 CREATE 记 1 条汇总（与逐条 create 同类但独立入口，原清单曾漏列）；
+        // target_id 取首条员工 id 作代表（DDL 列 NOT NULL，批次无单一目标），after 记 count/role 不落任何口令
+        operationAuditWriter.record(OperationAuditWriter.TARGET_EMPLOYEE, firstEmployeeId,
+                "批量导入 " + rows.size() + " 人", OperationAuditWriter.ACTION_CREATE, null,
+                Map.of("count", rows.size(), "role", "STAFF"));
 
         ImportResultVO result = new ImportResultVO();
         result.setTotal(rows.size());
@@ -501,6 +554,8 @@ public class EmployeeServiceImpl implements EmployeeService {
             vo.setStationId(employee.getStationId());
             vo.setStationName(employee.getStationId() == null ? null : stationNames.get(employee.getStationId()));
             vo.setRole(employee.getRole());
+            // 岗位出参补齐（取值 店员 / 站长 / 管理员；未登记为 null）
+            vo.setPosition(employee.getPosition());
             vo.setStatus(employee.getStatus());
             // C-06：补 pwdChanged，与 Mock toEmployeeVO 字段集对齐
             vo.setPwdChanged(employee.getPwdChanged() != null && employee.getPwdChanged() == 1);
@@ -533,6 +588,36 @@ public class EmployeeServiceImpl implements EmployeeService {
         return names;
     }
 
+    /**
+     * 员工变更快照（审计白名单键；不含口令）。
+     * <p>
+     * 键集固定，避免把实体全字段（含 password 散列 / pwdChanged）带入审计——口令硬约束见 §3.4。
+     */
+    private Map<String, Object> employeeSnapshot(String realName, String phone, Integer gender, Long deptId,
+                                                 Long stationId, String role, LocalDate entryDate, String remark) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("realName", realName);
+        map.put("phone", phone);
+        map.put("gender", gender);
+        map.put("deptId", deptId);
+        map.put("stationId", stationId);
+        map.put("role", role);
+        map.put("entryDate", entryDate == null ? null : entryDate.toString());
+        map.put("remark", remark);
+        return map;
+    }
+
+    /** 员工身份快照（删除留痕：足以识别对象，不含口令） */
+    private Map<String, Object> employeeIdentitySnapshot(Employee employee) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("username", employee.getUsername());
+        map.put("realName", employee.getRealName());
+        map.put("role", employee.getRole());
+        map.put("status", employee.getStatus());
+        map.put("stationId", employee.getStationId());
+        return map;
+    }
+
     /** 账号活跃查重（编辑时排除自身） */
     private boolean existsActiveUsername(String username, Long excludeId) {
         LambdaQueryWrapper<Employee> wrapper = new LambdaQueryWrapper<Employee>()
@@ -555,19 +640,30 @@ public class EmployeeServiceImpl implements EmployeeService {
         return count != null && count > 0;
     }
 
-    /** 归属校验：部门须存在未删除（3001）；驿站须存在未删除（4001）且启用（4004） */
-    private void validateDeptAndStation(Long deptId, Long stationId) {
+    /**
+     * 归属校验：部门须存在未删除（3001）；驿站须存在未删除（4001）且启用（4004）。
+     * <p>
+     * ARCH-C-1：角色为 {@code STATION_ADMIN} 时 {@code stationId} 条件必填（2004）——
+     * 站长数据范围限本人驿站，无归属会使其范围收敛为「无数据」且语义不自洽；
+     * 归属驿站又须为启用状态（停用驿站不得新归属账号，含 UPDATE 把站长 {@code stationId} 置空）。
+     */
+    private void validateDeptAndStation(Long deptId, Long stationId, String role) {
         if (deptId != null && departmentMapper.selectById(deptId) == null) {
             throw new BusinessException(ErrorCode.DEPT_NOT_FOUND);
         }
-        if (stationId != null) {
-            Station station = stationMapper.selectById(stationId);
-            if (station == null) {
-                throw new BusinessException(ErrorCode.STATION_NOT_FOUND);
+        boolean stationAdmin = RoleEnum.STATION_ADMIN.name().equals(role);
+        if (stationId == null) {
+            if (stationAdmin) {
+                throw new BusinessException(ErrorCode.STATION_ADMIN_STATION_REQUIRED);
             }
-            if (station.getStatus() == null || station.getStatus() != 1) {
-                throw new BusinessException(ErrorCode.STATION_DISABLED);
-            }
+            return;
+        }
+        Station station = stationMapper.selectById(stationId);
+        if (station == null) {
+            throw new BusinessException(ErrorCode.STATION_NOT_FOUND);
+        }
+        if (station.getStatus() == null || station.getStatus() != 1) {
+            throw new BusinessException(ErrorCode.STATION_DISABLED);
         }
     }
 

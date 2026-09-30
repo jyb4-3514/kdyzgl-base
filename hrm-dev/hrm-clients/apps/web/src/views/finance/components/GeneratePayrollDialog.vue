@@ -19,8 +19,8 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'generated'])
 
-/** 可覆盖重建的状态：草稿与已驳回（与 financeStore 的 EDITABLE_STATUS 同口径） */
-const EDITABLE_STATUS = ['DRAFT', 'REJECTED']
+/** 可被 generate 覆盖重建的状态（与 financeStore 的 IS_OVERWRITABLE = isOverwritable 同口径，勿与 isItemEditable 混用） */
+const OVERWRITABLE_STATUS = ['DRAFT', 'REJECTED']
 
 const currentMonth = () => {
   const now = new Date()
@@ -47,7 +47,7 @@ async function precheck() {
       getPayrolls({ month: form.value.month, pageNum: 1, pageSize: 100 }),
       getEmployees({ stationId: form.value.stationId, deptId: form.value.deptId, pageNum: 1, pageSize: 1 })
     ])
-    blockedPayroll.value = (page.list || []).find((row) => !EDITABLE_STATUS.includes(row.status)) || null
+    blockedPayroll.value = (page.list || []).find((row) => !OVERWRITABLE_STATUS.includes(row.status)) || null
     employeeCount.value = employeePage.total || 0
   } catch (e) {
     blockedPayroll.value = null

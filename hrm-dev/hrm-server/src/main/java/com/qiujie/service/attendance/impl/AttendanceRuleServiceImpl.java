@@ -1,8 +1,10 @@
 package com.qiujie.service.attendance.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.qiujie.config.AlgoProperties;
 import com.qiujie.dto.attendance.AttendanceRuleRequest;
 import com.qiujie.entity.AttendanceRule;
+import com.qiujie.entity.AttendanceShift;
 import com.qiujie.entity.CheckPeriod;
 import com.qiujie.entity.Station;
 import com.qiujie.entity.WifiEntry;
@@ -11,6 +13,7 @@ import com.qiujie.exception.BusinessException;
 import com.qiujie.mapper.AttendanceRuleMapper;
 import com.qiujie.mapper.StationMapper;
 import com.qiujie.service.attendance.AttendanceRuleService;
+import com.qiujie.service.attendance.AttendanceShiftService;
 import com.qiujie.service.attendance.support.AttendancePeriodResolver;
 import com.qiujie.service.attendance.support.AttendanceSupport;
 import com.qiujie.service.attendance.support.AttendanceWifiValidator;
@@ -24,33 +27,34 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * 打卡规则服务实现（Mock {@code attendanceStore} 规则段 + {@code routes/attendance.js} 规则段）。
  * <p>
- * 白名单写入（防越权改归属/时间）；{@code checkPeriods} 是唯一真源，保存时重算 {@code workStartTime/workEndTime}
- * 派生值；新驿站首存即创建并套用与 Mock 等价的默认规则（否则新驿站直接配规则会得到空时段，打卡判定失效）。
+ * 白名单写入（防越权改归属/时间）；新驿站首存即创建并套用与 Mock 等价的默认规则。
+ * <p>
+ * <b>真源统一（方案 v1.2 §5 / §7）</b>：时段（{@code checkPeriods}）与 {@code workStartTime/workEndTime}
+ * 改为<b>读取时由「该驿站启用班次」派生</b>，不再由规则保存写入；{@code PUT /rule} 收到非空 {@code checkPeriods}
+ * 一律拒绝（U-5，通用 400），{@code checkFrequency} 只读派生（U-4）。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AttendanceRuleServiceImpl implements AttendanceRuleService {
 
-    /** 双时段预设：中间留午休，避免两段首尾相接被误判为同一段 */
-    private static final List<String[]> DUAL_PERIOD_SEED = List.of(
-            new String[]{"上午班", "08:00", "12:00"},
-            new String[]{"下午班", "14:00", "18:00"});
-    /** 单时段预设 */
-    private static final String[] SINGLE_PERIOD_SEED = {"全天班", "08:00", "18:00"};
-    /** 启用双时段（4 次打卡）的驿站 id（与 Mock {@code DUAL_FREQUENCY_STATIONS} 一致） */
-    private static final List<Long> DUAL_FREQUENCY_STATIONS = List.of(2L, 3L);
     /** 电子围栏原点（示例市内虚构坐标，与 Mock {@code FENCE_ORIGIN} 一致；非真实地点） */
     private static final double FENCE_ORIGIN_LONGITUDE = 117.201;
     private static final double FENCE_ORIGIN_LATITUDE = 31.821;
 
     private final AttendanceRuleMapper attendanceRuleMapper;
     private final StationMapper stationMapper;
+    private final AttendanceShiftService attendanceShiftService;
+    /** 算法参数：班次序号界值 / 时段派生（真源统一后规则出参由班次派生） */
+    private final AlgoProperties algoProperties;
 
     @Override
     @Transactional(readOnly = true)
@@ -70,9 +74,18 @@ public class AttendanceRuleServiceImpl implements AttendanceRuleService {
     public List<AttendanceRuleVO> listRules() {
         LambdaQueryWrapper<AttendanceRule> wrapper = new LambdaQueryWrapper<>();
         wrapper.orderByAsc(AttendanceRule::getId);
-        List<AttendanceRuleVO> list = new ArrayList<>();
-        for (AttendanceRule rule : attendanceRuleMapper.selectList(wrapper)) {
-            list.add(toVO(rule));
+        List<AttendanceRule> rules = attendanceRuleMapper.selectList(wrapper);
+        // 批量预取各驿站启用班次后内存派生，规避逐条查班次的 N+1（方案 §10.4 RK-1）
+        Set<Long> stationIds = new LinkedHashSet<>();
+        for (AttendanceRule rule : rules) {
+            if (rule.getStationId() != null) {
+                stationIds.add(rule.getStationId());
+            }
+        }
+        Map<Long, List<AttendanceShift>> shiftsByStation = attendanceShiftService.enabledShiftsByStation(stationIds);
+        List<AttendanceRuleVO> list = new ArrayList<>(rules.size());
+        for (AttendanceRule rule : rules) {
+            list.add(toVO(rule, shiftsByStation.getOrDefault(rule.getStationId(), List.of())));
         }
         return list;
     }
@@ -89,20 +102,16 @@ public class AttendanceRuleServiceImpl implements AttendanceRuleService {
         if (station == null) {
             throw new BusinessException(ErrorCode.STATION_NOT_FOUND);
         }
+        // U-5（已裁定）：时段已由该驿站班次决定，收到非空 checkPeriods 一律拒绝（通用 400，不新增 91xx）
+        if (safe.getCheckPeriods() != null && !safe.getCheckPeriods().isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "时段已由该驿站班次决定，请维护班次");
+        }
         validateRule(safe);
         AttendanceRule current = findRule(stationId);
-        AttendanceRule payload = normalize(safe, current);
-        // 归一化后二次校验：旧客户端只发上下班时间时，时段是被映射出来的，必须仍自洽
-        validatePeriodRule(payload.getCheckFrequency(), payload.getCheckPeriods());
-
+        AttendanceRule payload = normalize(safe);
         AttendanceRule target = current != null ? current : newRuleDefaults(stationId, station);
         applyPayload(target, payload);
-        if (target.getCheckPeriods() != null && !target.getCheckPeriods().isEmpty()) {
-            target.setWorkStartTime(target.getCheckPeriods().get(0).getStartTime());
-            target.setWorkEndTime(target.getCheckPeriods().get(target.getCheckPeriods().size() - 1).getEndTime());
-        }
-        LocalDateTime now = LocalDateTime.now();
-        target.setUpdateTime(now);
+        target.setUpdateTime(LocalDateTime.now());
         if (target.getId() == null) {
             attendanceRuleMapper.insert(target);
         } else {
@@ -126,6 +135,13 @@ public class AttendanceRuleServiceImpl implements AttendanceRuleService {
 
     @Override
     public AttendanceRuleVO toVO(AttendanceRule rule) {
+        return toVO(rule, attendanceShiftService.enabledShifts(rule.getStationId()));
+    }
+
+    /** 单条规则出参（时段/频次/上下班时间由传入的启用班次派生，避免逐条重复查库） */
+    private AttendanceRuleVO toVO(AttendanceRule rule, List<AttendanceShift> enabledShifts) {
+        List<AttendancePeriodResolver.ResolvedPeriod> periods = AttendancePeriodResolver.resolveByShifts(
+                enabledShifts, algoProperties.getPayroll().getMiddayBoundaryMinute());
         AttendanceRuleVO vo = new AttendanceRuleVO();
         vo.setId(rule.getId());
         vo.setStationId(rule.getStationId());
@@ -139,17 +155,32 @@ public class AttendanceRuleServiceImpl implements AttendanceRuleService {
         vo.setLongitude(rule.getLongitude());
         vo.setLatitude(rule.getLatitude());
         vo.setRadius(rule.getRadius());
-        vo.setCheckFrequency(rule.getCheckFrequency());
-        vo.setCheckPeriods(rule.getCheckPeriods() == null ? new ArrayList<>() : copyPeriods(rule.getCheckPeriods()));
+        // 时段 / 频次 / 上下班时间均为「由启用班次派生」的只读值（U-4：保留字段、值改派生）
+        vo.setCheckFrequency(periods.size() * 2);
+        vo.setCheckPeriods(toCheckPeriods(periods));
+        vo.setCheckPeriodsReadonly(true);
         vo.setAllowEarlyMin(rule.getAllowEarlyMin());
         vo.setAllowLateMin(rule.getAllowLateMin());
-        vo.setWorkStartTime(rule.getWorkStartTime());
-        vo.setWorkEndTime(rule.getWorkEndTime());
+        vo.setWorkStartTime(AttendancePeriodResolver.firstStartTime(periods));
+        vo.setWorkEndTime(AttendancePeriodResolver.lastEndTime(periods));
         vo.setLateThresholdMin(rule.getLateThresholdMin());
         vo.setEarlyLeaveThresholdMin(rule.getEarlyLeaveThresholdMin());
         vo.setStatus(rule.getStatus());
         vo.setUpdateTime(rule.getUpdateTime());
         return vo;
+    }
+
+    /** 派生时段 → 出参时段（保持 {@code checkPeriods} 字段形态不变，仅值改由班次派生） */
+    private List<CheckPeriod> toCheckPeriods(List<AttendancePeriodResolver.ResolvedPeriod> periods) {
+        List<CheckPeriod> list = new ArrayList<>(periods.size());
+        for (AttendancePeriodResolver.ResolvedPeriod period : periods) {
+            CheckPeriod checkPeriod = new CheckPeriod();
+            checkPeriod.setName(period.name());
+            checkPeriod.setStartTime(period.startTime());
+            checkPeriod.setEndTime(period.endTime());
+            list.add(checkPeriod);
+        }
+        return list;
     }
 
     // ==================== 校验（文案与顺序逐条对齐 Mock validateRule） ====================
@@ -162,12 +193,7 @@ public class AttendanceRuleServiceImpl implements AttendanceRuleService {
                 && !List.of("ALL", "ANY").contains(body.getMatchMode())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "matchMode 仅支持 ALL / ANY");
         }
-        if (body.getWorkStartTime() != null && !AttendanceSupport.isClock(body.getWorkStartTime())) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "上班时间格式须为 HH:mm");
-        }
-        if (body.getWorkEndTime() != null && !AttendanceSupport.isEndClock(body.getWorkEndTime())) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "下班时间格式须为 HH:mm");
-        }
+        // workStartTime / workEndTime 已废弃（真源统一后由班次派生，入参忽略），故不再校验其格式
         if (body.getRadius() != null && !(body.getRadius() > 0)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "围栏半径须大于 0");
         }
@@ -194,52 +220,15 @@ public class AttendanceRuleServiceImpl implements AttendanceRuleService {
         // 可用性风险：该态下打卡将因 WiFi 未命中失败（9103），见 api.md §8.2 风险登记。
     }
 
-    /**
-     * 时段配置校验：频次档位、时段数量、单段起止、段间重叠与顺序。
-     * 统一返回 9107（属「时段」维度，前端见码即跳时段配置区；具体哪条不合法由 message 说清）。
-     */
-    private void validatePeriodRule(Integer frequency, List<CheckPeriod> periods) {
-        if (frequency != null && frequency != 2 && frequency != 4) {
-            throw new BusinessException(ErrorCode.ATTENDANCE_PERIOD_NOT_FOUND, "checkFrequency 仅支持 2 或 4");
-        }
-        if (periods == null) {
-            return;
-        }
-        if (periods.isEmpty()) {
-            throw new BusinessException(ErrorCode.ATTENDANCE_PERIOD_NOT_FOUND, "checkPeriods 须为非空数组");
-        }
-        if (frequency != null && periods.size() != frequency / 2) {
-            throw new BusinessException(ErrorCode.ATTENDANCE_PERIOD_NOT_FOUND,
-                    "checkPeriods 长度须等于 checkFrequency / 2（本次应为 " + (frequency / 2) + "）");
-        }
-        double prevEnd = -1;
-        for (CheckPeriod period : periods) {
-            String name = period != null && period.getName() != null ? "「" + period.getName() + "」" : "";
-            if (period == null || !AttendanceSupport.textLen(period.getName(), 1, 20)) {
-                throw new BusinessException(ErrorCode.ATTENDANCE_PERIOD_NOT_FOUND, "时段名称长度须为 1-20");
-            }
-            if (!AttendanceSupport.isClock(period.getStartTime())
-                    || !AttendanceSupport.isEndClock(period.getEndTime())) {
-                throw new BusinessException(ErrorCode.ATTENDANCE_PERIOD_NOT_FOUND,
-                        name + "起止时间格式须为 HH:mm");
-            }
-            double start = AttendancePeriodResolver.minutesOfDay(period.getStartTime());
-            double end = AttendancePeriodResolver.minutesOfDay(period.getEndTime());
-            if (start >= end) {
-                throw new BusinessException(ErrorCode.ATTENDANCE_PERIOD_NOT_FOUND, name + "的结束时间须晚于开始时间");
-            }
-            if (start < prevEnd) {
-                throw new BusinessException(ErrorCode.ATTENDANCE_PERIOD_NOT_FOUND,
-                        "打卡时段之间不允许重叠，且须按开始时间升序");
-            }
-            prevEnd = end;
-        }
-    }
-
     // ==================== 归一化（白名单写入） ====================
 
-    /** 组装白名单内的写入值（类型在此收口，避免字符串 '0'/'false' 之类写进规则） */
-    private AttendanceRule normalize(AttendanceRuleRequest body, AttendanceRule current) {
+    /**
+     * 组装白名单内的写入值（类型在此收口，避免字符串 '0'/'false' 之类写进规则）。
+     * <p>
+     * <b>真源统一（方案 §5 / §7.1）</b>：{@code checkPeriods} / {@code checkFrequency} / {@code workStartTime}
+     * / {@code workEndTime} 均<b>不再写入</b>——时段与上下班时间改由启用班次实时派生，频次只读派生；入参一律忽略。
+     */
+    private AttendanceRule normalize(AttendanceRuleRequest body) {
         AttendanceRule payload = new AttendanceRule();
         if (body.getRuleName() != null) {
             payload.setRuleName(body.getRuleName().trim());
@@ -269,12 +258,6 @@ public class AttendanceRuleServiceImpl implements AttendanceRuleService {
         if (body.getRadius() != null) {
             payload.setRadius(body.getRadius());
         }
-        if (body.getWorkStartTime() != null) {
-            payload.setWorkStartTime(body.getWorkStartTime());
-        }
-        if (body.getWorkEndTime() != null) {
-            payload.setWorkEndTime(body.getWorkEndTime());
-        }
         if (body.getLateThresholdMin() != null) {
             payload.setLateThresholdMin(body.getLateThresholdMin());
         }
@@ -289,34 +272,6 @@ public class AttendanceRuleServiceImpl implements AttendanceRuleService {
         }
         if (body.getStatus() != null) {
             payload.setStatus(body.getStatus());
-        }
-
-        // 时段是唯一真源：未提交时段时沿用现值（避免「只改围栏半径」把时段清空）
-        List<CheckPeriod> basePeriods;
-        if (body.getCheckPeriods() != null) {
-            basePeriods = copyPeriods(body.getCheckPeriods());
-        } else if (current != null && current.getCheckPeriods() != null) {
-            basePeriods = copyPeriods(current.getCheckPeriods());
-        } else {
-            basePeriods = null;
-        }
-        // 兼容旧客户端：只发上下班时间时映射到首/末时段（否则改了时间保存后被派生值覆盖回原样）
-        // TODO(扩展): 老板端规则页支持多时段编辑后，删除这条兼容映射。
-        if (body.getCheckPeriods() == null && basePeriods != null && !basePeriods.isEmpty()) {
-            if (body.getWorkStartTime() != null) {
-                basePeriods.get(0).setStartTime(body.getWorkStartTime());
-            }
-            if (body.getWorkEndTime() != null) {
-                basePeriods.get(basePeriods.size() - 1).setEndTime(body.getWorkEndTime());
-            }
-        }
-        if (basePeriods != null) {
-            payload.setCheckPeriods(basePeriods);
-            payload.setCheckFrequency(body.getCheckFrequency() != null
-                    ? body.getCheckFrequency()
-                    : (current != null ? current.getCheckFrequency() : 2));
-        } else if (body.getCheckFrequency() != null) {
-            payload.setCheckFrequency(body.getCheckFrequency());
         }
         return payload;
     }
@@ -350,12 +305,6 @@ public class AttendanceRuleServiceImpl implements AttendanceRuleService {
         if (payload.getRadius() != null) {
             target.setRadius(payload.getRadius());
         }
-        if (payload.getWorkStartTime() != null) {
-            target.setWorkStartTime(payload.getWorkStartTime());
-        }
-        if (payload.getWorkEndTime() != null) {
-            target.setWorkEndTime(payload.getWorkEndTime());
-        }
         if (payload.getLateThresholdMin() != null) {
             target.setLateThresholdMin(payload.getLateThresholdMin());
         }
@@ -371,41 +320,21 @@ public class AttendanceRuleServiceImpl implements AttendanceRuleService {
         if (payload.getStatus() != null) {
             target.setStatus(payload.getStatus());
         }
-        if (payload.getCheckFrequency() != null) {
-            target.setCheckFrequency(payload.getCheckFrequency());
-        }
-        if (payload.getCheckPeriods() != null) {
-            target.setCheckPeriods(payload.getCheckPeriods());
-        }
+        // 时段 / 频次 / 上下班时间不再写入：真源统一后由启用班次派生（D7/R-14）
     }
 
     /**
-     * 新驿站默认规则（对齐 Mock {@code ruleSeed}）：新驿站建完可直接配规则，且默认时段与围栏自洽。
-     * 若不复刻默认值，新建规则将因时段为空而使打卡时间判定失效（兜底时段回退到空起止）。
+     * 新驿站默认规则（对齐 Mock {@code ruleSeed} 的围栏与阈值部分）。
+     * <p>
+     * <b>真源统一（方案 §10.3 C3/D8）</b>：不再播种 {@code checkPeriods} / {@code workStartTime} / {@code workEndTime}
+     * （时段改由启用班次派生）。若该驿站尚未维护启用班次，规则出参的派生时段为空、频次为 0，前端据此引导先配班次。
+     * TODO(扩展): 若产品要求新驿站「开箱即可打卡」，可在此按站点默认排班创建默认班次（需走班次定义侧校验），当前按「提示先配班次」实现。
      */
     private AttendanceRule newRuleDefaults(Long stationId, Station station) {
-        long sid = stationId;
-        int checkFrequency = DUAL_FREQUENCY_STATIONS.contains(sid) ? 4 : 2;
-        List<CheckPeriod> periods = new ArrayList<>();
-        if (checkFrequency == 4) {
-            for (String[] seed : DUAL_PERIOD_SEED) {
-                CheckPeriod period = new CheckPeriod();
-                period.setName(seed[0]);
-                period.setStartTime(seed[1]);
-                period.setEndTime(seed[2]);
-                periods.add(period);
-            }
-        } else {
-            CheckPeriod period = new CheckPeriod();
-            period.setName(SINGLE_PERIOD_SEED[0]);
-            period.setStartTime(SINGLE_PERIOD_SEED[1]);
-            period.setEndTime(SINGLE_PERIOD_SEED[2]);
-            periods.add(period);
-        }
-        double offset = sid - 1;
+        double offset = stationId - 1;
         WifiEntry wifi = new WifiEntry();
         wifi.setSsid((station.getCode() == null ? "ST000" : station.getCode()) + "-Express");
-        wifi.setBssid("AC:84:C6:00:00:" + String.format("%02d", sid));
+        wifi.setBssid("AC:84:C6:00:00:" + String.format("%02d", stationId));
 
         AttendanceRule rule = new AttendanceRule();
         rule.setStationId(stationId);
@@ -418,12 +347,10 @@ public class AttendanceRuleServiceImpl implements AttendanceRuleService {
         rule.setLongitude(scale6(FENCE_ORIGIN_LONGITUDE + offset * 0.012));
         rule.setLatitude(scale6(FENCE_ORIGIN_LATITUDE + (offset % 3) * 0.008));
         rule.setRadius(300);
-        rule.setCheckFrequency(checkFrequency);
-        rule.setCheckPeriods(periods);
+        // check_frequency 列保留但为只读派生占位；此处写默认值仅满足 NOT NULL 结构约束，出参以班次数派生为准
+        rule.setCheckFrequency(2);
         rule.setAllowEarlyMin(30);
         rule.setAllowLateMin(60);
-        rule.setWorkStartTime(periods.get(0).getStartTime());
-        rule.setWorkEndTime(periods.get(periods.size() - 1).getEndTime());
         rule.setLateThresholdMin(30);
         rule.setEarlyLeaveThresholdMin(30);
         rule.setStatus(1);
@@ -453,23 +380,6 @@ public class AttendanceRuleServiceImpl implements AttendanceRuleService {
             entry.setSsid(w.getSsid());
             entry.setBssid(w.getBssid());
             list.add(entry);
-        }
-        return list;
-    }
-
-    private List<CheckPeriod> copyPeriods(List<CheckPeriod> source) {
-        List<CheckPeriod> list = new ArrayList<>(source.size());
-        for (CheckPeriod p : source) {
-            // 保留 null 项（不静默丢弃），使 validatePeriodRule 能对「非空数组含非法项」统一报时段错误
-            if (p == null) {
-                list.add(null);
-                continue;
-            }
-            CheckPeriod period = new CheckPeriod();
-            period.setName(p.getName() == null ? null : p.getName().trim());
-            period.setStartTime(p.getStartTime());
-            period.setEndTime(p.getEndTime());
-            list.add(period);
         }
         return list;
     }

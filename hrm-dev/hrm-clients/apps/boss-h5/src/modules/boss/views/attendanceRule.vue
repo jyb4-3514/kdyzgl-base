@@ -1,13 +1,14 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { showConfirmDialog, showSuccessToast, showToast } from 'vant'
 import ActionBar from '@kdyzgl/shared/ui/ActionBar.vue'
 import PageNav from '@kdyzgl/shared/ui/PageNav.vue'
 import PageState from '@kdyzgl/shared/ui/PageState.vue'
-import { getAttendanceRule, saveAttendanceRule } from '@/api/attendance.js'
+import { getAttendanceRule, getShiftsSilent, saveAttendanceRule, updateShift } from '@/api/attendance.js'
 import { getStationList } from '@/api/org.js'
+import { enabledShiftsSorted, matchPeriodsToShifts, minutesOfDay } from '@/utils/shiftPeriods.js'
 import { MATCH_MODE } from '@kdyzgl/shared/constants/dict.js'
-import { minutesOfDay } from '@/utils/attendance.js'
 import {
   isWifiEditable,
   pickWifiEntry,
@@ -23,8 +24,11 @@ import { useAuthStore } from '@/stores/auth.js'
  * 为什么先选驿站再改规则：规则是按驿站维度存的（半径、围栏坐标、白名单各不相同），
  * 不选驿站的话「保存」会把 A 站的规则写歪到 B 站。
  *
- * 时段是规则的唯一真源：上下班时间（workStartTime / workEndTime）由时段自动派生，
- * 页面上只读展示，避免「改了时段、上下班时间还是旧值」两套口径打架。
+ * 打卡时段与上下班时间的**唯一真源仍是「该驿站班次」**（后端只读出参 checkPeriods，`checkPeriodsReadonly=true`，
+ * `PUT /rule` 传 checkPeriods 会 400）：本页据此**只读展示来源**，同时提供「就地改时间」入口——
+ * 改的其实是**班次记录**（`PUT /shifts/{id}` 只动 startTime/endTime），成功后重拉规则让派生时段跟随刷新。
+ * 这样既满足「在本页能改打卡时间」，又不引入第二套时间（不新增时段写入通道，不出现「班次 08:00-16:00
+ * 与规则时段 08:00-12:00 并存」的时间分裂）。班次的全量增删停用仍在「考勤概览 → 班次管理」。
  *
  * 白名单（WiFi / BSSID）按「每站仅一条」单条化（设计 §12）：未配置 → 设置，已配置 → 修改 / 清除；
  * 判定只比对 SSID（区分大小写），BSSID 仅留痕；编辑只改本地表单，仍走页面统一的「保存规则」提交。
@@ -37,17 +41,11 @@ const VALIDATIONS = [
   { key: 'enableTimeWindow', title: '时间窗校验', label: '需在时段对应的打卡时间窗内' }
 ]
 
-/** 频次只开放 2 / 4 两档：时段数 = 频次 / 2，与服务端校验（9107）同口径 */
-const FREQUENCY_OPTIONS = [
-  { value: 2, label: '2 次 · 单班次' },
-  { value: 4, label: '4 次 · 上下午双班次' }
-]
-/** 扩为双时段的默认拆分：上午收 12:00、下午 14:00 起，中间留午休，天然满足「不重叠」 */
-const DUAL_DEFAULTS = { firstEnd: '12:00', secondName: '下午班', secondStart: '14:00', secondEnd: '18:00' }
-
-const PERIOD_NAME_MAX = 20
-const CLOCK_RE = /^([01]\d|2[0-3]):[0-5]\d$/
-const isEndClock = (value) => CLOCK_RE.test(String(value)) || String(value) === '24:00'
+/**
+ * 打卡频次与时段均为「由该驿站班次派生」的值（U-4/U-5）：
+ * 频次 = 启用班次数 × 2（只读）；时段名称与起止取自班次——**只读来源 + 可就地改时间（底层写班次）**，
+ * 不新增第二条时段写入通道（设计 ⑭.0 覆盖 U-3；PUT /rule 仍拒绝 checkPeriods）。
+ */
 
 /** 去掉 stationId 的规则体：脏检查只看规则内容，驿站切换不算「改动」 */
 function bodyOf(data) {
@@ -66,6 +64,7 @@ const form = ref(null)
 /** 已保存态的快照：用于「有无改动」判断，避免用户对着没改的表单反复保存 */
 const original = ref('')
 
+const router = useRouter()
 /** 权限分支取 auth.isAdmin 单点判据（不在页内自行判 role）；本端登录者恒为 ADMIN，只读分支属防御位 */
 const auth = useAuthStore()
 const wifiEditable = computed(() => isWifiEditable(auth.isAdmin))
@@ -77,21 +76,155 @@ const draftErrors = ref({ ssid: '', bssid: '' })
 /** 加载到历史多条白名单的标记：只渲染首条，卡顶提示 T39（设计 §12.12①） */
 const legacyMultiple = ref(false)
 
-const periods = computed(() => (form.value ? form.value.checkPeriods : []))
-/** 派生作息：取首个时段开始与末个时段结束，与服务端 saveRule 的重算规则一致 */
-const workStartText = computed(() => (periods.value.length ? periods.value[0].startTime : '-'))
-const workEndText = computed(() => (periods.value.length ? periods.value[periods.value.length - 1].endTime : '-'))
+/* ==================== 打卡时段：派生来源只读 + 就地改时间（底层写班次） ==================== */
+
+/**
+ * 该驿站班次全集（含停用；silent 拉取失败则空数组）：把服务端派生的 checkPeriods 映射回「可写的班次记录」。
+ * 为什么必须映射：契约里 `CheckPeriod[]` 只有 `{ name, startTime, endTime }`、不含班次 id（api.md §4.6.1），
+ * 而唯一写入口是班次（`PUT /shifts/{id}`，api.md §4.8.3），故按 stationId 取班次后再配对。
+ * 配对口径（纯逻辑，含回归）见 utils/shiftPeriods.js。
+ */
+const shifts = ref([])
+/** 启用班次升序：既用于配对，也用于判断「班次没取到 → 本页不能改时间」的降级说明 */
+const enabledShifts = computed(() => enabledShiftsSorted(shifts.value))
+
+/** 时段行 = 派生时段（只读来源）+ 配到的启用班次（写入口）；配不到 → shift 为 null，该行只读 */
+const periodRows = computed(() => {
+  const list = rule.value && Array.isArray(rule.value.checkPeriods) ? rule.value.checkPeriods : []
+  return matchPeriodsToShifts(list, shifts.value).map((row) => ({
+    ...row,
+    // 行 key 含下标：同名班次的时段不会互相顶掉
+    key: `${row.index}-${row.name}`
+  }))
+})
+/** 派生频次（只读）：= 启用班次数 × 2 */
+const frequencyText = computed(() => {
+  const count = periodRows.value.length
+  return count ? `${count * 2} 次（${count} 个班次）` : '—'
+})
+/** 派生作息：取服务端 workStartTime / workEndTime（班次派生） */
+const workStartText = computed(() => (rule.value && rule.value.workStartTime ? rule.value.workStartTime : '-'))
+const workEndText = computed(() => (rule.value && rule.value.workEndTime ? rule.value.workEndTime : '-'))
+
+/* ---------- 时段就地编辑态（与 WiFi 白名单编辑互斥） ---------- */
+
+/** 正在编辑的时段行 index，null = 无 */
+const editingPeriod = ref(null)
+const periodDraft = ref({ startTime: '', endTime: '' })
+const periodSaving = ref(false)
+/** 服务端口径失败文案（如 9114）：原样就地展示，不自行改写、不清空草稿 */
+const periodError = ref('')
+
+const showPeriodStartPicker = ref(false)
+const showPeriodEndPicker = ref(false)
+const periodStartValue = ref(['08', '00'])
+const periodEndValue = ref(['16', '00'])
+
+/** 可编辑：管理员 + 该行配到启用班次 + 当前无其它编辑在进行（WiFi 或另一时段） */
+const canEditPeriod = (row) => wifiEditable.value && !!row.shift && editingPeriod.value === null && !editing.value
+
+function startPeriodEdit(row) {
+  if (!canEditPeriod(row)) return
+  editingPeriod.value = row.index
+  periodDraft.value = { startTime: row.startTime, endTime: row.endTime }
+  periodError.value = ''
+}
+
+function cancelPeriodEdit() {
+  editingPeriod.value = null
+  periodDraft.value = { startTime: '', endTime: '' }
+  periodError.value = ''
+  showPeriodStartPicker.value = false
+  showPeriodEndPicker.value = false
+}
+
+/**
+ * 时间选择：van-time-picker，30 分钟粒度，结束时间可 24:00 —— 与 modules/boss/views/shiftForm.vue 完全同口径。
+ * 为什么在此复制这几行纯函数：两处改的是同一个班次字段，粒度/取值必须一致；第 3 处出现时再上提为共享模块。
+ */
+function makeTimeFilter(allowEnd) {
+  return (columnType, options, values) => {
+    if (columnType === 'hour') return allowEnd ? options.concat({ text: '24', value: '24' }) : options
+    if (columnType === 'minute') {
+      if (allowEnd && values && values[0] === '24') return [{ text: '00', value: '00' }]
+      return options.filter((option) => option.value === '00' || option.value === '30')
+    }
+    return options
+  }
+}
+const periodStartFilter = makeTimeFilter(false)
+const periodEndFilter = makeTimeFilter(true)
+/** 拼接 'HH:mm'：24 点收班统一显示「24:00」（与 shiftForm.vue 同一写法，不写 00:00 以免与次日零点混淆） */
+const joinTime = (values) => {
+  const [h, m] = values
+  return h === '24' ? '24:00' : `${h}:${m}`
+}
+
+function openPeriodStartPicker() {
+  const [h, m] = String(periodDraft.value.startTime || '08:00').split(':')
+  periodStartValue.value = [h || '08', m || '00']
+  showPeriodStartPicker.value = true
+}
+
+function openPeriodEndPicker() {
+  const [h, m] = String(periodDraft.value.endTime || '16:00').split(':')
+  periodEndValue.value = [h || '16', m || '00']
+  showPeriodEndPicker.value = true
+}
+
+function onPeriodStartConfirm({ selectedValues }) {
+  periodDraft.value.startTime = joinTime(selectedValues)
+  showPeriodStartPicker.value = false
+}
+
+function onPeriodEndConfirm({ selectedValues }) {
+  periodDraft.value.endTime = joinTime(selectedValues)
+  showPeriodEndPicker.value = false
+}
+
+/**
+ * 保存时段时间：落点写**班次**（`PUT /shifts/{id}`，只改 startTime/endTime，其余字段原样带回），
+ * 成功后重拉规则 → 派生时段跟随刷新（时间真源仍唯一，不出现第二套时段）。
+ * 失败（如 9114 启用数超 2 / 一早一晚冲突）把服务端文案原样落在行内，草稿保留供用户改。
+ */
+async function savePeriod() {
+  if (periodSaving.value) return
+  const row = periodRows.value.find((item) => item.index === editingPeriod.value)
+  if (!row || !row.shift) {
+    periodError.value = '该时段未匹配到可写的班次，请到「班次管理」维护'
+    return
+  }
+  if (!periodDraft.value.startTime || !periodDraft.value.endTime) {
+    periodError.value = '请选择开始与结束时间'
+    return
+  }
+  if (minutesOfDay(periodDraft.value.startTime) >= minutesOfDay(periodDraft.value.endTime)) {
+    periodError.value = '结束时间须晚于开始时间'
+    return
+  }
+  periodSaving.value = true
+  periodError.value = ''
+  try {
+    await updateShift(row.shift.id, {
+      // 班次编辑为整对象提交（api.md §4.8.3 入参同新增）：只改时间，其余字段原样带回不丢数据
+      shiftName: row.shift.shiftName,
+      startTime: periodDraft.value.startTime,
+      endTime: periodDraft.value.endTime,
+      color: row.shift.color,
+      restMinutes: row.shift.restMinutes,
+      status: row.shift.status
+    })
+    cancelPeriodEdit()
+    showSuccessToast('打卡时间已更新')
+    await loadRule()
+  } catch (e) {
+    periodError.value = e.message || '保存失败，请稍后重试'
+  } finally {
+    periodSaving.value = false
+  }
+}
 
 const showStation = ref(false)
-const showPicker = ref(false)
-const pickerValue = ref(['08', '00'])
-/** 时间选择目标：第几个时段的哪一端（startTime / endTime） */
-const pickerTarget = ref({ index: 0, field: 'startTime' })
-const pickerTitle = computed(() => {
-  const period = periods.value[pickerTarget.value.index]
-  const tail = pickerTarget.value.field === 'startTime' ? '上班时间' : '下班时间'
-  return period ? `「${period.name || '未命名'}」${tail}` : tail
-})
 
 const currentStationName = computed(() => {
   const hit = stations.value.find((item) => item.id === stationId.value)
@@ -131,14 +264,15 @@ const wifiNotice = computed(() => {
   return null
 })
 
-/** 白名单侧的阻断原因（ActionBar note）：只读分支说明权限；编辑中提示先完成或取消（T19，单条化后唯一 note 场景） */
+/** 就地编辑侧的阻断原因（ActionBar note）：只读分支说明权限；任一处编辑中提示先完成或取消（T19） */
 const wifiBlockReason = computed(() => {
   if (!wifiEditable.value) return '当前身份只能查看打卡规则，保存需管理员权限'
+  if (editingPeriod.value !== null) return '有 1 个打卡时段正在编辑，请先完成或取消'
   if (editing.value) return '有 1 条白名单正在编辑，请先完成或取消'
   return ''
 })
 
-/** 提交体：字段与 Mock 的可写白名单一一对应，派生字段（workStartTime / workEndTime）不发 */
+/** 提交体：字段与 Mock 的可写白名单一一对应；时段 / 频次 / 上下班时间为班次派生的只读值，一律不发（U-4/U-5） */
 const payload = computed(() => {
   if (!form.value) return null
   return {
@@ -151,12 +285,6 @@ const payload = computed(() => {
     longitude: Number(form.value.longitude),
     latitude: Number(form.value.latitude),
     radius: Number(form.value.radius),
-    checkFrequency: Number(form.value.checkFrequency),
-    checkPeriods: form.value.checkPeriods.map((p) => ({
-      name: p.name.trim(),
-      startTime: p.startTime,
-      endTime: p.endTime
-    })),
     // 显式提交白名单：不提交则会沿用服务端现值，页面上的设置/修改/清除保存后不生效。
     // 单条化硬约束：截断为 0 或 1 条，正常路径永不产生 length > 1 的请求体（设计 §12.12②）
     wifiList: form.value.wifiList.slice(0, 1).map((w) => ({
@@ -170,38 +298,12 @@ const payload = computed(() => {
   }
 })
 
-/**
- * 时段校验：与服务端 periodRuleError 同一套规则，前端先拦一次，
- * 免得填错一整屏表单要等服务端 9107 才知道哪儿不对。
- */
-function periodError(list) {
-  for (let i = 0; i < list.length; i += 1) {
-    const period = list[i]
-    const name = period.name.trim()
-    if (!name) return `第 ${i + 1} 个时段的名称不能为空`
-    if (name.length > PERIOD_NAME_MAX) return `时段名称最长 ${PERIOD_NAME_MAX} 个字符`
-    if (!CLOCK_RE.test(period.startTime) || !isEndClock(period.endTime)) return `「${name}」的起止时间格式须为 HH:mm`
-    const start = minutesOfDay(period.startTime)
-    const end = minutesOfDay(period.endTime)
-    if (start >= end) return `「${name}」的下班时间须晚于上班时间`
-    // 必须升序且不重叠：periodIndex 是打卡去重与记录归属的定位键，乱序会让「第 1 段」指向下午
-    if (i > 0 && start < minutesOfDay(list[i - 1].endTime)) return `「${name}」与上一时段重叠，请按时间先后顺序配置`
-  }
-  return ''
-}
-
 /** 表单校验：错误文案直接作为 ActionBar 的 note，用户不用点保存才知道哪里不对 */
 const formError = computed(() => {
   const data = form.value
   if (!data) return ''
   if (!data.ruleName || !data.ruleName.trim()) return '规则名称不能为空'
   if (data.ruleName.trim().length > 50) return '规则名称最长 50 个字符'
-  if (![2, 4].includes(Number(data.checkFrequency))) return '打卡频次仅支持 2 次或 4 次'
-  if (data.checkPeriods.length !== Number(data.checkFrequency) / 2) {
-    return `打卡时段数须为 ${Number(data.checkFrequency) / 2} 个（当前 ${data.checkPeriods.length} 个）`
-  }
-  const periodMsg = periodError(data.checkPeriods)
-  if (periodMsg) return periodMsg
   if (!(Number(data.allowEarlyMin) >= 0)) return '允许提前打卡分钟数须不小于 0'
   if (!(Number(data.allowLateMin) >= 0)) return '允许延后打卡分钟数须不小于 0'
   const lng = Number(data.longitude)
@@ -247,16 +349,18 @@ async function loadRule() {
   if (stationId.value == null) return
   loading.value = true
   error.value = ''
-  // 换驿站时丢弃未完成的编辑草稿，避免把 A 站的输入带到 B 站
+  // 换驿站 / 重拉时丢弃未完成的编辑草稿，避免把 A 站的输入带到 B 站
   cancelEdit()
+  cancelPeriodEdit()
   try {
-    const data = await getAttendanceRule({ stationId: stationId.value })
+    // 班次与规则并发取：时段由班次派生，需要班次记录才能提供「就地改时间」的写入口。
+    // 班次拉取失败不阻断规则展示（降级为时段只读 + 行内说明），故用 silent 版并兜底空数组。
+    const [data, shiftRows] = await Promise.all([
+      getAttendanceRule({ stationId: stationId.value }),
+      getShiftsSilent({ stationId: stationId.value }).catch(() => [])
+    ])
+    shifts.value = Array.isArray(shiftRows) ? shiftRows : []
     rule.value = data
-    // 兜底：规则若缺时段（历史脏数据），用上下班时间合成一个全天时段，页面仍可编辑后保存回正
-    const list =
-      Array.isArray(data.checkPeriods) && data.checkPeriods.length
-        ? data.checkPeriods
-        : [{ name: '全天班', startTime: data.workStartTime, endTime: data.workEndTime }]
     // 单条化加载口径（设计 §12.12①）：多条历史数据只取首条渲染，并置标记触发 T39 提示
     const wifi = pickWifiEntry(data.wifiList)
     legacyMultiple.value = wifi.hasLegacyMultiple
@@ -269,8 +373,6 @@ async function loadRule() {
       longitude: String(data.longitude),
       latitude: String(data.latitude),
       radius: data.radius,
-      checkFrequency: Number(data.checkFrequency) || list.length * 2,
-      checkPeriods: list.map((p) => ({ name: p.name, startTime: p.startTime, endTime: p.endTime })),
       // 白名单落到表单：单条化后恒 0 或 1 条（历史多条已在上面截为一条）
       wifiList: wifi.entry ? [wifi.entry] : [],
       allowEarlyMin: data.allowEarlyMin,
@@ -283,6 +385,7 @@ async function loadRule() {
     error.value = e.message || '加载失败'
     rule.value = null
     form.value = null
+    shifts.value = []
     legacyMultiple.value = false
   } finally {
     loading.value = false
@@ -307,48 +410,6 @@ function pickStation(item) {
   loadRule()
 }
 
-/**
- * 频次切换：时段数是频次的派生（N = 频次 / 2），切换时必须同步增删时段，
- * 否则保存时会被服务端以「时段数与频次不匹配」拒掉（9107）。
- * 2 → 4：保留首段名称与开始时间，首段收在 12:00，补出下午段；4 → 2：只留首段。
- */
-function setFrequency(value) {
-  if (!form.value || form.value.checkFrequency === value) return
-  form.value.checkFrequency = value
-  const list = form.value.checkPeriods
-  if (value === 4) {
-    const base = list[0] || { name: '上午班', startTime: '08:00', endTime: '18:00' }
-    // 原开始时间已过午，拆分后无法自洽（上午段会晚于 12:00 收），退回标准上午班
-    const firstStart = minutesOfDay(base.startTime) < minutesOfDay(DUAL_DEFAULTS.firstEnd) ? base.startTime : '08:00'
-    const secondEnd =
-      minutesOfDay(base.endTime) > minutesOfDay(DUAL_DEFAULTS.secondStart) ? base.endTime : DUAL_DEFAULTS.secondEnd
-    form.value.checkPeriods = [
-      { name: base.name, startTime: firstStart, endTime: DUAL_DEFAULTS.firstEnd },
-      { name: DUAL_DEFAULTS.secondName, startTime: DUAL_DEFAULTS.secondStart, endTime: secondEnd }
-    ]
-  } else {
-    form.value.checkPeriods = [{ ...list[0] }]
-  }
-}
-
-/** 时间串 → 选择器数组；24:00 收班超出选择器的 0-23 小时上限，退回 23:59 供用户重选 */
-function toPickerValue(text) {
-  const [h, m] = String(text || '').split(':')
-  return Number(h) > 23 ? ['23', '59'] : [h || '00', m || '00']
-}
-
-function openPicker(index, field) {
-  pickerTarget.value = { index, field }
-  pickerValue.value = toPickerValue(form.value.checkPeriods[index][field])
-  showPicker.value = true
-}
-
-function onPickerConfirm({ selectedValues }) {
-  const { index, field } = pickerTarget.value
-  form.value.checkPeriods[index][field] = selectedValues.join(':')
-  showPicker.value = false
-}
-
 function toggle(key) {
   form.value[key] = !form.value[key]
 }
@@ -364,6 +425,8 @@ function cancelEdit() {
 
 /** 进入编辑态：entry 为 null 表示未配置态「设置 WiFi」，否则为已配置态「修改」（两态共用同一表单） */
 function startEdit(entry) {
+  // 与「时段就地改时间」互斥：两处同时处于未保存态会让用户分不清哪份改动会被提交
+  if (editingPeriod.value !== null) return
   editing.value = true
   draft.value = { ssid: entry ? entry.ssid : '', bssid: entry ? entry.bssid : '' }
   draftErrors.value = { ssid: '', bssid: '' }
@@ -475,44 +538,99 @@ onMounted(load)
             <van-field v-model="form.ruleName" label="规则名称" placeholder="请输入规则名称" maxlength="50" />
           </van-cell-group>
 
-          <div class="section-title">打卡频次<span class="section-title__extra">决定每日打卡几次</span></div>
-          <div class="chip-row" role="radiogroup" aria-label="打卡频次">
-            <button
-              v-for="opt in FREQUENCY_OPTIONS"
-              :key="opt.value"
-              type="button"
-              class="chip"
-              :class="{ 'chip--active': form.checkFrequency === opt.value }"
-              role="radio"
-              :aria-checked="form.checkFrequency === opt.value"
-              @click="setFrequency(opt.value)"
-            >
-              {{ opt.label }}
-            </button>
+          <div class="section-title">打卡频次<span class="section-title__extra">由班次派生 · 只读</span></div>
+          <div class="card derived">
+            <div class="derived__row">
+              <span>每日打卡次数</span>
+              <span class="derived__value tabular-nums">{{ frequencyText }}</span>
+            </div>
+            <p class="tip">打卡频次 = 启用班次数 × 2（每个班次上下班各一次），由驿站班次自动派生，不可在此修改。</p>
           </div>
 
           <div class="section-title">
             <span>打卡时段</span>
-            <span class="section-title__extra tabular-nums">{{ periods.length }} 个时段</span>
+            <span class="section-title__extra tabular-nums">{{ periodRows.length }} 个时段 · 可改时间</span>
           </div>
           <van-cell-group inset>
-            <template v-for="(period, index) in periods" :key="index">
-              <van-field
-                v-model="period.name"
-                :label="`时段 ${index + 1}`"
-                placeholder="如 上午班"
-                :maxlength="PERIOD_NAME_MAX"
-              />
-              <van-cell title="上班时间" is-link :value="period.startTime" @click="openPicker(index, 'startTime')" />
-              <van-cell title="下班时间" is-link :value="period.endTime" @click="openPicker(index, 'endTime')" />
+            <!-- 空态：指向本端班次管理（U-3 旧「网页端维护」文案作废，设计 ⑭.1），提供 ≥44px 直达按钮；
+                 本页不凭空造班次，无启用班次即无时段可改 -->
+            <van-cell v-if="!periodRows.length" title="该驿站尚未配置启用班次">
+              <template #label>
+                <p class="tip">去「班次管理」新增班次后，本站打卡时间自动生效</p>
+                <van-button
+                  plain
+                  type="primary"
+                  size="small"
+                  class="go-shifts"
+                  @click="router.push('/boss/shifts')"
+                >
+                  去班次管理
+                </van-button>
+              </template>
+            </van-cell>
+
+            <template v-for="row in periodRows" :key="row.key">
+              <!-- 展示态：时段名称与起止取自「该驿站启用班次」（只读来源）；保存前可改起止 -->
+              <van-cell
+                v-if="editingPeriod !== row.index"
+                :title="`时段 ${row.index + 1} · ${row.name}`"
+                :value="`${row.startTime} - ${row.endTime}`"
+              >
+                <template v-if="canEditPeriod(row)" #right-icon>
+                  <button type="button" class="period-act" @click="startPeriodEdit(row)">修改时间</button>
+                </template>
+              </van-cell>
+
+              <!-- 编辑态：就地展开（同一 inset 组内仍是 van-cell 序列），交互与「班次管理」表单同口径 -->
+              <template v-else>
+                <van-cell
+                  :title="`时段 ${row.index + 1} · ${row.name}`"
+                  label="此处修改的即本站班次时间，保存后打卡时段随之生效"
+                />
+                <van-cell
+                  title="开始时间"
+                  is-link
+                  :value="periodDraft.startTime"
+                  :aria-label="`开始时间，当前 ${periodDraft.startTime}`"
+                  @click="openPeriodStartPicker"
+                />
+                <van-cell
+                  title="结束时间"
+                  is-link
+                  :value="periodDraft.endTime"
+                  :aria-label="`结束时间，当前 ${periodDraft.endTime}`"
+                  @click="openPeriodEndPicker"
+                />
+                <!-- 服务端失败文案（如 9114）原样落在这里，role=alert 可被读屏即时播报 -->
+                <van-cell v-if="periodError" :border="false">
+                  <template #title>
+                    <p class="period-error" role="alert">{{ periodError }}</p>
+                  </template>
+                </van-cell>
+                <van-cell :border="false">
+                  <div class="period-actions">
+                    <van-button plain size="small" :disabled="periodSaving" @click="cancelPeriodEdit">取消</van-button>
+                    <van-button type="primary" size="small" :loading="periodSaving" @click="savePeriod">
+                      保存时间
+                    </van-button>
+                  </div>
+                </van-cell>
+              </template>
             </template>
           </van-cell-group>
+          <!-- 班次拉取失败：规则照常展示，但要说清「为何这里不能改时间」并给出口，不让按钮凭空消失 -->
+          <p v-if="periodRows.length && !enabledShifts.length" class="tip">
+            班次信息未取到，暂不能在此修改打卡时间；可到「考勤概览 → 班次管理」维护，改完本站打卡时间即时跟随。
+          </p>
           <div class="card derived">
             <div class="derived__row">
               <span>作息时间（自动派生）</span>
               <span class="derived__value tabular-nums">{{ workStartText }} - {{ workEndText }}</span>
             </div>
-            <p class="tip">作息取首个时段的开始时间与末个时段的结束时间，改时段即改作息，无需单独填写。</p>
+            <p class="tip">
+              打卡时段与上下班时间由该驿站班次决定（唯一时间真源）：本页改的即班次时间，保存后打卡时段随之生效；
+              班次的增删停用仍在「考勤概览 → 班次管理」。
+            </p>
           </div>
 
           <div class="section-title">打卡时间窗</div>
@@ -631,6 +749,7 @@ onMounted(load)
             </p>
 
             <!-- A. 未配置态：唯一动作「设置 WiFi」（未配置进入取消 → 回到本态，不产生空记录） -->
+            <!-- 时段编辑中禁用：与「时段就地改时间」互斥，避免两处同时处于未保存态 -->
             <template v-if="!hasWifi && !editing">
               <p class="wifi-empty">{{ wifiEditable ? '尚未设置 WiFi 白名单' : '未配置' }}</p>
               <van-button
@@ -639,6 +758,7 @@ onMounted(load)
                 plain
                 type="primary"
                 class="wifi-set"
+                :disabled="editingPeriod !== null"
                 @click="startEdit(null)"
               >
                 设置 WiFi
@@ -652,8 +772,17 @@ onMounted(load)
               :label="wifiList[0].bssid ? `BSSID ${wifiList[0].bssid}` : 'BSSID 未填'"
             >
               <template v-if="wifiEditable" #right-icon>
-                <button type="button" class="wifi-act" @click="startEdit(wifiList[0])">修改</button>
-                <button type="button" class="wifi-act wifi-act--danger" @click="askClear">清除</button>
+                <button
+                  type="button"
+                  class="wifi-act"
+                  :disabled="editingPeriod !== null"
+                  @click="startEdit(wifiList[0])"
+                >
+                  修改
+                </button>
+                <button type="button" class="wifi-act wifi-act--danger" :disabled="editingPeriod !== null" @click="askClear">
+                  清除
+                </button>
               </template>
             </van-cell>
 
@@ -730,14 +859,26 @@ onMounted(load)
       </div>
     </van-popup>
 
-    <!-- 时间选择统一一个底部弹层：多时段下不复用两套 picker，改由 pickerTarget 定位写入 -->
-    <van-popup v-model:show="showPicker" round position="bottom" safe-area-inset-bottom>
+    <!-- 时段时间选择（与「班次管理」表单同口径）：30 分钟粒度，结束时间可 24:00 -->
+    <van-popup v-model:show="showPeriodStartPicker" round position="bottom" safe-area-inset-bottom>
       <van-time-picker
-        v-model="pickerValue"
-        :title="pickerTitle"
+        v-model="periodStartValue"
+        title="选择开始时间"
         :columns-type="['hour', 'minute']"
-        @confirm="onPickerConfirm"
-        @cancel="showPicker = false"
+        :filter="periodStartFilter"
+        @confirm="onPeriodStartConfirm"
+        @cancel="showPeriodStartPicker = false"
+      />
+    </van-popup>
+
+    <van-popup v-model:show="showPeriodEndPicker" round position="bottom" safe-area-inset-bottom>
+      <van-time-picker
+        v-model="periodEndValue"
+        title="选择结束时间"
+        :columns-type="['hour', 'minute']"
+        :filter="periodEndFilter"
+        @confirm="onPeriodEndConfirm"
+        @cancel="showPeriodEndPicker = false"
       />
     </van-popup>
   </div>
@@ -810,6 +951,12 @@ onMounted(load)
   margin-top: var(--sp-3);
 }
 
+/* 「去班次管理」直达按钮：空态唯一动作，触控区 ≥44（设计 ⑭.1） */
+.go-shifts {
+  min-height: var(--touch-min);
+  margin-top: var(--sp-2);
+}
+
 /* 行内「修改 / 清除」：原生按钮，触控区 ≥44×44（设计 §9.2） */
 .wifi-act {
   display: inline-flex;
@@ -825,6 +972,45 @@ onMounted(load)
 
 .wifi-act--danger {
   color: var(--color-danger);
+}
+
+/* 禁用态（时段编辑中）：降一档到 disabled 色，明确「此刻不可点」而非按钮失灵 */
+.wifi-act:disabled {
+  color: var(--text-disabled);
+}
+
+/* 时段行内「修改时间」：与 .wifi-act 同规格（原生按钮，触控区 ≥44×44） */
+.period-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-body);
+  color: var(--color-primary);
+  background: none;
+  border: none;
+}
+
+/* 服务端失败文案（9114 / 400）：原样落地，交给读屏 role=alert 即时播报 */
+.period-error {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--color-danger);
+}
+
+/* 编辑态行内动作：取消 / 保存各占一半，触控区 ≥44（与白名单编辑同口径） */
+.period-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+  width: 100%;
+}
+
+.period-actions :deep(.van-button) {
+  min-height: var(--touch-min);
 }
 
 .wifi-edit-actions {

@@ -98,7 +98,10 @@ const ONBOARDING_SEED = [
     position: '快递员',
     doneSteps: 0,
     status: 'IN_PROGRESS',
-    daysAgo: 2
+    daysAgo: 2,
+    // 来源种子特意混两种（后端 HrFlowVO.source 取值 ADMIN / SELF_REGISTER）：
+    // 供审批中心「注册」标识（设计 ⑧.4）在演示态可复现
+    source: 'SELF_REGISTER'
   },
   {
     candidateName: '莫文轩',
@@ -107,7 +110,8 @@ const ONBOARDING_SEED = [
     position: '分拣员',
     doneSteps: 1,
     status: 'IN_PROGRESS',
-    daysAgo: 4
+    daysAgo: 4,
+    source: 'ADMIN'
   },
   {
     candidateName: '谭静怡',
@@ -116,7 +120,8 @@ const ONBOARDING_SEED = [
     position: '客服专员',
     doneSteps: 2,
     status: 'IN_PROGRESS',
-    daysAgo: 6
+    daysAgo: 6,
+    source: 'ADMIN'
   },
   {
     candidateName: '韦思远',
@@ -125,7 +130,8 @@ const ONBOARDING_SEED = [
     position: '快递员',
     doneSteps: 1,
     status: 'REJECTED',
-    daysAgo: 9
+    daysAgo: 9,
+    source: 'ADMIN'
   }
 ]
 
@@ -163,6 +169,7 @@ function buildOnboardings(operator) {
       id,
       flowType: 'ONBOARDING',
       flowNo: `ON-${formatDate(createdAt).replace(/-/g, '')}-${String(id).padStart(4, '0')}`,
+      source: item.source || 'ADMIN',
       candidateName: item.candidateName,
       employeeId: null,
       phone: `139${String(20000000 + id * 2311).slice(0, 8)}`,
@@ -203,6 +210,7 @@ function buildOffboardings(operator) {
       id,
       flowType: 'OFFBOARDING',
       flowNo: `OFF-${formatDate(createdAt).replace(/-/g, '')}-${String(id).padStart(4, '0')}`,
+      source: 'ADMIN',
       candidateName: null,
       employeeId: item.employeeId,
       employeeName: employee ? employee.real_name : employeeName(item.employeeId),
@@ -579,6 +587,8 @@ function toFlowVO(flow) {
     id: flow.id,
     flowType: flow.flowType,
     flowNo: flow.flowNo,
+    // 业务来源（对齐后端 HrFlowVO.source）：ADMIN=后台创建 / SELF_REGISTER=员工自助注册；存量行默认 ADMIN
+    source: flow.source || 'ADMIN',
     candidateName: flow.candidateName,
     employeeId: flow.employeeId,
     employeeName: flow.flowType === 'OFFBOARDING' ? employeeName(flow.employeeId) : flow.candidateName,
@@ -689,6 +699,7 @@ export function createOnboarding(body, operator) {
     id,
     flowType: 'ONBOARDING',
     flowNo: `ON-${formatDate(now).replace(/-/g, '')}-${String(id).padStart(4, '0')}`,
+    source: 'ADMIN',
     candidateName: String(body.candidateName).trim(),
     employeeId: null,
     phone: String(body.phone).trim(),
@@ -937,6 +948,7 @@ export function createOffboarding(body, operator) {
     id,
     flowType: 'OFFBOARDING',
     flowNo: `OFF-${formatDate(now).replace(/-/g, '')}-${String(id).padStart(4, '0')}`,
+    source: 'ADMIN',
     candidateName: null,
     employeeId: employee.id,
     employeeName: employee.real_name,

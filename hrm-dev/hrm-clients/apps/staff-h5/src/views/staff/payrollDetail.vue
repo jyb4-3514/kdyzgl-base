@@ -6,7 +6,6 @@ import ActionBar from '@kdyzgl/shared/ui/ActionBar.vue'
 import MyPayrollCard from '../../components/MyPayrollCard.vue'
 import PageNav from '@kdyzgl/shared/ui/PageNav.vue'
 import PageState from '@kdyzgl/shared/ui/PageState.vue'
-import PayrollStatusSteps from '../../components/PayrollStatusSteps.vue'
 import { confirmPayroll, getPayroll, objectPayroll } from '../../api/finance.js'
 import { moneyText } from '../../utils/format.js'
 import { FINANCE_CODE } from '@kdyzgl/shared/constants/errorCode.js'
@@ -18,7 +17,10 @@ import { FINANCE_CODE } from '@kdyzgl/shared/constants/errorCode.js'
  * - 确认无误：确认后不可撤销，故正文写清「确认后不可撤销，如有疑问请先提异议」
  * - 提异议：必填原因，提交后单据退回管理员重新核定，本人在重新发布前看不到该单 → 成功后回列表
  *
- * 9403（工资单尚未发布）不是系统故障：给「尚未发布」的说明而不是错误态 + 重试。
+ * 9403（工资单尚未发布或正在重新核定中）不是系统故障：给说明而不是错误态 + 重试。
+ *
+ * 管理能力扩展 ③：移除「流转状态」步骤条区块（含 steps 派生），保留金额摘要 → 明细项 → 操作区；
+ * 原「计算说明」4 行收敛为明细区尾部一行 caption，避免「步骤条走了又堆一屏字段」的割裂。
  */
 const route = useRoute()
 const router = useRouter()
@@ -34,20 +36,16 @@ const showObject = ref(false)
 const objectReason = ref('')
 const objectError = ref('')
 
-const steps = computed(() => {
-  const data = payroll.value
-  if (!data) return []
-  return [
-    { key: 'DRAFT', label: '工资单生成', state: 'done', time: data.createTime },
-    { key: 'REVIEW', label: '管理员审核', state: 'done', time: data.approveTime },
-    { key: 'PUBLISH', label: '发布给我', state: 'done', time: data.publishTime },
-    {
-      key: 'CONFIRM',
-      label: '我的确认',
-      state: data.status === 'CONFIRMED' ? 'done' : 'current',
-      time: data.confirmTime
-    }
+/** 时间信息 caption：生成 / 发布 / 确认三时点收成一行（计薪规则非空时并入行尾） */
+const timeCaption = computed(() => {
+  if (!payroll.value) return ''
+  const parts = [
+    `生成于 ${payroll.value.createTime || '—'}`,
+    `发布于 ${payroll.value.publishTime || '—'}`,
+    `确认于 ${payroll.value.confirmTime || '待确认'}`
   ]
+  if (payroll.value.ruleName) parts.push(`计薪规则 ${payroll.value.ruleName}`)
+  return parts.join(' · ')
 })
 
 const actions = computed(() => {
@@ -61,9 +59,12 @@ const actions = computed(() => {
   return []
 })
 
-const actionNote = computed(() =>
-  payroll.value && payroll.value.status === 'CONFIRMED' ? '本单已确认；如仍有疑问请联系人事' : ''
-)
+const actionNote = computed(() => {
+  const status = payroll.value ? payroll.value.status : ''
+  if (status === 'CONFIRMED') return '本单已确认；如仍有疑问请联系人事'
+  if (status === 'PAID') return '该工资单已发放并归档，不可修改'
+  return ''
+})
 
 async function load() {
   loading.value = true
@@ -72,7 +73,9 @@ async function load() {
   try {
     payroll.value = await getPayroll(id.value)
   } catch (e) {
-    if (e.code === FINANCE_CODE.PAYROLL_STATUS_INVALID) blocked.value = e.message || '工资单尚未发布，暂不可查看'
+    // 9403 覆盖「未发布」与「已提异议退回重新核定中」两种情形，文案须一并说明（设计 §1.3）
+    if (e.code === FINANCE_CODE.PAYROLL_STATUS_INVALID)
+      blocked.value = e.message || '工资单尚未发布或正在重新核定中，暂不可查看'
     else error.value = e.message || '加载失败'
   } finally {
     loading.value = false
@@ -122,7 +125,7 @@ async function submitObject() {
     await objectPayroll(payroll.value.id, { reason })
     showObject.value = false
     showSuccessToast('已提交异议，等待管理员重新核定')
-    // 异议后单据状态回到待审核，员工端不可见 → 直接回列表，避免停在无法访问的详情页
+    // 异议后单据落「异议退回（OBJECTED）」，员工端不可见 → 直接回列表，避免停在无法访问的详情页
     router.replace('/staff/payroll')
   } catch (e) {
     objectError.value = e.message || '提交失败，请稍后重试'
@@ -137,7 +140,7 @@ onMounted(load)
 <template>
   <div class="pay-detail">
     <PageNav title="我的工资单" />
-    <div class="page" :class="actions.length ? 'page--bar' : 'page--loose'">
+    <div class="page page--loose">
       <PageState
         :loading="loading"
         :error="error"
@@ -163,25 +166,22 @@ onMounted(load)
           </p>
         </section>
 
-        <div class="section-title">流转状态</div>
-        <div class="card">
-          <PayrollStatusSteps :steps="steps" />
-        </div>
-
         <div class="section-title">构成明细<span class="section-title__extra">点「展开剩余」看全部</span></div>
         <MyPayrollCard :payroll="payroll" :max-visible="5" />
 
-        <div class="section-title">计算说明</div>
-        <van-cell-group inset>
-          <van-cell title="计薪规则" :value="payroll.ruleName || '-'" />
-          <van-cell title="生成时间" :value="payroll.createTime" />
-          <van-cell title="发布时间" :value="payroll.publishTime || '-'" />
-          <van-cell title="确认时间" :value="payroll.confirmTime || '待确认'" />
-        </van-cell-group>
+        <!-- 时间信息收敛为明细区尾部一行 caption（原「计算说明」4 行 van-cell-group 已移除） -->
+        <p class="tip tabular-nums">{{ timeCaption }}</p>
       </PageState>
-    </div>
 
-    <ActionBar :actions="actions" :note="actionNote" :submitting="submitting" @select="onAction" />
+      <!-- 操作区做进内容流（inline）：随页面滚动，滑到底即见，不再固定悬浮遮挡内容 -->
+      <ActionBar
+        inline
+        :actions="actions"
+        :note="actionNote"
+        :submitting="submitting"
+        @select="onAction"
+      />
+    </div>
 
     <van-popup v-model:show="showObject" round position="bottom" safe-area-inset-bottom>
       <div class="object-pop">

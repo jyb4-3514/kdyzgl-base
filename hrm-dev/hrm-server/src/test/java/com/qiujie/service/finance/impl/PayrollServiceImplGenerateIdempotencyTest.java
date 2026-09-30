@@ -14,12 +14,14 @@ import com.qiujie.enums.ErrorCode;
 import com.qiujie.exception.BusinessException;
 import com.qiujie.mapper.EmployeeMapper;
 import com.qiujie.mapper.PayrollItemMapper;
+import com.qiujie.mapper.PayrollLogMapper;
 import com.qiujie.mapper.PayrollMapper;
 import com.qiujie.mapper.PayrollRuleItemMapper;
 import com.qiujie.mapper.PayrollRuleMapper;
 import com.qiujie.mapper.StationMapper;
 import com.qiujie.service.finance.support.PayrollCalcContext;
 import com.qiujie.service.finance.support.PayrollItemAmount;
+import com.qiujie.service.finance.support.PayrollNotifySupport;
 import com.qiujie.service.finance.support.PayrollResolverRegistry;
 import com.qiujie.vo.finance.PayrollGenerateVO;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -111,12 +113,13 @@ class PayrollServiceImplGenerateIdempotencyTest {
         StationMapper stationMapper = mock(StationMapper.class);
         PayrollContextProvider contextProvider = mock(PayrollContextProvider.class);
         PayrollResolverRegistry resolverRegistry = mock(PayrollResolverRegistry.class);
+        PayrollLogMapper payrollLogMapper = mock(PayrollLogMapper.class);
         // 真实配置对象（默认值即出厂口径：allowNegativeNet=false）
         AlgoProperties algoProperties = new AlgoProperties();
 
         service = new PayrollServiceImpl(payrollMapper, payrollItemMapper, payrollRuleMapper,
                 payrollRuleItemMapper, employeeMapper, stationMapper, contextProvider, resolverRegistry,
-                algoProperties);
+                algoProperties, payrollLogMapper, mock(PayrollNotifySupport.class));
 
         when(payrollRuleMapper.selectById(RULE_ID)).thenReturn(rule());
         when(payrollRuleItemMapper.selectList(any())).thenAnswer(inv -> ruleItems());

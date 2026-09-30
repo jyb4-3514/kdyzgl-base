@@ -77,6 +77,7 @@ onMounted(loadFirst)
       <PageState v-else :error="error" :empty="!list.length" empty-text="本月工资单尚未发布" @retry="loadFirst">
         <template #empty-action>
           <p class="tip">工资单由管理员审核并发布后可见，如已过期未收到请联系人事</p>
+          <p class="tip">如已提出异议，管理员重新核定并再次发布后即可查看</p>
         </template>
 
         <van-list v-model:loading="loadingMore" :finished="finished" finished-text="没有更多了" @load="onLoadMore">

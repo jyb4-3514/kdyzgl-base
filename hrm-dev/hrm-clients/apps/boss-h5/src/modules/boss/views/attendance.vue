@@ -69,8 +69,13 @@ const attendanceSegments = computed(() => {
   ]
 })
 
-/** 考勤管理入口：四宫格（与员工端宫格同规格，图标 24 / 文字 12 / 单元高 88） */
+/**
+ * 考勤管理入口：5 项落 4+1（设计 ⑭.1，不改网格列数）。
+ * 「班次管理」置首：班次是打卡时段与上下班时间的唯一时间真源，与紧随其后的「打卡规则」共同表达
+ * 「先定班次 → 再定规则」；既有 4 项相对顺序一格不动。
+ */
 const entries = [
+  { icon: 'clock-o', text: '班次管理', to: '/boss/shifts' },
   { icon: 'setting-o', text: '打卡规则', to: '/boss/attendance/rule' },
   { icon: 'calendar-o', text: '排班管理', to: '/boss/schedule' },
   { icon: 'records', text: '打卡记录', to: '/boss/attendance/records' },

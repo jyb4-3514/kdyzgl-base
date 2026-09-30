@@ -6,7 +6,7 @@ import StatusTag from '../../../components/StatusTag.vue'
 /**
  * 异议处理面板（Tab 3）
  *
- * 契约没有独立的异议列表接口，本表取「待审核」状态的单据后筛选有异议原因的行（口径见 composable）；
+ * 契约没有独立的异议列表接口，本表按「异议退回（OBJECTED）」状态取数（口径见 composable）；
  * 点「处理」复用工资单详情抽屉，不另造一套异议详情。
  */
 defineProps({
@@ -21,7 +21,7 @@ const emit = defineEmits(['refresh', 'handle'])
 <template>
   <el-card shadow="never" class="content-card">
     <p class="finance-page__note">
-      员工提异议后单据会退回「待审核」，由管理员重新核定后再发布。契约没有独立的异议列表接口， 本表取「待审核」状态的单据后筛选有异议原因的行。
+      员工提异议后单据会落「异议退回」，由管理员重新核定后可再发布。契约没有独立的异议列表接口， 本表按「异议退回」状态取数。
     </p>
     <StateBlock v-if="error" variant="error" title="异议列表加载失败" @action="emit('refresh')" />
     <StateBlock
@@ -37,7 +37,11 @@ const emit = defineEmits(['refresh', 'handle'])
       <el-table-column prop="objectionTime" label="提出时间" width="164" />
       <el-table-column label="状态" width="104">
         <template #default="{ row }">
-          <StatusTag :dict="PAYROLL_STATUS" :value="row.status" :variant="PAYROLL_STATUS[row.status].variant" />
+          <StatusTag
+            :dict="PAYROLL_STATUS"
+            :value="row.status"
+            :variant="(PAYROLL_STATUS[row.status] || {}).variant"
+          />
         </template>
       </el-table-column>
       <el-table-column label="操作" width="100" fixed="right">

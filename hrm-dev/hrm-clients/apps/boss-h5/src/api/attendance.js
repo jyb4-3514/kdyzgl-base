@@ -42,6 +42,18 @@ export const saveSchedules = (data) => http.post('/schedules/batch', data)
  */
 export const batchSchedulesByStation = (data) => http.post('/schedules/batch-by-station', data)
 export const getShifts = (params) => http.get('/shifts', { params })
+/**
+ * 打卡规则页「就地改打卡时间」用：时段真源是班次，需按 stationId 取班次把派生时段映射回可写记录。
+ * silent：班次拉取失败时该页降级为「时段只读 + 说明」，规则其余部分照常，不该弹一个用户无法处理的通用报错
+ */
+export const getShiftsSilent = (params) => http.get('/shifts', { params, silent: true })
+/**
+ * 班次写操作（仅 ADMIN）：站点级定义侧校验（保留名 / 启用数 ≤2 / 一早一晚）违反回 9114。
+ * silent：400 / 9114 要就地落在表单 ActionBar.note 里说清是哪个字段错，不叠一层通用 Toast
+ */
+export const createShift = (data) => http.post('/shifts', data, { silent: true })
+export const updateShift = (id, data) => http.put(`/shifts/${id}`, data, { silent: true })
+export const deleteShift = (id) => http.delete(`/shifts/${id}`, { silent: true })
 
 /* ==================== 补卡申请与审批（T19） ==================== */
 

@@ -22,6 +22,13 @@ public class HrFlowVO {
 
     private String flowNo;
 
+    /**
+     * 业务来源（ARCH-C-6）：{@code ADMIN}=后台创建，{@code SELF_REGISTER}=员工自助注册。
+     * <p>
+     * 列表与详情共用本 VO，故列表亦出参该字段，供审批中心识别「员工注册」流程（原仅详情附 registration 子对象）。
+     */
+    private String source;
+
     private String candidateName;
 
     private Long employeeId;

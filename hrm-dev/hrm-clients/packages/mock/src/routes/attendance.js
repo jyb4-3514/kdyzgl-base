@@ -26,7 +26,8 @@ import {
   saveSchedules,
   saveSchedulesByStation,
   todayStatus,
-  updateShift
+  updateShift,
+  validateShiftSet
 } from '../attendanceStore.js'
 
 /**
@@ -74,10 +75,6 @@ function validateRule(body) {
     return { code: CODE.BAD_REQUEST, message: '规则名称长度须为 1-50' }
   if (body.matchMode !== undefined && !['ALL', 'ANY'].includes(body.matchMode))
     return { code: CODE.BAD_REQUEST, message: 'matchMode 仅支持 ALL / ANY' }
-  if (body.workStartTime !== undefined && !isClock(body.workStartTime))
-    return { code: CODE.BAD_REQUEST, message: '上班时间格式须为 HH:mm' }
-  if (body.workEndTime !== undefined && !isEndClock(body.workEndTime))
-    return { code: CODE.BAD_REQUEST, message: '下班时间格式须为 HH:mm' }
   if (body.longitude !== undefined && !Number.isFinite(Number(body.longitude)))
     return { code: CODE.BAD_REQUEST, message: '经度须为数字' }
   if (body.latitude !== undefined && !Number.isFinite(Number(body.latitude)))
@@ -100,56 +97,8 @@ function validateRule(body) {
   return null
 }
 
-/**
- * 时段配置校验：频次档位、时段数量、单段起止、段间重叠与顺序
- * 为什么统一返回 9107：这些错误都属于「时段」维度，前端拿到码即可跳到时段配置区，
- * 具体哪一条不合法由 message 说清（与打卡时索引越界同码，见 errorCode.js 说明）。
- */
-function periodRuleError({ frequency, periods }) {
-  if (frequency !== undefined && ![2, 4].includes(Number(frequency))) {
-    return { code: ATTENDANCE_CODE.PERIOD_NOT_FOUND, message: 'checkFrequency 仅支持 2 或 4' }
-  }
-  if (periods === undefined || periods === null) return null
-  if (!Array.isArray(periods) || periods.length === 0) {
-    return { code: ATTENDANCE_CODE.PERIOD_NOT_FOUND, message: 'checkPeriods 须为非空数组' }
-  }
-  if (frequency !== undefined && periods.length !== Number(frequency) / 2) {
-    return {
-      code: ATTENDANCE_CODE.PERIOD_NOT_FOUND,
-      message: `checkPeriods 长度须等于 checkFrequency / 2（本次应为 ${Number(frequency) / 2}）`
-    }
-  }
-  let prevEnd = -1
-  for (const period of periods) {
-    const name = period && period.name ? `「${period.name}」` : ''
-    if (!period || !textLen(period.name, 1, 20))
-      return { code: ATTENDANCE_CODE.PERIOD_NOT_FOUND, message: '时段名称长度须为 1-20' }
-    if (!isClock(period.startTime) || !isEndClock(period.endTime))
-      return { code: ATTENDANCE_CODE.PERIOD_NOT_FOUND, message: `${name}起止时间格式须为 HH:mm` }
-    const start = minutesOfDay(period.startTime)
-    const end = minutesOfDay(period.endTime)
-    if (start >= end) return { code: ATTENDANCE_CODE.PERIOD_NOT_FOUND, message: `${name}的结束时间须晚于开始时间` }
-    // 必须升序且互不重叠：periodIndex 是打卡去重与记录归属的定位键，乱序会让「第 1 段」指向下午
-    // TODO(扩展): 若后续要支持跨零点夜班时段（如 20:00-24:00 与 00:00-04:00），需放宽本约束并同步改造时段定位
-    if (start < prevEnd)
-      return { code: ATTENDANCE_CODE.PERIOD_NOT_FOUND, message: '打卡时段之间不允许重叠，且须按开始时间升序' }
-    prevEnd = end
-  }
-  return null
-}
-
-/** 时段归一：非法结构原样返回，交给 periodRuleError 统一判错，避免两处各写一套文案 */
-function normalizePeriods(list) {
-  if (!Array.isArray(list)) return list
-  return list.map((p) =>
-    p && typeof p === 'object'
-      ? { name: String(p.name == null ? '' : p.name).trim(), startTime: p.startTime, endTime: p.endTime }
-      : p
-  )
-}
-
 /** 组装白名单内的写入值：类型在此收口，避免字符串 '0'/'false' 之类被写进规则 */
-function normalizeRule(body, current) {
+function normalizeRule(body) {
   const payload = {}
   if (body.ruleName !== undefined) payload.ruleName = String(body.ruleName).trim()
   ;['enableWifi', 'enableLocation', 'enableTimeWindow'].forEach((key) => {
@@ -164,35 +113,13 @@ function normalizeRule(body, current) {
   if (body.longitude !== undefined) payload.longitude = Number(body.longitude)
   if (body.latitude !== undefined) payload.latitude = Number(body.latitude)
   if (body.radius !== undefined) payload.radius = Number(body.radius)
-  if (body.workStartTime !== undefined) payload.workStartTime = body.workStartTime
-  if (body.workEndTime !== undefined) payload.workEndTime = body.workEndTime
   if (body.lateThresholdMin !== undefined) payload.lateThresholdMin = Number(body.lateThresholdMin)
   if (body.earlyLeaveThresholdMin !== undefined) payload.earlyLeaveThresholdMin = Number(body.earlyLeaveThresholdMin)
   if (body.allowEarlyMin !== undefined) payload.allowEarlyMin = Number(body.allowEarlyMin)
   if (body.allowLateMin !== undefined) payload.allowLateMin = Number(body.allowLateMin)
   if (body.status !== undefined) payload.status = Number(body.status)
-
-  // 时段是唯一真源：未提交时段时沿用规则现值，避免「只改围栏半径」的提交把时段清空
-  const basePeriods =
-    body.checkPeriods !== undefined
-      ? normalizePeriods(body.checkPeriods)
-      : current && Array.isArray(current.checkPeriods)
-        ? current.checkPeriods.map((p) => ({ ...p }))
-        : null
-  // 兼容旧客户端：管理端规则页当前只发上下班时间（不支持多时段），把它映射到首/末时段，
-  // 否则页面上的时间改了却不生效（保存后被派生值覆盖回原样）
-  // TODO(扩展): 管理端规则页支持多时段编辑后，删除这条兼容映射
-  if (body.checkPeriods === undefined && Array.isArray(basePeriods) && basePeriods.length) {
-    if (body.workStartTime !== undefined) basePeriods[0].startTime = body.workStartTime
-    if (body.workEndTime !== undefined) basePeriods[basePeriods.length - 1].endTime = body.workEndTime
-  }
-  if (basePeriods !== null && basePeriods !== undefined) {
-    payload.checkPeriods = basePeriods
-    payload.checkFrequency =
-      body.checkFrequency !== undefined ? Number(body.checkFrequency) : current ? current.checkFrequency : 2
-  } else if (body.checkFrequency !== undefined) {
-    payload.checkFrequency = Number(body.checkFrequency)
-  }
+  // checkPeriods / checkFrequency / workStartTime / workEndTime 不在白名单：时段与频次改为班次派生（U-4/U-5），
+  // 即便请求体带上也一律忽略，避免「管理员以为改了时段、实际不生效」的静默失效
   return payload
 }
 
@@ -200,14 +127,14 @@ function saveRuleHandler({ body }) {
   const stationId = toIdOrNull(body.stationId)
   if (stationId == null) return fail(CODE.BAD_REQUEST, '缺少 stationId')
   if (!findStationById(stationId)) return fail(STATION_CODE.NOT_EXISTS)
+  // U-5：时段已由驿站班次决定，规则侧不再接受时段入参——非空即拒（不静默忽略，否则管理员会以为时段改成功了）
+  if (body.checkPeriods !== undefined && body.checkPeriods !== null) {
+    const nonEmpty = Array.isArray(body.checkPeriods) ? body.checkPeriods.length > 0 : true
+    if (nonEmpty) return fail(CODE.BAD_REQUEST, '打卡时段已由驿站班次决定，请到「排班管理」维护班次')
+  }
   const error = validateRule(body)
   if (error) return fail(error.code, error.message)
-  const current = findRule(stationId)
-  const payload = normalizeRule(body, current)
-  // 归一化后再校验一次：旧客户端只发上下班时间时，时段是被映射出来的，必须仍然自洽
-  const periodError = periodRuleError({ frequency: payload.checkFrequency, periods: payload.checkPeriods })
-  if (periodError) return fail(periodError.code, periodError.message)
-  return ok(saveRule(stationId, payload))
+  return ok(saveRule(stationId, normalizeRule(body)))
 }
 
 /* ==================== 班次 ==================== */
@@ -218,13 +145,22 @@ function shiftList({ params }) {
   return ok(listShifts(stationId))
 }
 
+/** 班次名保留字：= 后端 legacyPeriodSentinel / DEFAULT_PERIOD_NAME「全天班」（§6.4 M2/N2），撞名会让新记录被误判哨兵 */
+const RESERVED_SHIFT_NAMES = ['全天班']
+
 function validateShift(body) {
-  if (!textLen(body.shiftName, 1, 20)) return '班次名称长度须为 1-20'
-  if (!isClock(body.startTime)) return '开始时间格式须为 HH:mm'
-  if (!isEndClock(body.endTime)) return '结束时间格式须为 HH:mm'
-  if (minutesOfDay(body.startTime) >= minutesOfDay(body.endTime)) return '结束时间须晚于开始时间'
-  if (!isHexColor(body.color)) return '班次颜色须为 #RRGGBB'
-  if (body.restMinutes !== undefined && !(Number(body.restMinutes) >= 0)) return '休息时长须不小于 0'
+  // 禁用名比对取 trim 后的值：与落库值同源归一（shiftVOData 里也 trim），防「 全天班」前置/尾随空白绕过（N2）
+  const name = body.shiftName == null ? null : String(body.shiftName).trim()
+  if (RESERVED_SHIFT_NAMES.includes(name))
+    return { code: ATTENDANCE_CODE.SHIFT_DEFINITION_INVALID, message: '班次名称不可使用保留名「全天班」' }
+  if (!textLen(body.shiftName, 1, 20)) return { code: CODE.BAD_REQUEST, message: '班次名称长度须为 1-20' }
+  if (!isClock(body.startTime)) return { code: CODE.BAD_REQUEST, message: '开始时间格式须为 HH:mm' }
+  if (!isEndClock(body.endTime)) return { code: CODE.BAD_REQUEST, message: '结束时间格式须为 HH:mm' }
+  if (minutesOfDay(body.startTime) >= minutesOfDay(body.endTime))
+    return { code: CODE.BAD_REQUEST, message: '结束时间须晚于开始时间' }
+  if (!isHexColor(body.color)) return { code: CODE.BAD_REQUEST, message: '班次颜色须为 #RRGGBB' }
+  if (body.restMinutes !== undefined && !(Number(body.restMinutes) >= 0))
+    return { code: CODE.BAD_REQUEST, message: '休息时长须不小于 0' }
   return null
 }
 
@@ -243,19 +179,22 @@ function createShiftHandler({ body }) {
   if (stationId == null) return fail(CODE.BAD_REQUEST, '缺少 stationId')
   if (!findStationById(stationId)) return fail(STATION_CODE.NOT_EXISTS)
   const error = validateShift(body)
-  if (error) return fail(CODE.BAD_REQUEST, error)
-  return ok(
-    createShift({ stationId, ...shiftVOData(body), status: body.status === undefined ? 1 : Number(body.status) })
-  )
+  if (error) return fail(error.code, error.message)
+  const next = { stationId, ...shiftVOData(body), status: body.status === undefined ? 1 : Number(body.status) }
+  // 定义侧站点级校验（启用数 ≤2 / 一早一晚），与后端 AttendanceShiftServiceImpl 同口径
+  const setError = validateShiftSet({ shift: next })
+  if (setError) return fail(setError.code, setError.message)
+  return ok(createShift(next))
 }
 
 function updateShiftHandler({ pathParams, body }) {
   const error = validateShift(body)
-  if (error) return fail(CODE.BAD_REQUEST, error)
-  const vo = updateShift(pathParams.id, {
-    ...shiftVOData(body),
-    status: body.status === undefined ? 1 : Number(body.status)
-  })
+  if (error) return fail(error.code, error.message)
+  const next = { ...shiftVOData(body), status: body.status === undefined ? 1 : Number(body.status) }
+  // 编辑：排除被编辑自身后重新校验站点启用集合（停用可把该班次移出启用集，故先校验后写入）
+  const setError = validateShiftSet({ shiftId: pathParams.id, shift: next })
+  if (setError) return fail(setError.code, setError.message)
+  const vo = updateShift(pathParams.id, next)
   if (!vo) return fail(CODE.NOT_FOUND, '班次不存在')
   return ok(vo)
 }
@@ -292,6 +231,9 @@ function saveScheduleBatch({ body }) {
   for (const item of body.items) {
     if (item.employeeId == null) return fail(CODE.BAD_REQUEST, '缺少 employeeId')
     if (!isDate(item.workDate)) return fail(CODE.BAD_REQUEST, 'workDate 格式须为 YYYY-MM-DD')
+    // 多班次（架构 ARCH-C-2）：shiftIds 存在即为准；类型错误直接挡在入口，集合校验在 store
+    if (item.shiftIds !== undefined && !Array.isArray(item.shiftIds))
+      return fail(CODE.BAD_REQUEST, 'shiftIds 须为数组')
   }
   const result = saveSchedules({ stationId, items: body.items })
   return result.code === 200 ? ok(result.data) : fail(result.code, result.message)

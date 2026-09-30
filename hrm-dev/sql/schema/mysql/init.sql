@@ -1,7 +1,7 @@
 -- ----------------------------------------------------------------
 -- 快递驿站智汇系统 · 当前结构快照（MySQL 8）
 -- 依据：docs/db.md §5.3（sql/schema 快照同步约定）、server-architecture.md §4.5
--- 内容：== Flyway V1 + V2(种子) + V3..V19 的最终结构态；仅 DDL、无业务数据。
+-- 内容：== Flyway V1 + V2(种子) + V3..V23 的最终结构态；仅 DDL、无业务数据。
 --   V1  department / station / employee / login_log          4 表（一期）
 --   V3  client_log                                           1 表（P1）
 --   V4  notification                                         1 表（P2）
@@ -20,6 +20,10 @@
 --   V17 employee_registration 1 表（注册事实与凭据载体）        员工自助注册
 --   V18 hr_flow 补 source 列（NOT NULL DEFAULT 'ADMIN'）        来源留痕 M-9
 --   V19 employee 补 position 列（岗位进档案）                   方案乙 U-07
+--   V20 薪资结算自动化 3 表 + payroll 补 3 列（已发放）          B1（待技术评审）
+--   V21 薪资结算自动化增量（payroll_log 定位列 / payroll_run.attempt_date + uk_attempt / station_payroll_setting_log / notification.type 注释补 7/8/9） B1
+--   V22 attendance_schedule 补生成列 active_shift_key + 唯一键（活跃唯一）   排班多班次 B7
+--   V23 operation_audit_log 1 表（操作审计留痕，追加型，口令只记布尔）       安全 M-1/REG-01 B1
 -- 用途：供评审与 DBA 查看；执行来源唯一为 Flyway 目录，
 --       请勿直接以本快照为起点做增量变更。
 -- 变更纪律：后续 Flyway 新增 Vn 结构脚本时，必须同步刷新本快照；已执行脚本永不修改。
@@ -30,7 +34,8 @@
 --   D8 时间字段：create_time / update_time 仅设 DEFAULT CURRENT_TIMESTAMP 兜底，
 --      不使用 ON UPDATE CURRENT_TIMESTAMP，由应用层统一填充；
 --   追加型日志/留痕表（login_log / client_log / hr_salary_log / leave_log /
---       work_order_timeline / work_order_transfer / sync_task_log）不设 is_deleted / update_time，
+--       work_order_timeline / work_order_transfer / sync_task_log / payroll_log /
+--       station_payroll_setting_log / operation_audit_log）不设 is_deleted / update_time，
 --      不可变数据无更新与删除语义（db.md 3.4 例外约定）；
 --   JSON 列仅用于「低频读取、结构多变」字段（db.md §8.9 边界说明）。
 -- ----------------------------------------------------------------
@@ -142,7 +147,7 @@ CREATE TABLE `client_log` (
 CREATE TABLE `notification` (
   `id`             BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
   `employee_id`    BIGINT       NOT NULL COMMENT '接收人（逻辑外键 employee.id）',
-  `type`           TINYINT      NOT NULL COMMENT '类型：1=工单指派 2=工单流转 3=同步失败 4=系统公告 5=请假申请 6=请假结果',
+  `type`           TINYINT      NOT NULL COMMENT '类型：1=工单指派 2=工单流转 3=同步失败 4=系统公告 5=请假申请 6=请假结果 7=工资单待审核（→管理员） 8=工资单已发布（→员工本人） 9=工资单异议退回（→管理员）',
   `title`          VARCHAR(100) NOT NULL COMMENT '标题（1-100 字）',
   `content`        VARCHAR(500) NOT NULL DEFAULT '' COMMENT '内容（1-500 字）',
   `biz_type`       VARCHAR(32)  DEFAULT NULL COMMENT '业务跳转类型：work_order/sync_task/leave（公告为空）',
@@ -218,10 +223,12 @@ CREATE TABLE `attendance_schedule` (
   `is_deleted`  TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除：0=否，1=是',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '更新时间（应用层维护）',
+  `active_shift_key` VARCHAR(64) GENERATED ALWAYS AS (IF(`is_deleted` = 0, CONCAT(`employee_id`, '|', `work_date`, '|', `shift_id`), NULL)) STORED COMMENT '活跃排班键生成列：is_deleted=0 时拼 employee_id|work_date|shift_id，否则 NULL；仅活跃行唯一（V22）',
   PRIMARY KEY (`id`),
   KEY `idx_attendance_schedule_station_date` (`station_id`, `work_date`),
-  KEY `idx_attendance_schedule_emp_date` (`employee_id`, `work_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='排班（员工+日期活跃唯一，Service 查重）';
+  KEY `idx_attendance_schedule_emp_date` (`employee_id`, `work_date`),
+  UNIQUE KEY `uk_attendance_schedule_active_shift` (`active_shift_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='排班（员工+日期+班次 活跃唯一：生成列 active_shift_key 唯一键收口「活跃唯一」，软删行置 NULL 不占键；V22）';
 
 CREATE TABLE `attendance_record` (
   `id`               BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -487,7 +494,7 @@ CREATE TABLE `payroll` (
   `deduction_total`  DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '扣项合计',
   `gross_amount`     DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '应发合计（=增项合计）',
   `net_amount`       DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '实发净额（应发-扣项）',
-  `status`           VARCHAR(20)   NOT NULL DEFAULT 'DRAFT' COMMENT '状态：DRAFT/PENDING_APPROVAL/APPROVED/REJECTED/PUBLISHED/CONFIRMED',
+  `status`           VARCHAR(20)   NOT NULL DEFAULT 'DRAFT' COMMENT '状态：DRAFT/PENDING_APPROVAL/APPROVED/REJECTED/PUBLISHED/CONFIRMED/OBJECTED/PAID（V20 补 OBJECTED/PAID 两态说明）',
   `remark`           VARCHAR(255)  DEFAULT NULL COMMENT '备注',
   `approve_remark`   VARCHAR(255)  DEFAULT NULL COMMENT '审核意见',
   `approver_id`      BIGINT        DEFAULT NULL COMMENT '审核人（逻辑外键 employee.id）',
@@ -503,6 +510,9 @@ CREATE TABLE `payroll` (
   `is_deleted`       TINYINT       NOT NULL DEFAULT 0 COMMENT '逻辑删除：0=否，1=是',
   `create_time`      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time`      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '更新时间（应用层维护）',
+  `paid_by_id`       BIGINT        DEFAULT NULL COMMENT '确认发放人（逻辑外键 employee.id；已发放终态；V20 补列）',
+  `paid_by_name`     VARCHAR(50)   DEFAULT NULL COMMENT '确认发放人姓名快照（V20 补列）',
+  `paid_time`        DATETIME      DEFAULT NULL COMMENT '确认发放时间（V20 补列）',
   PRIMARY KEY (`id`),
   KEY `idx_payroll_payroll_no` (`payroll_no`),
   KEY `idx_payroll_emp_month_bill` (`employee_id`, `month`, `bill_type`),
@@ -883,3 +893,127 @@ CREATE TABLE `employee_registration` (
   KEY `idx_employee_registration_flow` (`flow_id`),
   KEY `idx_employee_registration_status` (`status`, `create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='员工自助注册申请单（注册事实与凭据载体；V17）';
+
+-- ================================================================
+-- 薪资结算自动化（V20__payroll_automation.sql + V21__payroll_log_locator.sql）
+-- 4 新表：station_payroll_setting（一驿一条算薪配置）/ payroll_log（追加型留痕）/ payroll_run（运行记录与认领槽位幂等）
+--   / station_payroll_setting_log（配置变更审计，V21）。
+-- payroll 增量：paid_by_id / paid_by_name / paid_time 加列与 status COMMENT 8 态，已内联于上方 payroll 定义。
+-- V21 增量：payroll_log 补冗余定位列 employee_id / month 与索引；payroll_run 补 attempt_date（NOT NULL）
+--   与唯一键 uk_attempt，并 DROP 冗余索引 idx_payroll_run_station_month（被 uk_attempt 最左前缀覆盖）、
+--   skip_code 去 EXHAUSTED、表注释加「每自然日至多一次」语义；新增 station_payroll_setting_log。
+-- 幂等硬约束：uk_payroll_run_claim (station_id, claim_key)——claim_key = target_month，RUNNING/SUCCESS/SKIPPED
+--   均写值（占位），FAILED 置 NULL（释放）；NULL 可多行，故同驿站同账期至多一条占位行、FAILED 可多行。
+--   另 uk_attempt (station_id, target_month, attempt_date) 管「每自然日至多一次」（同日第 2 条 INSERT 撞 1062）。
+-- 说明：payroll_log / station_payroll_setting_log 为追加型留痕，无 is_deleted / update_time（沿用 leave_log 例外约定）。
+-- ================================================================
+
+CREATE TABLE `station_payroll_setting` (
+  `id`             BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `station_id`     BIGINT       NOT NULL COMMENT '驿站（逻辑外键 station.id，一驿一条，活跃唯一由 Service 查重）',
+  `enabled`        TINYINT      NOT NULL DEFAULT 0 COMMENT '是否启用自动算薪：0=停用（默认，安全），1=启用',
+  `payroll_day`    INT          NOT NULL DEFAULT 1 COMMENT '算薪日=每月第几天（1-31；月末缺日由调度钳位到当月最后一天；Service 校验）',
+  `payroll_time`   VARCHAR(5)   NOT NULL DEFAULT '09:00' COMMENT '执行时间 HH:mm（Asia/Shanghai 墙钟）',
+  `notify_enabled` TINYINT      NOT NULL DEFAULT 1 COMMENT '生成后是否推送管理员：0=不推，1=推（默认，Q8）',
+  `remark`         VARCHAR(255) DEFAULT NULL COMMENT '备注',
+  `is_deleted`     TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除：0=否，1=是',
+  `create_time`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '更新时间（应用层维护）',
+  PRIMARY KEY (`id`),
+  KEY `idx_station_payroll_setting_station` (`station_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='驿站级算薪配置（一驿一条，活跃唯一由 Service 查重；V20）';
+
+CREATE TABLE `payroll_log` (
+  `id`            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `payroll_id`    BIGINT       NOT NULL COMMENT '工资单（逻辑外键 payroll.id）；generate 覆盖重建会物理删除 DRAFT/REJECTED 单，本列可能指向已删单（孤儿），故须配合下方 employee_id / month 冗余定位列检索（V21 更新注释）',
+  `employee_id`   BIGINT       DEFAULT NULL COMMENT '冗余定位列：留痕所属员工（逻辑外键 employee.id）；使留痕可脱离已删 payroll_id 按「员工 + 账期」独立检索（V21 补列）',
+  `month`         CHAR(7)      DEFAULT NULL COMMENT '冗余定位列：账期 yyyy-MM（V21 补列）',
+  `action`        VARCHAR(32)  NOT NULL COMMENT '动作：GENERATE_AUTO/GENERATE_MANUAL/ITEM_ADD/ITEM_UPDATE/SUBMIT/APPROVE/REJECT/PUBLISH/REPUBLISH/CONFIRM/OBJECTION/PAY/NOTIFY/NOTIFY_SKIP',
+  `operator_id`   BIGINT       DEFAULT NULL COMMENT '操作人（逻辑外键 employee.id；SYSTEM 为空）',
+  `operator_name` VARCHAR(50)  DEFAULT NULL COMMENT '操作人姓名快照',
+  `operator_role` VARCHAR(20)  DEFAULT NULL COMMENT '操作人角色快照',
+  `operator_type` VARCHAR(16)  NOT NULL DEFAULT 'USER' COMMENT '操作主体：USER=人工（默认），SYSTEM=自动调度',
+  `time`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间（只插不改，无 update_time）',
+  `from_status`   VARCHAR(20)  DEFAULT NULL COMMENT '变更前状态',
+  `to_status`     VARCHAR(20)  DEFAULT NULL COMMENT '变更后状态',
+  `reason`        VARCHAR(200) DEFAULT NULL COMMENT '事由：手工加扣款必填（Q3）/ 异议原因 / 驳回意见 / 再发布处理说明（Service 校验，非 DB 约束）',
+  `before`        JSON         DEFAULT NULL COMMENT '变更前快照（金额 / 合计等，低频读取、结构多变）',
+  `after`         JSON         DEFAULT NULL COMMENT '变更后快照（金额 / 合计等，低频读取、结构多变）',
+  `remark`        VARCHAR(200) DEFAULT NULL COMMENT '备注 / 排障说明',
+  PRIMARY KEY (`id`),
+  KEY `idx_payroll_log_payroll` (`payroll_id`, `time`),
+  KEY `idx_payroll_log_action_time` (`action`, `time`),
+  KEY `idx_payroll_log_emp_month` (`employee_id`, `month`, `time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='工资单操作留痕（追加型，只增不改；V20）';
+
+CREATE TABLE `payroll_run` (
+  `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `station_id`      BIGINT       NOT NULL COMMENT '驿站（逻辑外键 station.id）',
+  `target_month`    CHAR(7)      NOT NULL COMMENT '目标账期 yyyy-MM',
+  `attempt_date`    DATE         NOT NULL COMMENT '本次尝试的自然日（Asia/Shanghai 墙钟；写 now.toLocalDate()）——「同一驿站同一账期每自然日至多尝试一次」的闸门依据与连续失败天数统计口径（V21 补列，U-06）',
+  `trigger_type`    VARCHAR(16)  NOT NULL COMMENT '触发方式：AUTO=定时到点，CATCH_UP=补跑，MANUAL=手工触发',
+  `due_at`          DATETIME     NOT NULL COMMENT '本次应执行时刻（Asia/Shanghai 墙钟，判定「错过」的基准）',
+  `status`          VARCHAR(16)  NOT NULL DEFAULT 'RUNNING' COMMENT '结果：RUNNING/SUCCESS/FAILED/SKIPPED',
+  `skip_code`       VARCHAR(24)  DEFAULT NULL COMMENT '跳过码（机器可读）：BLOCKED_9405/CONFIG_INVALID/DRAFT_PROTECTED；配合 skip_reason，供指标统计与「是否重试」判定（V21 移除 EXHAUSTED：无硬上限，连续失败改为告警）',
+  `skip_reason`     VARCHAR(200) DEFAULT NULL COMMENT '跳过原因（人类可读，如「该账期已生成 9405（单号 …）」）',
+  `generated_count` INT          DEFAULT NULL COMMENT '生成单据数',
+  `fail_reason`     VARCHAR(500) DEFAULT NULL COMMENT '失败原因（截断，不落敏感信息）',
+  `claim_key`       CHAR(7)      DEFAULT NULL COMMENT '认领槽位 = target_month：RUNNING/SUCCESS/SKIPPED 写值（占位）；FAILED 置 NULL（释放，允许重试）（配合 uk_payroll_run_claim）',
+  `operator_id`     BIGINT       DEFAULT NULL COMMENT '手工触发人（MANUAL 时，逻辑外键 employee.id）',
+  `start_time`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '开始时间',
+  `finish_time`     DATETIME     DEFAULT NULL COMMENT '结束时间',
+  `is_deleted`      TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除：0=否，1=是（只增不删、无删除入口，业务永不置位，Q-DB-9）',
+  `create_time`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '更新时间（应用层维护）',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_payroll_run_claim` (`station_id`, `claim_key`),
+  UNIQUE KEY `uk_attempt` (`station_id`, `target_month`, `attempt_date`),
+  KEY `idx_payroll_run_status_time` (`status`, `start_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='自动算薪运行记录（认领槽位幂等 + 日粒度闸门：uk_payroll_run_claim 管跨日终态占位 [RUNNING/SUCCESS/SKIPPED 每驿站每账期至多一行]、uk_attempt 管日内一次 [同一驿站同一账期每自然日至多一条]；V20/V21）';
+
+CREATE TABLE `station_payroll_setting_log` (
+  `id`            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `station_id`    BIGINT       NOT NULL COMMENT '驿站（逻辑外键 station.id；非空，与 payroll_log.payroll_id 等价定位）',
+  `action`        VARCHAR(16)  NOT NULL COMMENT '动作：CREATE=首次创建 / UPDATE=字段变更 / ENABLE=启用(0→1) / DISABLE=停用(1→0)（每次保存必写一条）',
+  `operator_id`   BIGINT       DEFAULT NULL COMMENT '操作人（逻辑外键 employee.id）',
+  `operator_name` VARCHAR(50)  DEFAULT NULL COMMENT '操作人姓名快照',
+  `operator_role` VARCHAR(20)  DEFAULT NULL COMMENT '操作人角色快照',
+  `before`        JSON         DEFAULT NULL COMMENT '变更前快照（白名单键：enabled/payrollDay/payrollTime/notifyEnabled/remark；CREATE 时为 NULL）',
+  `after`         JSON         DEFAULT NULL COMMENT '变更后快照（同白名单键，不含凭据 / 个人信息）',
+  `time`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间（只插不改，无 update_time）',
+  `remark`        VARCHAR(200) DEFAULT NULL COMMENT '备注',
+  PRIMARY KEY (`id`),
+  KEY `idx_station_payroll_setting_log_station_time` (`station_id`, `time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='驿站算薪配置变更审计（追加型，只增不改；每次保存必写一条；V21）';
+
+-- ================================================================
+-- 操作审计留痕（V23__operation_audit_log.sql）
+-- 通用追加型审计：覆盖 employee / station 的新增 / 编辑 / 启停 / 删除 / 重置口令（安全必做项 M-1 / REG-01）。
+-- 追加型：无 is_deleted / update_time（不可变数据，db.md §8.0(4) 例外约定）。
+-- 时间列命名 time：与既有留痕 leave_log / payroll_log / station_payroll_setting_log 对齐（评审 M-7）。
+-- 口令安全：before / after / changed_fields 白名单化，口令只记布尔（{"password":"SET"/"RESET"}），绝不落明文/散列（§3.4）。
+-- 说明：V22（attendance_schedule 生成列 active_shift_key + 唯一键）为既有表增量，已内联于上方 attendance_schedule 定义。
+-- ================================================================
+
+CREATE TABLE `operation_audit_log` (
+  `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `operator_id`     BIGINT       DEFAULT NULL COMMENT '操作人（逻辑外键 employee.id；SYSTEM 触发为空）',
+  `operator_name`   VARCHAR(50)  DEFAULT NULL COMMENT '操作人姓名快照（对齐 payroll_log）',
+  `operator_role`   VARCHAR(20)  DEFAULT NULL COMMENT '操作人角色快照（ADMIN/STATION_ADMIN/STAFF）',
+  `operator_type`   VARCHAR(16)  NOT NULL DEFAULT 'USER' COMMENT '操作主体：USER=人工（默认），SYSTEM=系统自动（对齐 payroll_log.operator_type）',
+  `target_type`     VARCHAR(16)  NOT NULL COMMENT '目标类型：EMPLOYEE=员工账号 / STATION=驿站（扩展新对象只增取值，不改表结构）',
+  `target_id`       BIGINT       NOT NULL COMMENT '目标主键（逻辑外键：按 target_type 指向 employee.id 或 station.id）',
+  `target_name`     VARCHAR(64)  DEFAULT NULL COMMENT '目标名称快照（员工姓名 / 驿站名；目标逻辑删后仍可知「改的是谁/哪个驿站」，免回表）',
+  `action`          VARCHAR(16)  NOT NULL COMMENT '动作：CREATE=新增 / UPDATE=编辑 / CHANGE_STATUS=启停 / DELETE=删除 / RESET_PASSWORD=重置口令',
+  `before`          JSON         DEFAULT NULL COMMENT '变更前快照（白名单键；口令只允许布尔标记，如 {"password":"RESET"}，绝不落明文或散列）',
+  `after`           JSON         DEFAULT NULL COMMENT '变更后快照（白名单键；同 before 口令约束，不得含明文/散列）',
+  `changed_fields`  JSON         DEFAULT NULL COMMENT '发生变化的字段名白名单（JSON 数组，如 ["realName","phone"]）；口令变更只记 "password" 字段名',
+  `client_ip`       VARCHAR(50)  DEFAULT NULL COMMENT '客户端 IP（Nginx 透传 X-Forwarded-For 首个；口径对齐 login_log.login_ip / employee_registration.client_ip）',
+  `result`          VARCHAR(10)  NOT NULL DEFAULT 'SUCCESS' COMMENT '结果：SUCCESS=成功，FAIL=失败',
+  `fail_reason`     VARCHAR(200) DEFAULT NULL COMMENT '失败原因（截断，不落敏感信息 / 口令；result=FAIL 时可选填）',
+  `time`            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间（只插不改，无 update_time；命名对齐 leave_log/payroll_log 的 time，评审 M-7）',
+  PRIMARY KEY (`id`),
+  KEY `idx_operation_audit_target` (`target_type`, `target_id`, `time`),
+  KEY `idx_operation_audit_operator` (`operator_id`, `time`),
+  KEY `idx_operation_audit_action_time` (`action`, `time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='操作审计留痕（追加型，只增不改；覆盖 employee/station 的增改启停删重置口令；口令只记布尔、绝不落明文/散列；V23）';

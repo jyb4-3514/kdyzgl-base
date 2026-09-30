@@ -1,14 +1,14 @@
-# 快递驿站智汇系统 · 数据库设计文档（一期 4 表 → 145 接口 39 表）
+# 快递驿站智汇系统 · 数据库设计文档（一期 4 表 → 145 接口 44 表）
 
 | 项目 | 内容 |
 | ---- | ---- |
-| 文档版本 | v2.2（v1.0 = 一期 4 表；v2.0 = 第 8 章 P1~P10 共 33 表；v2.1 = 第 10 章 登录体系改造 1 表 + `hr_flow` 补列；v2.2 = 第 11 章 员工自助注册 1 表 + `employee` 活跃唯一/岗位 + `hr_flow` 来源列） |
-| 编写日期 | 2026-09-06（v1.0）/ 2026-09-24（v2.0）/ 2026-09-24（v2.1）/ 2026-09-26（v2.2） |
-| 状态 | 第 1~7 章（一期）已评审；第 8 章（二期扩展）已落库（V3~V13 全部执行成功）；第 10 章（登录改造）待主智能体 Review；第 11 章（员工自助注册 V16~V19）静态产出，待技术评审/报审 |
+| 文档版本 | v2.5（v1.0 = 一期 4 表；v2.0 = 第 8 章 P1~P10 共 33 表；v2.1 = 第 10 章 登录体系改造 1 表 + `hr_flow` 补列；v2.2 = 第 11 章 员工自助注册 1 表 + `employee` 活跃唯一/岗位 + `hr_flow` 来源列；v2.3 = §8.6 薪资结算自动化 3 表 + `payroll` 补 3 列；v2.4 = §8.6.5~§8.6.7 同步设计 v1.1 claim 槽位语义：`success_key`→`claim_key`、补 `skip_code`、`payroll_day` 1-31；**v2.5 = §8.6.6~§8.6.8 同步 `V21`：`payroll_log` 冗余定位列、`payroll_run.attempt_date` + `uk_attempt` + 索引精简、新表 `station_payroll_setting_log`、`notification.type` 列 COMMENT 补 7/8/9（仅注释不改列型）**；**v2.6 = §12 驿站精灵管理能力扩展数据层增量（`V22` `attendance_schedule` 生成列式活跃唯一键 + `V23` 操作审计留痕表 `operation_audit_log`）**） |
+| 编写日期 | 2026-09-06（v1.0）/ 2026-09-24（v2.0）/ 2026-09-24（v2.1）/ 2026-09-26（v2.2）/ 2026-09-27（v2.3）/ 2026-09-27（v2.4）/ 2026-09-27（v2.5）/ 2026-09-27（v2.6） |
+| 状态 | 第 1~7 章（一期）已评审；第 8 章（二期扩展）已落库（V3~V13 全部执行成功）；第 10 章（登录改造）待主智能体 Review；第 11 章（员工自助注册 V16~V19）静态产出，待技术评审/报审；§8.6.5~§8.6.8（薪资结算自动化 V20 + V21）静态产出，待技术评审/报审；第 12 章（驿站精灵管理能力扩展 V22/V23）静态产出，待技术评审复评/报审 |
 | 数据库 | **MySQL 8.0 单库**（决策：`postgresql/` 目录冻结不再维护，保留不删避免历史引用断裂） |
 | 库名 | `kdyzgl`（utf8mb4 / utf8mb4_0900_ai_ci） |
 | 关联文档 | [requirement.md](requirement.md)、[api.md](api.md)、[plan.md](plan.md)、[server-architecture.md](server-architecture.md)、[algo-hrm-server.md](algo-hrm-server.md)、[multi-client-architecture.md](multi-client-architecture.md)、[security-auth-review.md](security-auth-review.md)、[registration-design.md](registration-design.md) |
-| 迁移落位 | `hrm-server/src/main/resources/db/migration/mysql/V1..V19`；快照 `sql/schema/mysql/init.sql` |
+| 迁移落位 | `hrm-server/src/main/resources/db/migration/mysql/V1..V23`；快照 `sql/schema/mysql/init.sql` |
 
 > **v2.0 变更范围**：第 1~7 章为一期权威基准，**字段与语义保持冻结不改**；第 8 章按
 > `server-architecture.md` §4（表清单/字段与索引策略/Flyway 版本规划/P10 大表策略）与
@@ -27,6 +27,45 @@
 > （`employee.position` 方案乙 U-07）。**V1~V15 未改动**；表总数 38 → **39**。**仅同步 `sql/schema/mysql/init.sql`**
 > （`postgresql/` 自 V2 起冻结，本期不产出 pg 脚本与 pg 快照，见 §5.3）。**V16 执行前须预检 0 行**、
 > 全部脚本**属 C 档（未执行）**。
+>
+> **v2.3 变更范围**：在 §8.6 计薪段内新增 **§8.6.5~§8.6.7** 三节，按 `payroll-automation-design.md`（**v1.1**，claim 槽位语义）
+> §3 数据设计产出 **V20**（`V20__payroll_automation.sql`）：新建 `station_payroll_setting`（驿站级算薪配置）、
+> `payroll_log`（追加型操作留痕）、`payroll_run`（自动算薪运行记录与认领槽位幂等）3 表，并为 `payroll` 补
+> `paid_by_id` / `paid_by_name` / `paid_time` 3 列与 `status` 列 8 态 COMMENT 说明。**V1~V19 未改动**；
+> 表总数 39 → **42**。**仅同步 `sql/schema/mysql/init.sql`**（`postgresql/` 自 V2 起冻结，本期不产出 pg 脚本与 pg 快照，见 §5.3）。
+> 全部脚本**属 C 档（未执行）**；且据调度规则 P0.6 / L8，本方案为**方案阶段产物**，须先经技术评审工程师评估
+> 「通过 / 有条件通过」方可报主智能体审批、再进入 B1 执行。
+>
+> **v2.4 变更范围（本次）**：承接技术评审**必改项 2**（数据层三方与 v1.1 不一致）与安全评估 **M-1 / REG-01**，将
+> §8.6.5~§8.6.7 由 v1.0 语义同步为设计 v1.1 的 **claim 认领槽位语义**：`payroll_run.success_key`→**`claim_key`**、
+> 唯一键 `uk_payroll_run_success`→**`uk_payroll_run_claim (station_id, claim_key)`**、新增 `skip_code` 列
+> （`payroll_run` 16→**17 列**）、`RUNNING`/`SUCCESS`/`SKIPPED` 均写 `claim_key` 占位、`FAILED` 置 `NULL` 释放；
+> `station_payroll_setting.payroll_day` 口径由「建议 1-28」改 **1-31（月末钳位）**；并删除 v1.0 反向断言
+> （「`RUNNING`/`FAILED`/`SKIPPED` 可多行」「`success_key` 仅 `SUCCESS` 写值」）。同步落点：**§8.6.3 / §8.6.5 / §8.6.7 /
+> §8.11 / §8.12 / §9.1 Q-DB-7/Q-DB-9 / §9.3 / §9.4 U-13** 与 `V20` / `init.sql` 三方逐列一致。**V1~V19 未改动**；
+> 表总数不变（仍 **42**）。**V20 仍属 C 档（未执行）**。
+>
+> **v2.5 变更范围（本次）**：承接 `payroll-automation-design.md` **v1.4** §3.2/§3.3/§3.6 与 `algorithm-payroll-scheduling.md`
+> **v1.2** §1.5/§12.2 + `payroll-automation-design.md` v1.4 §4.5（通知类型 7/8/9），产出新迁移 **`V21__payroll_log_locator.sql`**（范围四段）：① `payroll_log` 补冗余定位列
+> `employee_id` / `month`（+ 更新 `payroll_id` 注释标注孤儿风险）+ 索引 `idx_payroll_log_emp_month`（M-2②/M-4）；
+> ② `payroll_run` 补 `attempt_date DATE NOT NULL`（三段式落地，NOT NULL 无默认）+ **唯一键 `uk_attempt
+> (station_id, target_month, attempt_date)`**（主代理 v1.4 裁定：日粒度 DB 硬防线，与 `uk_payroll_run_claim` 正交共存）
+> + **删除冗余索引 `idx_payroll_run_station_month`**（被 `uk_attempt` 最左前缀覆盖）+ `skip_code` COMMENT 去 `EXHAUSTED`
+> + 表 COMMENT 加「每自然日至多一次」；③ 新表 `station_payroll_setting_log`（M-9 配置变更审计，追加型，10 列）；
+> ④ `notification.type` 补列 COMMENT（`1-6`→`1-9`，方案 §4.5 通知类型 7/8/9；仅注释、不改列型）。
+> 同步落点：**§5.3 / §8.0 / §8.2.1 / §8.6.6 / §8.6.7 / §8.6.8 / §8.11 / §8.12 / §8.13 / §9.1 Q-DB-7/Q-DB-9/Q-DB-10 / §9.3 / §9.4 U-1/U-14**
+> 与 `V21` / `init.sql` 三方逐列一致。**`V1`~`V20` 未改动**（V21 未触碰 V20）；表总数 **42 → 43**。**V21 属 C 档（未执行）**。
+> `notification.type` COMMENT（`1-6`→`1-9`）**并入本轮 `V21` 段 4**（主代理裁定「一次做完、不另开迁移版本」）：仅更新列 COMMENT 说明 7/8/9，`type` 仍 `TINYINT NOT NULL` 无默认、**不改列型**；白名单拆分（`sendSystem` 独立 `SYSTEM_TYPES{7,8,9}`、公告白名单维持 `1..6`）属 **B4 代码改动**。见 §8.2.1 / §8.12。
+>
+> **v2.6 变更范围（本次）**：承接 `boss-management-architecture.md` §2.4（ARCH-S-1）/ §3（ARCH-S-2）与
+> `tech-review-boss-management.md` 必改项 **M-1 / M-6 / M-7**，产出两个新迁移：**`V22__attendance_schedule_multi_shift.sql`**
+> （`attendance_schedule` 补**生成列** `active_shift_key` + **唯一键** `uk_attendance_schedule_active_shift`，以「活跃唯一」收口多班次；
+> 保留两个既有普通索引——**表达式唯一键不吃其最左前缀**，不删索引）与 **`V23__operation_audit_log.sql`**（新表
+> `operation_audit_log`，通用追加型操作审计留痕，覆盖 employee/station 的增改启停删重置口令，时间列命名对齐既有留痕
+> **`time`**，口令只记布尔、绝不落明文/散列）。同步落点：**§8.3.3 / §8.11 / §8.12 / §8.13 / §9.1 Q-DB-11 / §9.3 / §9.4 U-15 /
+> 第 12 章** 与 `V22`/`V23` / `init.sql` 三方逐列一致。**`V1`~`V21` 未改动**；表总数 **43 → 44**（+1 表 `operation_audit_log`；
+> `attendance_schedule` +1 列 +1 唯一键）。两脚本**均属 C 档（未执行）**，且据调度规则 **P0.6 / L8** 为方案阶段产物，
+> 须先经技术评审工程师复评「通过 / 有条件通过」方可报主智能体审批、再进入 B1/B7 执行。
 
 ***
 
@@ -410,9 +449,11 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 
 `hrm-dev/sql/schema/mysql/init.sql` 存放「当前最新结构的完整快照（含注释）」，供评审与 DBA 查看；**执行来源唯一为 Flyway 目录**。约束：任何 Flyway 新增结构脚本（V3+）必须同步刷新快照（一期由任务 A05 落实，后续变更沿用）。
 
-- **当前状态（v2.2）**：`mysql/init.sql` == Flyway `V1 + V2(种子) + V3..V19` 的最终结构态（共 **39** 张表）；V3~V13 已随第 8 章落库，V14/V15 随第 10 章落库，V16~V19 随第 11 章产出（**尚未执行，C 档**）。
-- **`postgresql/init.sql` 冻结**：不再维护、不再随变更刷新，仅保留避免历史引用断裂（`spring.flyway.locations={vendor}` 只会选中 `mysql/`）；**本期 V16~V19 不产出 pg 脚本与 pg 快照**（与 `registration-design.md` §0.4/§7 一致）。
+- **当前状态（v2.5）**：`mysql/init.sql` == Flyway `V1 + V2(种子) + V3..V21` 的最终结构态（共 **43** 张表）；V3~V13 已随第 8 章落库，V14/V15 随第 10 章落库，V16~V19 随第 11 章产出（**尚未执行，C 档**），V20（薪资结算自动化）随 §8.6.5~§8.6.7、**V21（薪资结算自动化 v1.2/v1.3/v1.4 增量）** 随 §8.6.6~§8.6.8 产出（**尚未执行，C 档**）。
+- **`postgresql/init.sql` 冻结**：不再维护、不再随变更刷新，仅保留避免历史引用断裂（`spring.flyway.locations={vendor}` 只会选中 `mysql/`）；**本期 V16~V21 不产出 pg 脚本与 pg 快照**（与 `registration-design.md` §0.4/§7、`payroll-automation-design.md` §3 一致）。
 - **快照与迁移一致性核对结论（v2.2）**：`mysql/init.sql` 与 `V1 + V3..V19` 表/列/索引逐项比对一致——含 `employee` 新列 `phone_active`（生成列）/ `position` + 唯一键 `uk_employee_phone_active`、`hr_flow` 新列 `source`（`NOT NULL DEFAULT 'ADMIN'`）、新表 `employee_registration`（21 列 + 1 唯一 + 3 普通索引）。
+- **快照与迁移一致性核对结论（v2.4）**：`mysql/init.sql` 与 `V1 + V3..V20` 表/列/索引逐项比对一致——新增 `station_payroll_setting`（10 列 + 1 普通索引）、`payroll_log`（14 列 + 2 普通索引）、`payroll_run`（**17 列** + 1 唯一 `uk_payroll_run_claim` + 2 普通索引），`payroll` 表内联补 `paid_by_id` / `paid_by_name` / `paid_time` 3 列并更新 `status` 列 8 态 COMMENT；`payroll_run` 已按设计 v1.1 落 `claim_key` / `skip_code`。**静态比对，未实跑**（`SHOW CREATE TABLE` 收敛到服务器阶段，见 §9.4 U-13）。
+- **快照与迁移一致性核对结论（v2.5 / V21）**：`mysql/init.sql` 与 `V1 + V3..V21` 表/列/索引逐项比对一致——`payroll_log` 表内联补 `employee_id` / `month` 两列 + `idx_payroll_log_emp_month`（表内 **16 列 + 3 普通索引**）；`payroll_run` 表内联补 `attempt_date`（`NOT NULL`）+ 唯一键 `uk_attempt (station_id, target_month, attempt_date)`，**移除**冗余普通索引 `idx_payroll_run_station_month`（被 `uk_attempt` 最左前缀覆盖，见 §8.6.7），`skip_code` 列 COMMENT 去 `EXHAUSTED`（表内 **18 列 + 2 唯一 + 1 普通索引**）；新增 `station_payroll_setting_log`（**10 列 + 1 普通索引**，追加型无 `is_deleted` / `update_time`）。**静态比对，未实跑**（收敛到服务器阶段，见 §9.4 U-14）。
 
 ***
 
@@ -500,14 +541,14 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 3. **时间填充**（决策 D8）：`create_time` / `update_time` 仅 `DEFAULT CURRENT_TIMESTAMP` 兜底，
    由应用层 `MetaObjectHandler` 填充，不使用 `ON UPDATE CURRENT_TIMESTAMP`。
 4. **追加型日志 / 留痕表例外**：`client_log`、`hr_salary_log`、`leave_log`、`work_order_timeline`、
-   `work_order_transfer`、`sync_task_log` **不设 `is_deleted` / `update_time`**（不可变数据无更新与删除语义，
+   `work_order_transfer`、`sync_task_log`、`payroll_log`（§8.6.6，v2.3 新增）、`station_payroll_setting_log`（§8.6.8，v2.5 新增） **不设 `is_deleted` / `update_time`**（不可变数据无更新与删除语义，
    沿用 `login_log` 的例外约定）；其业务时间字段为 `time` / `create_time` / `log_time` / `transfer_time`。
 5. **面向频繁迭代（ADR-04）**：只加列不删列、不改列类型；新列可空或带默认值；加列优先
    `ALGORITHM=INSTANT/INPLACE`；索引变更附回滚脚本；不用存储过程 / 触发器 / 物理外键。
 6. **JSON 列使用边界**：仅用于「低频读取、结构多变」字段，**高频筛选 / 排序 / 聚合字段一律显式列 + 索引**。
    本章 JSON 列全集：`attendance_rule.wifi_list`、`attendance_rule.check_periods`、`kpi_score.metric_detail`、
    `hr_salary.allowances`、`hr_salary_log.allowances`、`payroll.rule_snapshot`、`payroll_rule_item.params`、
-   `leave_request.counted_days_snapshot`、`leave_log.before/after`（§7.2 既有）、`sync_config_item.constraints`、
+   `leave_request.counted_days_snapshot`、`leave_log.before/after`（§7.2 既有）、`payroll_log.before/after`（§8.6.6，v2.3 新增，与 `leave_log` 同口径）、`station_payroll_setting_log.before/after`（§8.6.8，v2.5 新增，配置变更白名单快照）、`sync_config_item.constraints`、
    `sync_config_option.extra_attrs`、`sync_config_option.legacy_codes`（后两者为本章新增，见 §8.12 核对项）。
 7. **禁止 `SELECT *` 友好化**：列表 / 统计查询所需字段均落入对应索引（见 §8.11 覆盖映射），
    禁止把核心字段塞 JSON、禁止为模糊搜索滥引全文索引。
@@ -528,14 +569,14 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 
 #### 8.2.1 `notification`（V4）— 站内通知
 
-**用途**：站内信（系统联动 + 手工发布）。系统联动含工单指派/流转、同步失败、请假（type 5/6）；手工发布由 ADMIN 按范围扇出。
+**用途**：站内信（系统联动 + 手工发布）。系统联动含工单指派/流转、同步失败、请假（type 5/6）、薪资（type 7/8/9，V21 段 4 补注）；手工发布由 ADMIN 按范围扇出。
 **字段**：
 
 | 字段 | 类型 | 允许空 | 默认值 | 注释 |
 | ---- | ---- | ---- | ---- | ---- |
 | id | BIGINT AI | 否 | - | 主键 |
 | employee_id | BIGINT | 否 | - | 接收人（逻辑外键 employee.id） |
-| type | TINYINT | 否 | - | 通知类型：1=工单指派 2=工单流转 3=同步失败 4=系统公告 5=请假申请 6=请假结果 |
+| type | TINYINT | 否 | - | 通知类型：1=工单指派 2=工单流转 3=同步失败 4=系统公告 5=请假申请 6=请假结果 7=工资单待审核（→管理员） 8=工资单已发布（→员工本人） 9=工资单异议退回（→管理员）；7/8/9 由 V21 段 4 补注（仅注释、不改列型） |
 | title | VARCHAR(100) | 否 | - | 标题（1-100 字） |
 | content | VARCHAR(500) | 否 | '' | 内容（1-500 字） |
 | biz_type | VARCHAR(32) | 是 | NULL | 跳转类型：`work_order` / `sync_task` / `leave`（公告为空） |
@@ -596,19 +637,25 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 **逻辑关系**：`station_id` → `station.id`；被 `attendance_schedule.shift_id` 引用（删除前 Service 校验是否被排班引用）。
 **查询走索引**：按 `station_id` 列班次（`idx_attendance_shift_station`）。
 
-#### 8.3.3 `attendance_schedule`（V5）— 排班
+#### 8.3.3 `attendance_schedule`（V5 / V22 活跃唯一键）— 排班
 
-**用途**：按周排班矩阵（员工 × 日期 × 班次）。
-**字段**：`id` / `station_id`(逻辑外键 station.id) / `employee_id`(逻辑外键 employee.id) / `work_date` DATE / `shift_id`(逻辑外键 attendance_shift.id) / `is_deleted` / `create_time` / `update_time`。
+**用途**：按周排班矩阵（员工 × 日期 × 班次）；**一天支持多班次**（同员工同天可并存不同 `shift_id`）。
+**字段**：`id` / `station_id`(逻辑外键 station.id) / `employee_id`(逻辑外键 employee.id) / `work_date` DATE / `shift_id`(逻辑外键 attendance_shift.id) / `is_deleted` / `create_time` / `update_time` / **`active_shift_key`（V22 生成列）**。
+**`active_shift_key`（V22，生成列 · 活跃唯一）**：`VARCHAR(64)`，`GENERATED ALWAYS AS (IF(is_deleted=0, CONCAT(employee_id,'|',work_date,'|',shift_id), NULL)) STORED`。
+「**活跃唯一**」语义：`is_deleted=1`（软删）行生成列为 `NULL`，唯一索引对 `NULL` 不去重 → **软删行不占键**，「清空班次（软删）→ 再排同班次」不再撞 1062；同员工同天不同 `shift_id` 因拼接含 `shift_id` 可并存。**但活跃行**同 `(employee_id, work_date, shift_id)` 仍被 DB 原子拒绝（1062）—— 即多班次的「活跃唯一」最终防线 + 并发防线。
+**为何用生成列式部分唯一（评审 M-1）**：`AttendanceSchedule` 实体带 `@TableLogic`（**逻辑删**，非架构/算法此前所述「物理删」），裸三元 `UNIQUE` 会与软删互斥 → 改用本项目既有手法（对齐 §11.2 `employee.phone_active` / V16）。
 **索引**：
 
-| 索引名 | 字段 | 用途 |
-| ---- | ---- | ---- |
-| idx_attendance_schedule_station_date | (station_id, work_date) | 按驿站取周排班矩阵 |
-| idx_attendance_schedule_emp_date | (employee_id, work_date) | 员工排班查询 + 活跃唯一查重（员工+日期） |
+| 索引名 | 类型 | 字段 | 用途 |
+| ---- | ---- | ---- | ---- |
+| idx_attendance_schedule_station_date | 普通 | (station_id, work_date) | 按驿站取周排班矩阵 |
+| idx_attendance_schedule_emp_date | 普通 | (employee_id, work_date) | 员工排班查询 + 活跃查重（员工+日期） |
+| uk_attendance_schedule_active_shift | **UNIQUE**（V22） | (active_shift_key) | 「活跃唯一」最终防线：活跃行 `(employee_id, work_date, shift_id)` 唯一 |
 
+**冗余索引取舍（V22 结论：两个普通索引均保留，不删）**：新唯一键建在**单个生成列表达式**上，其最左前缀即该表达式本身，**不能**被 `WHERE station_id / employee_id / work_date` 使用（表达式索引不按组成列下钻）→ 既有两个普通索引**均不被覆盖**，全部保留。对照 §8.6.7 `uk_attempt`（建在原始复合列上、其最左前缀可吃普通索引并删之），本处前提不同，故不删任何索引。
 **逻辑关系**：`station_id`→`station.id`；`employee_id`→`employee.id`；`shift_id`→`attendance_shift.id`。
 **查询走索引**：周矩阵按 `(station_id, work_date)`；「我的排班」与计薪天数逐日查排班按 `(employee_id, work_date)`。
+**唯一键例外**：`uk_attendance_schedule_active_shift` 为决策 D7（Service 查重 + 普通索引）的**显式例外**（多班次并发 + 软删复用语义须 DB 硬防线），登记见 §9.1 Q-DB-11；生成列式部分唯一与 `employee`（§11.2）、`payroll_run`（§8.6.7）同属既有范式。
 
 #### 8.3.4 `attendance_record`（V5）— 打卡记录（打卡事实）
 
@@ -813,6 +860,9 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 
 ### 8.6 P6 · 财务
 
+> §8.6.5~§8.6.8（`station_payroll_setting` / `payroll_log` / `payroll_run` / `station_payroll_setting_log`）为 **v2.3/v2.5（V20 + V21 薪资结算自动化）增量**，
+> 依据 `payroll-automation-design.md` §3；**独立于 P1~P10 口径**（本章「共 33 表」计数不含这 4 张新表，全局表数见 §5.3 / §9.3 的 **43**）。
+
 #### 8.6.1 `payroll_rule`（V8）— 计薪规则（表驱动）
 
 **字段**：`id` / `rule_name` VARCHAR(50) / `remark` VARCHAR(255) NULL / `status` TINYINT（0=停用,1=启用）/ `is_deleted` / `create_time` / `update_time`。
@@ -829,9 +879,9 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 **逻辑关系**：`rule_id` → `payroll_rule.id`。
 **查询走索引**：按 `(rule_id, sort_order)` 取规则项。
 
-#### 8.6.3 `payroll`（V8）— 工资单
+#### 8.6.3 `payroll`（V8 / V20 补列）— 工资单
 
-**用途**：月度工资单 / 离职结算单；六态状态机；`rule_snapshot` 存算薪时的规则快照（历史可解释）。
+**用途**：月度工资单 / 离职结算单；状态机（V8 六态，**V20 补 `OBJECTED` / `PAID` 至八态**）；`rule_snapshot` 存算薪时的规则快照（历史可解释）。
 **字段**：
 
 | 字段 | 类型 | 允许空 | 默认值 | 注释 |
@@ -848,26 +898,32 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 | addition_total / deduction_total | DECIMAL(12,2) | 否 | 0 | 增项 / 扣项合计 |
 | gross_amount | DECIMAL(12,2) | 否 | 0 | 应发合计（=增项合计） |
 | net_amount | DECIMAL(12,2) | 否 | 0 | 实发净额（应发-扣项） |
-| status | VARCHAR(20) | 否 | 'DRAFT' | `DRAFT` / `PENDING_APPROVAL` / `APPROVED` / `REJECTED` / `PUBLISHED` / `CONFIRMED` |
+| status | VARCHAR(20) | 否 | 'DRAFT' | `DRAFT` / `PENDING_APPROVAL` / `APPROVED` / `REJECTED` / `PUBLISHED` / `CONFIRMED` / `OBJECTED` / `PAID`（后两态 V20 补；枚举顺序按 `PayrollStatus` 末尾追加，既有 6 键相对顺序不变） |
 | remark / approve_remark | VARCHAR(255) | 是 | NULL | 备注 / 审核意见 |
 | approver_id / approver_name / approve_time | — | 是 | NULL | 审核信息 |
 | publisher_id / publisher_name / publish_time | — | 是 | NULL | 发布信息 |
 | confirm_time | DATETIME | 是 | NULL | 员工确认时间 |
 | objection_reason / objection_time | VARCHAR · DATETIME | 是 | NULL | 员工异议 |
+| paid_by_id / paid_by_name / paid_time | BIGINT · VARCHAR(50) · DATETIME | 是 | NULL | 确认发放人 / 姓名快照 / 发放时间（**V20 补列**；`PAID` 终态当前态展示，逻辑外键 `employee.id`） |
 | offboarding_id | BIGINT | 是 | NULL | 离职流程（结算单来源，逻辑外键 hr_flow.id） |
 | is_deleted / create_time / update_time | — | — | — | 通用约定 |
+
+> **V20 变更（薪资结算自动化）**：加 `paid_by_id` / `paid_by_name` / `paid_time` 三列（列尾追加、可空、无默认，NULL 表示「未发放」），
+> 并以 `ALTER TABLE ... MODIFY COLUMN` 仅更新 `status` 列 COMMENT 为八态枚举（**类型 `VARCHAR(20)` / 长度 / 默认值 `'DRAFT'` / 空性均不变，无数据转换**）。
+> 当前态列只保留**最后一次**发放信息；全量事件流（每次审批 / 发布 / 异议 / 再发布 / 发放）见 `payroll_log`（§8.6.6）。
+> `payroll` 非大表（一员工一账期一行），**不触发**「大表变更须数据库 + 算法联评」；`paid_*` 仅当前态展示，**不加索引**。
 
 **索引**：
 
 | 索引名 | 字段 | 用途 |
 | ---- | ---- | ---- |
 | idx_payroll_payroll_no | (payroll_no) | 单号查重 / 定位 |
-| idx_payroll_emp_month_bill | (employee_id, month, bill_type) | 员工单 / 生成幂等（员工+月份+类型） |
+| idx_payroll_emp_month_bill | (employee_id, month, bill_type) | 员工单 / 生成查重（员工+月份+类型；**普通索引，非唯一**，单据级无 DB 幂等） |
 | idx_payroll_month_status | (month, status) | 列表 + 状态计数 |
 | idx_payroll_month_station | (month, station_id) | 驿站范围收敛 |
 
 **逻辑关系**：`employee_id`→`employee.id`；`station_id`→`station.id`；`rule_id`→`payroll_rule.id`；`offboarding_id`→`hr_flow.id`；含 `payroll_item`。
-**查询走索引**：`payrolls`（month + status / station）、`my`（employee_id + status + month）、`generate` 幂等（employee_id + month + bill_type）。
+**查询走索引**：`payrolls`（month + status / station）、`my`（employee_id + status + month）、`generate` 查重（employee_id + month + bill_type，**普通索引，由 Service 活跃查重，非 DB 唯一**）。
 
 #### 8.6.4 `payroll_item`（V8）— 工资单明细（子表）
 
@@ -877,6 +933,151 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 **索引**：`idx_payroll_item_payroll (payroll_id, sort_order)`。
 **逻辑关系**：`payroll_id` → `payroll.id`。
 **查询走索引**：按 `(payroll_id, sort_order)` 取明细。
+
+#### 8.6.5 `station_payroll_setting`（V20）— 驿站级算薪配置（一驿一条）
+
+**用途**：承载「每个驿站各自配置」的自动算薪日与开关（`payroll-automation-design.md` §3.1 / Q4/Q5）；**一驿一条**，
+形态对齐 `attendance_rule`（V5）——`station_id` NOT NULL + 普通索引，活跃唯一由 Service 查重保证（决策 D7），**不建 DB 唯一索引**。
+`enabled` 默认 0（**默认不自动跑数**，安全）；`notify_enabled` 默认 1（生成即推管理员，Q8）。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| station_id | BIGINT | 否 | - | 驿站（逻辑外键 `station.id`，一驿一条，活跃唯一由 Service 查重） |
+| enabled | TINYINT | 否 | 0 | 是否启用自动算薪：0=停用（默认），1=启用 |
+| payroll_day | INT | 否 | 1 | 算薪日=每月第几天（**定稿 1-31**；月末缺日由调度**钳位到当月最后一天**，Service 校验） |
+| payroll_time | VARCHAR(5) | 否 | '09:00' | 执行时间 `HH:mm`（`Asia/Shanghai` 墙钟） |
+| notify_enabled | TINYINT | 否 | 1 | 生成后是否推送管理员：0=不推，1=推（默认） |
+| remark | VARCHAR(255) | 是 | NULL | 备注 |
+| is_deleted | TINYINT | 否 | 0 | 逻辑删除：0=否，1=是 |
+| create_time / update_time | DATETIME | 否 | CURRENT_TIMESTAMP | 应用层填充（D8） |
+
+**索引**：
+
+| 索引名 | 字段 | 用途 |
+| ---- | ---- | ---- |
+| idx_station_payroll_setting_station | (station_id) | 一驿一条查重 + 到点轮询扫描启用配置 |
+
+**逻辑关系**：`station_id` → `station.id`（逻辑外键，D6）。
+**查询走索引**：设置页按驿站取配置、调度轮询按 `station_id` 扫描（表小，走 `idx_station_payroll_setting_station`）。
+**唯一性说明**：不建 DB 唯一索引（D7），一驿一条由 Service 活跃查重保证（对齐 `attendance_rule` 决策 D7 与 §8.0(2)）。
+
+#### 8.6.6 `payroll_log`（V20 / V21 补列）— 工资单操作留痕（追加型）
+
+**用途**：工资单**全量事件流**（append-only），承载 Q3/Q6/Q9 的全链路留痕与追溯；形态对齐 `leave_log`（V9）。
+与 `payroll` 上审批 / 发布 / 异议 / 发放字段的关系：后者为**当前态快照（latest，只留最后一次）**，本表为**全量事件流（每一次都追加）**，非简单冗余。
+`reason` 为手工加扣款事由（Q3 必填）/ 异议原因 / 驳回意见 / 再发布处理说明（**由 Service 校验，非 DB 约束**）。
+**`payroll_id` 为孤儿风险列**：`generate` 覆盖重建会物理删除 `DRAFT`/`REJECTED` 单，本列可能指向已删单；故 V21 补**冗余定位列** `employee_id` + `month`，使留痕可脱离 `payroll_id` 按「员工 + 账期」独立检索（M-2②/M-4）。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| payroll_id | BIGINT | 否 | - | 工资单（逻辑外键 `payroll.id`；可能指向已删单，孤儿风险） |
+| employee_id | BIGINT | 是 | NULL | **冗余定位列（V21 补）**：留痕所属员工（逻辑外键 `employee.id`），使留痕可脱离已删 `payroll_id` 检索 |
+| month | CHAR(7) | 是 | NULL | **冗余定位列（V21 补）**：账期 `yyyy-MM` |
+| action | VARCHAR(32) | 否 | - | 动作：`GENERATE_AUTO`/`GENERATE_MANUAL`/`ITEM_ADD`/`ITEM_UPDATE`/`SUBMIT`/`APPROVE`/`REJECT`/`PUBLISH`/`REPUBLISH`/`CONFIRM`/`OBJECTION`/`PAY`/`NOTIFY`/`NOTIFY_SKIP` |
+| operator_id | BIGINT | 是 | NULL | 操作人（逻辑外键 `employee.id`；SYSTEM 为空） |
+| operator_name | VARCHAR(50) | 是 | NULL | 操作人姓名快照 |
+| operator_role | VARCHAR(20) | 是 | NULL | 操作人角色快照 |
+| operator_type | VARCHAR(16) | 否 | 'USER' | 操作主体：`USER`=人工，`SYSTEM`=自动调度 |
+| time | DATETIME | 否 | CURRENT_TIMESTAMP | 操作时间（**只插不改，无 `update_time`**） |
+| from_status | VARCHAR(20) | 是 | NULL | 变更前状态 |
+| to_status | VARCHAR(20) | 是 | NULL | 变更后状态 |
+| reason | VARCHAR(200) | 是 | NULL | 事由：手工加扣款必填（Q3）/ 异议原因 / 驳回意见 / 再发布处理说明 |
+| before | JSON | 是 | NULL | 变更前快照（金额 / 合计等，低频读取） |
+| after | JSON | 是 | NULL | 变更后快照（金额 / 合计等，低频读取） |
+| remark | VARCHAR(200) | 是 | NULL | 备注 / 排障说明 |
+
+**索引**：
+
+| 索引名 | 字段 | 用途 |
+| ---- | ---- | ---- |
+| idx_payroll_log_payroll | (payroll_id, `time`) | 详情页留痕时间线（按工资单取事件流） |
+| idx_payroll_log_action_time | (action, `time`) | 审计查询（按动作类型 / 时段） |
+| idx_payroll_log_emp_month | (employee_id, `month`, `time`) | **V21 新增**：按「员工 + 账期」独立检索留痕，覆盖重建后仍可达（不经由已删 `payroll_id`） |
+
+**逻辑关系**：`payroll_id` → `payroll.id`；`employee_id` → `employee.id`；`operator_id` → `employee.id`（均逻辑外键，D6）。
+**查询走索引**：详情时间线走 `idx_payroll_log_payroll`；审计统计走 `idx_payroll_log_action_time`；**「员工 + 账期」跨单检索走 `idx_payroll_log_emp_month`**。
+**例外**：追加型留痕，**不设 `is_deleted` / `update_time`**（§8.0(4)），永不 UPDATE / DELETE。
+**迁移安排（V21）**：`payroll_id` 列 COMMENT 更新（标注孤儿风险）+ `employee_id` / `month` 两列 + `idx_payroll_log_emp_month` 由 `V21` 的 `ALTER TABLE` 补入；`payroll_log` 由 `V20` 新建、**尚无存量，无需回填**（加可空列亦不影响存量）。配置变更事件**不在本表**（`payroll_id NOT NULL` 无法承载无工资单事件），另立 `station_payroll_setting_log`（§8.6.8）。
+
+#### 8.6.7 `payroll_run`（V20 / V21 补列）— 自动算薪运行记录（认领槽位幂等 + 日粒度闸门）
+
+**用途**：记录自动算薪每轮执行结果，并承载**补跑幂等**（`payroll-automation-design.md` §3.3 / Q7）；V21 增**日粒度闸门**（U-06）。
+**幂等硬约束（两个唯一键正交共存，构成 Layer 0 DB 硬防线）**：
+- **`uk_payroll_run_claim (station_id, claim_key)`（v1.1 认领槽位，管「跨日终态」）**：`claim_key` = `target_month`，`RUNNING`/`SUCCESS`/`SKIPPED` **均写值（占位）**，`FAILED` **置 `NULL`（释放，允许重试）**；MySQL 唯一索引允许多个 NULL，故同一 `(station_id, target_month)` **至多一条占位行**（`RUNNING`/`SUCCESS`/`SKIPPED` 互斥）、`FAILED` 可多行。`RUNNING` 亦占位：第二个并发执行者 `INSERT` 即在唯一约束上触发 1062 被原子拒绝，零重复算薪。
+- **`uk_attempt (station_id, target_month, attempt_date)`（v1.3 / U-06，管「日内一次」）**：同一驿站同一账期**每自然日至多一条运行记录**（无论 `RUNNING`/`SUCCESS`/`FAILED`/`SKIPPED`）；同日第 2 次 `INSERT` 撞 1062 被原子拒绝。**`FAILED` 只释放 `claim_key`、不释放当日 `attempt_date`**，故续跑只能推至**次日**（与 U-06「日粒度持续重试」一致）。
+**`attempt_date`（V21 补，`NOT NULL` 且无默认）**：写 `ZonedDateTime.now(zone).toLocalDate()`；为「每自然日至多一次」闸门依据与**连续失败天数**统计口径。非空落地见下方「迁移安排（V21）」。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| station_id | BIGINT | 否 | - | 驿站（逻辑外键 `station.id`） |
+| target_month | CHAR(7) | 否 | - | 目标账期 `yyyy-MM` |
+| attempt_date | DATE | 否 | - | **本次尝试的自然日（V21 补，U-06）**：`Asia/Shanghai` 墙钟 `now.toLocalDate()`；日粒度闸门依据 + 连续失败天数统计口径 |
+| trigger_type | VARCHAR(16) | 否 | - | 触发方式：`AUTO`=定时到点，`CATCH_UP`=补跑，`MANUAL`=手工触发 |
+| due_at | DATETIME | 否 | - | 本次应执行时刻（`Asia/Shanghai` 墙钟，判定「错过」的基准） |
+| status | VARCHAR(16) | 否 | 'RUNNING' | 结果：`RUNNING`/`SUCCESS`/`FAILED`/`SKIPPED` |
+| skip_code | VARCHAR(24) | 是 | NULL | **跳过码（机器可读，V21 去 `EXHAUSTED`）**：`BLOCKED_9405`/`CONFIG_INVALID`/`DRAFT_PROTECTED`；配合 `skip_reason` 供指标统计与「是否重试」判定（无硬上限，连续失败改为告警） |
+| skip_reason | VARCHAR(200) | 是 | NULL | 跳过原因（人类可读，如「该账期已生成 9405（单号 …）」） |
+| generated_count | INT | 是 | NULL | 生成单据数 |
+| fail_reason | VARCHAR(500) | 是 | NULL | 失败原因（截断，不落敏感信息） |
+| claim_key | CHAR(7) | 是 | NULL | **认领槽位**（v1.1 由 `success_key` 改名并升级语义）：`= target_month`；`RUNNING`/`SUCCESS`/`SKIPPED` 写值（占位）、`FAILED` 置 NULL（释放，允许重试） |
+| operator_id | BIGINT | 是 | NULL | 手工触发人（`MANUAL` 时，逻辑外键 `employee.id`） |
+| start_time | DATETIME | 否 | CURRENT_TIMESTAMP | 开始时间 |
+| finish_time | DATETIME | 是 | NULL | 结束时间 |
+| is_deleted | TINYINT | 否 | 0 | 逻辑删除：0=否，1=是（**只增不删、无删除入口，业务永不置位**，Q-DB-9） |
+| create_time / update_time | DATETIME | 否 | CURRENT_TIMESTAMP | 应用层填充（D8） |
+
+**索引**：
+
+| 索引名 | 类型 | 字段 | 用途 |
+| ---- | ---- | ---- | ---- |
+| uk_payroll_run_claim | **UNIQUE** | (station_id, claim_key) | 认领槽位幂等（跨日终态占位：`RUNNING`/`SUCCESS`/`SKIPPED` 每驿站每账期至多一行；`FAILED` 置 NULL 可多行） |
+| uk_attempt | **UNIQUE** | (station_id, target_month, attempt_date) | **V21 新增**：日粒度闸门（同一驿站同一账期每自然日至多一条运行记录；同为「本驿站本账期运行历史 / 连续失败天数统计」的覆盖索引） |
+| idx_payroll_run_status_time | 普通 | (status, start_time) | 查询在跑 / 失败列表、僵死 `RUNNING` 扫描 |
+
+> **索引精简（V21，最小冗余，主代理 v1.4 §13.5 已裁定）**：原普通索引 `idx_payroll_run_station_month (station_id, target_month)` 是 `uk_attempt` 的**最左前缀**，被完全覆盖，保留即冗余（增写成本、查询零增益）→ `V21` 以 `DROP INDEX` **移除**。原拟「扩为 `(station_id, target_month, attempt_date)`」的普通索引与 `uk_attempt` 键**完全相同**，会使全表出现一对「同列同序、唯一 / 普通各一」的重复索引，故**不另补**——`uk_attempt` 即该键的唯一索引（唯一索引同样支持最左前缀查询）。
+>
+> **防线与 `force` 交互（v1.4）**：`uk_attempt` 为「每自然日至多一次」的 **DB 硬防线**；`force=true` 仅能跳过**应用层**日粒度短路，**不可绕过 `uk_attempt`** → 同日再试必回 `9410`。该收敛为「防线上移」的固有后果，方案 §13.5 已**登记为主代理待确认项**（`force` 语义是否调整），**不涉本表结构**。
+
+**逻辑关系**：`station_id` → `station.id`；`operator_id` → `employee.id`（均逻辑外键，D6）。
+**查询走索引**：运行记录列表 / 日粒度判定 / 连续失败统计走 `uk_attempt`（最左前缀 `(station_id, target_month)`）；在跑 / 失败列表走 `idx_payroll_run_status_time`；跨日终态幂等判定走 `uk_payroll_run_claim`。
+**唯一索引例外说明**：本表**两个**唯一键均为 D7 的**显式例外**——`uk_payroll_run_claim` 理由是「重叠 tick / 多实例重复触发」须由 DB 硬约束兜底（v1.1 认领槽位，见 §9.1 Q-DB-7）；`uk_attempt` 理由是「每自然日至多一次」须 **DB 原子拒绝**（U-06，日粒度闸门不可仅靠应用层判定），见 §9.1 Q-DB-7 与 §12.2；`station_payroll_setting` 仍守 D7（Service 查重）。
+**迁移安排（V21，`attempt_date` 非空落地）**：`V20` 同批建表、`payroll_run` **尚无存量**；`V21` 采用**三段式 DDL** 保证「表非空时不静默失败」且最终满足「`NOT NULL` 且无默认」——① `ADD COLUMN attempt_date DATE NULL`；② `MODIFY COLUMN ... DATE NOT NULL DEFAULT (CURRENT_DATE)`（对预期不存在的存量 NULL 行以执行当日填充，规避严格模式零日期报错）；③ `ALTER COLUMN attempt_date DROP DEFAULT`（撤默认，应用层必须显式写入）。**前置校验**：若执行时 `payroll_run` 非空且同 `(station_id, target_month)` 存在多行，则 `ADD UNIQUE KEY uk_attempt` 会因同日冲突报错（1062）→ 须停手按 C 档先回填 / 清重复行（设计 §6② B1）。
+
+#### 8.6.8 `station_payroll_setting_log`（V21）— 驿站算薪配置变更审计（追加型）
+
+**用途**：记录**驿站算薪配置**（§8.6.5）的变更历史，承载安全评估 M-9「配置变更留痕、**启用 0→1 可追溯**」（`payroll-automation-design.md` §3.6，主代理 M-9 裁定）；形态与 `payroll_log`（§8.6.6）同构、与 `leave_log`（§7.2/V9）同口径。
+**为何不复用 `payroll_log`**：`payroll_log.payroll_id` 为 `NOT NULL`，结构上无法承载「无工资单」的配置事件；复用既有系统日志会混淆审计归属，故**另立专表**。
+**写入关系（M-9 硬要求）**：`PUT /payroll-settings/{stationId}`（I-3）**每次保存成功即在同一事务内追加一条**：`action` 取 `CREATE`（首次创建）/ `ENABLE`（`enabled` 0→1）/ `DISABLE`（1→0）/ `UPDATE`（其余字段变更）；`before` / `after` 只写白名单键（`enabled` / `payrollDay` / `payrollTime` / `notifyEnabled` / `remark`），`CREATE` 时 `before` 为 NULL。查询接口 I-9（ADMIN）按 `station_id` + `time` 倒序。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| station_id | BIGINT | 否 | - | 驿站（逻辑外键 `station.id`；非空，与 `payroll_log.payroll_id` 等价定位） |
+| action | VARCHAR(16) | 否 | - | 动作：`CREATE`=首次创建 / `UPDATE`=字段变更 / `ENABLE`=启用(0→1) / `DISABLE`=停用(1→0)（每次保存必写一条） |
+| operator_id | BIGINT | 是 | NULL | 操作人（逻辑外键 `employee.id`） |
+| operator_name | VARCHAR(50) | 是 | NULL | 操作人姓名快照 |
+| operator_role | VARCHAR(20) | 是 | NULL | 操作人角色快照 |
+| before | JSON | 是 | NULL | 变更前快照（白名单键：`enabled`/`payrollDay`/`payrollTime`/`notifyEnabled`/`remark`；`CREATE` 时为 NULL） |
+| after | JSON | 是 | NULL | 变更后快照（同白名单键，**不含凭据 / 个人信息**） |
+| time | DATETIME | 否 | CURRENT_TIMESTAMP | 操作时间（**只插不改，无 `update_time`**） |
+| remark | VARCHAR(200) | 是 | NULL | 备注 |
+
+**索引**：
+
+| 索引名 | 字段 | 用途 |
+| ---- | ---- | ---- |
+| idx_station_payroll_setting_log_station_time | (station_id, `time`) | 按驿站查变更历史主路径（对应 I-9） |
+
+**逻辑关系**：`station_id` → `station.id`；`operator_id` → `employee.id`（均逻辑外键，D6）。
+**查询走索引**：配置变更历史（I-9）走 `idx_station_payroll_setting_log_station_time`。
+**例外**：追加型审计表，**不设 `is_deleted` / `update_time`**（§8.0(4)），只增不改、无删除入口。
 
 ### 8.7 P7 · 请假
 
@@ -1033,11 +1234,16 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 | ---- | ---- | ---- |
 | 站内信列表 / 未读数 / 全部已读 | notification | idx_notification_employee_time / idx_notification_employee_read |
 | 打卡记录列表 / 概况 | attendance_record | idx_attendance_record_station_date / idx_attendance_record_emp_date |
-| 排班周矩阵 / 我的排班 | attendance_schedule | idx_attendance_schedule_station_date / idx_attendance_schedule_emp_date |
+| 排班周矩阵 / 我的排班 / 活跃唯一收口 | attendance_schedule | idx_attendance_schedule_station_date / idx_attendance_schedule_emp_date / uk_attendance_schedule_active_shift |
 | 补卡列表（管理端 / 员工端） | attendance_makeup | idx_attendance_makeup_station_status / idx_attendance_makeup_emp_status |
 | KPI 明细 / 列表 / 排行 | kpi_score | idx_kpi_score_emp_month / idx_kpi_score_month_station / idx_kpi_score_month_score |
 | 调薪历史 | hr_salary_log | idx_hr_salary_log_emp |
 | 工资单列表 / 我的 / 幂等 | payroll | idx_payroll_month_status / idx_payroll_emp_month_bill / idx_payroll_month_station |
+| 算薪配置读取 / 到点轮询扫描 | station_payroll_setting | idx_station_payroll_setting_station |
+| 工资单留痕时间线 / 审计 / 员工+账期检索 | payroll_log | idx_payroll_log_payroll / idx_payroll_log_action_time / idx_payroll_log_emp_month |
+| 运行记录列表 / 日粒度闸门 / 跨日占位幂等 | payroll_run | uk_attempt / uk_payroll_run_claim / idx_payroll_run_status_time |
+| 算薪配置变更历史（I-9） | station_payroll_setting_log | idx_station_payroll_setting_log_station_time |
+| 账号/驿站操作留痕（按对象 / 按操作人 / 按动作） | operation_audit_log | idx_operation_audit_target / idx_operation_audit_operator / idx_operation_audit_action_time |
 | 请假待办 / 日期相交 | leave_request | idx_leave_request_station_status / idx_leave_request_date |
 | 工单列表 / 超时 / 详情 | work_order | idx_work_order_station_status / idx_work_order_assignee_status / idx_work_order_sla / idx_work_order_order_no |
 | 同步任务列表 / 日志 | sync_task / sync_task_log | idx_sync_task_station_status / idx_sync_task_log_task |
@@ -1058,6 +1264,14 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 | 参数外置承载 | 算法 §11（`hrm.algo.*` 超参） | 算法超参**不入库**（走配置，重启生效）；业务口径入库（`kpi_metric` / `payroll_rule(_item)` / `attendance_rule` / `work_order_dispatch_rule` / 配置中心四层 / `leave_setting`） | 与架构 §5.2 ADR-05 一致 |
 | `parcel` 索引 | 算法 §13 追加两条建议 | 全部采纳（业务加 `idx_parcel_station_status_inbound` 与 `idx_parcel_station_inbound`） | **已联评：算法 §13**，不冲突 |
 | `leave_request` / `leave_log` / `client_log` | db.md §7.1/7.2/7.3 | 字段与索引沿用，V9/V3 按其口径落 DDL，不新增语义 | 一致 |
+| 表数量（v2.3 / V20） | `payroll-automation-design.md` §3（3 新表 + `payroll` 加列） | 表总数 **39 → 42**（新增 `station_payroll_setting` / `payroll_log` / `payroll_run`），`payroll` 补 `paid_by_id` / `paid_by_name` / `paid_time` 3 列 | 与上游方案 §3 一致 |
+| `payroll_run` 唯一索引（v2.4 修订 / V20） | 决策 D7「不建 DB 唯一索引」 | 落 `uk_payroll_run_claim (station_id, claim_key)`（**显式例外**：重叠 tick / 多实例重复触发须 DB 硬约束兜底；v1.1 认领槽位 `RUNNING`/`SUCCESS`/`SKIPPED` 写 `claim_key` 占位、`FAILED` 置 NULL 释放）；`station_payroll_setting` 仍守 D7（Service 查重） | **D7 显式例外**，登记见 §9.1 Q-DB-7 |
+| 表数量（v2.5 / V21） | `payroll-automation-design.md` v1.4 §3.2/§3.3/§3.6 + `algorithm-payroll-scheduling.md` v1.2 §1.5/§12.2（`payroll_log` 定位列 / `payroll_run.attempt_date` / 新表 `station_payroll_setting_log`） | 表总数 **42 → 43**（新增 `station_payroll_setting_log`）；`payroll_log` 补 `employee_id` / `month` 2 列 + 索引；`payroll_run` 补 `attempt_date` + 唯一键 `uk_attempt` | 与上游方案 v1.4 §6「V21 范围」三段一致 |
+| `payroll_run` 第二唯一键 + 索引精简（v2.5 / V21） | 决策 D7「不建 DB 唯一索引」；算法 v1.2 §1.5「`uk_attempt` 管日内、`uk_claim` 管终态」；方案 v1.4 §3.3/§13.5 主代理裁定「日粒度硬防线 = DB 唯一键 `uk_attempt`，删冗余 `idx_payroll_run_station_month`」 | ① 落 `uk_attempt (station_id, target_month, attempt_date)`（**D7 显式例外**：日粒度闸门须 DB 原子拒绝，见 §9.1 Q-DB-7）；② **DROP** 冗余普通索引 `idx_payroll_run_station_month`（被 `uk_attempt` 最左前缀覆盖）；③ **不另补**普通 `(station_id, target_month, attempt_date)` 索引（与 `uk_attempt` 键完全相同，属重复索引） | **D7 显式例外 + 最小冗余**，与方案 v1.4 §13.5 裁定一致；`force` 同日再试不可绕过 `uk_attempt`（→ `9410`），该收敛已登记为主代理待确认项 |
+| `notification.type` COMMENT 同步（7/8/9 / v2.5 / V21 段 4） | 方案 §4.5（`sendSystem` 独立白名单 `{7,8,9}`、公告白名单维持 `1..6`）、§6② 回改项 5、主代理裁定「一次做完、不另开迁移版本」 | **已并入 `V21` 段 4**：`ALTER TABLE notification MODIFY COLUMN type` 仅更新 COMMENT，补 7=工资单待审核（→管理员）/ 8=工资单已发布（→员工本人）/ 9=工资单异议退回（→管理员）；`type` 仍 `TINYINT NOT NULL`、无默认，**不改列型、无 DML**；`init.sql` 与 §8.2.1 同步 | **本轮已随 `V21` 同步**（原「不在本轮 / 待 B4 独立迁移」判断依主代理裁定撤销）；白名单拆分（`SYSTEM_TYPES{7,8,9}` 独立、公告白名单维持 `1..6`）仍属 **B4 代码改动**，不在数据层 |
+| `attendance_schedule` 活跃唯一键（v2.6 / V22） | 决策 D7「不建 DB 唯一索引」；架构 §2.4 ARCH-S-1「多班次须 DB 最终防线」；评审 M-1「须与 `@TableLogic` 逻辑删自洽」 | ① 落**生成列** `active_shift_key = IF(is_deleted=0, CONCAT(employee_id,'|',work_date,'|',shift_id), NULL) STORED` + `UNIQUE(active_shift_key)`（**D7 显式例外**，登记 §9.1 Q-DB-11）；② **保留**两个既有普通索引（表达式唯一键不吃其最左前缀，不构成冗余）；③ 不补 `attendance_shift` 时段字段（架构 D-6） | **D7 显式例外 + 与逻辑删自洽**；形态对齐 `employee.phone_active`（§11.2 / V16） |
+| `operation_audit_log`（v2.6 / V23） | 架构 §3 ARCH-S-2（安全 M-1 / REG-01）+ 评审核对 5、M-7 | 新建通用追加型审计表 16 列、3 索引；时间列命名 **`time`**（对齐 leave_log / payroll_log / station_payroll_setting_log，M-7）；无 `is_deleted`/`update_time`；`before`/`after`/`changed_fields` 白名单化、口令只记布尔 | **与既有留痕口径一致**；口令不落明文/散列（§3.4） |
+| 表数量（v2.6 / V22+V23） | 架构 §0.2「迁移 = 2 个（`V22` 排班唯一键、`V23` 操作审计表）」 | 表总数 **43 → 44**（+1 表 `operation_audit_log`）；`attendance_schedule` +1 生成列 +1 唯一键、既有索引不删 | 与上游方案 §2.8「结构变更 2」一致 |
 
 ### 8.13 迁移与回滚索引
 
@@ -1080,10 +1294,14 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 | V17 | [V17__employee_registration.sql](../../hrm-server/src/main/resources/db/migration/mysql/V17__employee_registration.sql) | employee_registration |
 | V18 | [V18__hr_flow_source.sql](../../hrm-server/src/main/resources/db/migration/mysql/V18__hr_flow_source.sql) | hr_flow（补 source 列，M-9） |
 | V19 | [V19__employee_position.sql](../../hrm-server/src/main/resources/db/migration/mysql/V19__employee_position.sql) | employee（补 position 列，方案乙 U-07） |
+| V20 | [V20__payroll_automation.sql](../../hrm-server/src/main/resources/db/migration/mysql/V20__payroll_automation.sql) | station_payroll_setting / payroll_log / payroll_run；payroll（补 paid_by_id / paid_by_name / paid_time 三列 + status COMMENT 8 态） |
+| V21 | [V21__payroll_log_locator.sql](../../hrm-server/src/main/resources/db/migration/mysql/V21__payroll_log_locator.sql) | payroll_log（补 employee_id / month + idx_payroll_log_emp_month）；payroll_run（补 attempt_date + uk_attempt、DROP idx_payroll_run_station_month、skip_code COMMENT 去 EXHAUSTED、表 COMMENT 更新）；station_payroll_setting_log（新表）；notification（type 列 COMMENT 补 7/8/9，仅注释不改列型） |
+| V22 | [V22__attendance_schedule_multi_shift.sql](../../hrm-server/src/main/resources/db/migration/mysql/V22__attendance_schedule_multi_shift.sql) | attendance_schedule（补生成列 active_shift_key + 唯一键 uk_attendance_schedule_active_shift；两个既有普通索引不删；表 COMMENT 更新为「员工+日期+班次 活跃唯一」） |
+| V23 | [V23__operation_audit_log.sql](../../hrm-server/src/main/resources/db/migration/mysql/V23__operation_audit_log.sql) | operation_audit_log（新表，16 列 + 3 索引，追加型，口令只记布尔） |
 
 - **回滚**：每个脚本尾部自带 `-- 回滚:` 注释段（`DROP TABLE` / `DROP COLUMN` / `DROP INDEX`），人工执行；不使用 Flyway undo（社区版不支持）。
-- **版本单调性**：V3 < V4 < … < V19；V3~V13 与批次 P1~P10 顺序一致（未发生**版本顺延**，`employee` 无需补索引，见 §9.2）；V14/V15 为登录体系改造（M3）与前置修复，V16~V19 为员工自助注册批次（registration-design.md §7 定稿：V16 前置修复 → V17 新表 → V18 来源 → V19 岗位），无跳号/回填/复用。
-- **迁移执行**：属 C 档（结构变更），须主智能体三步授权后由运维执行；上线前备份库。**V16 执行前须先跑存量重复手机号预检（第 11 章）并返回 0 行**，否则迁移以 1062 失败。
+- **版本单调性**：V3 < V4 < … < V23；V3~V13 与批次 P1~P10 顺序一致（未发生**版本顺延**，`employee` 无需补索引，见 §9.2）；V14/V15 为登录体系改造（M3）与前置修复，V16~V19 为员工自助注册批次（registration-design.md §7 定稿：V16 前置修复 → V17 新表 → V18 来源 → V19 岗位），V20 为薪资结算自动化批次（payroll-automation-design.md §3/§6-B1：3 新表 + `payroll` 加列），V21 为其 v1.2/v1.3/v1.4 增量（方案 v1.4 §6「V21 范围」四段：`payroll_log` 定位列 + `payroll_run.attempt_date` + `uk_attempt` + 删冗余索引 + 新表 `station_payroll_setting_log` + `notification.type` 注释补 7/8/9），V22/V23 为驿站精灵管理能力扩展数据层（架构 §2.4/§3：`attendance_schedule` 生成列式活跃唯一键 + `operation_audit_log` 新表），无跳号/回填/复用。
+- **迁移执行**：属 C 档（结构变更），须主智能体三步授权后由运维执行；上线前备份库。**V16 执行前须先跑存量重复手机号预检（第 11 章）并返回 0 行**，否则迁移以 1062 失败。**V20 / V21 执行前须先经 P0.6 技术评审「通过 / 有条件通过」并完成 B0 契约定稿（api.md / db.md 补录）**（payroll-automation-design.md §6）。**V21 前置校验**：`payroll_run` / `payroll_log` 由 V20 同批新建、预期无存量；若 `payroll_run` 非空且同 `(station_id, target_month)` 存在多行，`ADD UNIQUE KEY uk_attempt` 会因同日冲突报 1062 → 须停手按 C 档先回填 / 清重复行（见 §8.6.7）。**V22 前置校验**：须先跑存量查重预检**②（仅活跃行重复组）返回 0 行**，否则 `ADD UNIQUE KEY uk_attendance_schedule_active_shift` 以 1062 失败；预检范围**须含 `is_deleted=1` 的软删行**（区分诊断/阻断口径，见 §12.2）。**V23 为新表**，无存量、无预检。**V22 / V23 执行前须先经 P0.6 技术评审复评「通过 / 有条件通过」**（本次为评审打回后修订，须重评）。
 
 ***
 
@@ -1101,6 +1319,11 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 | Q-DB-4 | `kpi_score` 一员工一账期 vs 一员工一账期一指标 | 架构 §4.2 为一员工一账期 + `metric_detail` JSON；Mock 为逐指标行 | 已按架构落聚合行；如需明细可查，`metric_detail` 已含逐项快照 |
 | Q-DB-5 | `auth_trusted_device` 建**唯一索引** vs 决策 D7 | 决策 D7 要求「Service 查重 + 普通索引」，但架构 §4.2.1 对设备信任表明确要求 `(employee_id, device_fingerprint)` **唯一、幂等 upsert** | 已按架构落 **`uk_auth_trusted_device_emp_fp`（唯一键）**，为 D7 的**显式例外**：本表用业务标志 `revoked`（非 `is_deleted`）表达撤销，撤销后复用同一行重信，与 D7 担心的「逻辑删除后唯一键阻止复用」场景不冲突（论证见 §10.2）。如主智能体/相关方要求严格回到 D7，则需放弃 DB 唯一约束、改为 Service 查重 + 普通索引，并另立新版本 |
 | Q-DB-6 | `auth_sms_log`（架构 §4.2.1 表2「短信发送审计，可选但建议」）是否纳入本轮 | 本期任务范围为「设备信任表 + `hr_flow` 补列」两个变更；§4.2.1 将 `auth_sms_log` 标为可选 | **本轮未纳入**（不建表、不出脚本）。如需审计短信发送（频控/降级/失败归因），属可落库审计表（脱敏手机号、不含验证码明文），建议由主智能体排期另立 **V16**；`security-auth-review.md` §4.4 的「验证码绝不入日志/审计」红线不变 |
+| Q-DB-7 | `payroll_run` 建**硬唯一键** vs 决策 D7（v2.4 修订 / V20；**v2.5 / V21 增第二键**） | 决策 D7 要求「Service 查重 + 普通索引」，但 `payroll-automation-design.md` §3.3 明确以 `uk_payroll_run_claim (station_id, claim_key)` 作「重叠 tick / 多实例重复触发」的**最后一道防线**（v1.1 认领槽位：`claim_key = target_month`，`RUNNING`/`SUCCESS`/`SKIPPED` 均写值占位、`FAILED` 置 NULL 释放，靠「唯一索引允许多 NULL」实现占位行互斥）；**V21 再落 `uk_attempt (station_id, target_month, attempt_date)`** 作「每自然日至多一次」日粒度闸门（U-06，`algorithm-payroll-scheduling.md` v1.2 §12.2：不可仅靠应用层判定，须 DB 原子拒绝同日第 2 条） | **两个唯一键**均按方案落 **D7 显式例外**（登记同 §8.12）：前者兜底跨日终态占位、后者兜底日内一次，二者**正交共存**；与 `auth_trusted_device`（§9.1 Q-DB-5）同类。如要求严格回 D7，则多实例重复触发与日粒度闸门只能在应用层兜底（弱化保障），须主智能体裁定 |
+| Q-DB-8 | `payroll.status` 八态**枚举顺序**（v2.3 / V20） | 上游方案 §2.1「目标状态集合」表把 `OBJECTED` 列在 `PUBLISHED` 与 `CONFIRMED` 之间，而 §2.7.2 明确「新增 `OBJECTED`、`PAID` **追加在枚举末尾**」以保持既有 6 键相对顺序不变 | 列 COMMENT 采用**末尾追加顺序**：`DRAFT/PENDING_APPROVAL/APPROVED/REJECTED/PUBLISHED/CONFIRMED/OBJECTED/PAID`（与 §2.7.2 及运行时 `PayrollStatus.values()` 一致，§2.1 表仅为概念分组）。如评审要求以 §2.1 顺序为准，须先确认前端字典键序兼容，再另立版本 |
+| Q-DB-9 | `payroll_run` 的 `is_deleted` 与硬唯一键的语义边界（v2.4 修订 / V20；**v2.5 落档**） | 方案 §3.3 同时给了 `is_deleted`（逻辑删除）与硬唯一键 `(station_id, claim_key)`；唯一索引**不过滤** `is_deleted`，故一条被逻辑删除的**占位行**（`RUNNING`/`SUCCESS`/`SKIPPED`）仍占用唯一键、会阻止同驿站同账期再次写入占位行 | **落档结论（方案 v1.3 §0.7/§3.3-D1 裁定）：维持「运行记录只增不删、不提供删除入口」前提**（`is_deleted` 仅为结构一致性兜底、业务永不置位），被逻辑删除的占位行仍占键位在本业务下**属有意为之**（防重复算薪）；**不改**生成列式部分唯一（无产品需求 + 增复杂度）。如后续确需「删除后重跑」，须改生成列式部分唯一（对齐 V16 手法）并另立版本（`TODO(扩展)` T3）。**评审口径**：方案侧给裁定、数据层据此落档（V21 未改本列语义）；**此点仍请技术评审重评确认** |
+| Q-DB-10 | `payroll_run.attempt_date` + `uk_attempt` 与 `force=true`「同日再试」的交互（v2.5 / V21，**主代理 v1.4 §13.5 待确认项**） | 主代理 v1.4 裁定「日粒度硬防线 = DB 唯一键 `uk_attempt (station_id, target_month, attempt_date)`」，故 `force=true` 仅跳过**应用层**短路、**不可同日再插行**（必回 `9410`）；`attempt_date` 每行恒有值（`NOT NULL`、永不置 NULL），与 `uk_payroll_run_claim`（跨日终态占位、`FAILED` 置 NULL）正交共存 | 数据层按裁定落地（`uk_attempt` 已落、`force` 收敛为**应用层语义**）；方案 §13.5 已登记为**主代理待确认项**（是否调整 `force` 语义 / 改运维另行处置）；**不涉本表结构变更** |
+| Q-DB-11 | `attendance_schedule` 建**生成列式唯一键** vs 决策 D7；以及 `attendance_shift` 是否补时段字段（v2.6 / V22） | 决策 D7 要求「Service 查重 + 普通索引」，但架构 §2.4 ARCH-S-1 要求多班次有 DB 最终防线；评审 M-1 指出裸三元 `UNIQUE` 与 `@TableLogic` 逻辑删互斥（清空软删→再排撞 1062）。另有架构 D-6「本批不补 `attendance_shift` 时段/序号字段」（算法 §8 可能提及 `period_type`/`pair_id`） | 已按主代理裁定落 **生成列 `active_shift_key` + `UNIQUE`**（**D7 显式例外**，软删行置 NULL 不占键、与逻辑删自洽；形态对齐 `employee.phone_active` §11.2）；两个既有普通索引**保留**（表达式键不覆盖）。`attendance_shift` 时段字段**不在本批**，待**算法/架构确认**后另立 V24+（§12.2 待确认项）。如主智能体要求严格回 D7，则改用 Service 查重并承担并发重复风险，须另立版本 |
 
 ### 9.2 `employee` 是否需要补索引（P0 备注「如需」的核对结论）
 
@@ -1120,16 +1343,16 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 | 检查项 | 方法 | 结论 |
 | ---- | ---- | ---- |
 | MySQL 8 语法 | 逐脚本核对：`CREATE TABLE ... ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`、注释 `COMMENT`、JSON 列可空、`CREATE INDEX ... DESC`（8.0 支持降序索引） | 通过（未实跑） |
-| 表名 / 索引名唯一性 | 全库检索：**39** 表名无重复；索引名全局无跨表冲突（V14/V15 及 V16~V19 新增索引均带表名前缀，与既有索引名无交集） | 通过 |
-| 字段名唯一性（表内） | 逐表核对无重复列；`hr_flow` 补列后表内 32 列无重名；`employee` 补 `phone_active`/`position` 后表内 19 列无重名；`auth_trusted_device` 18 列、`employee_registration` 21 列无重名 | 通过 |
-| 枚举取值与 Mock 一致 | 对照 `dict.js`：notification.type 1-6、parcel.status 0-4、sync.status 0-3、work_order.type/status/priority、payroll.status 6 态、hr.flow/step、leave.status/leave_type/action、kpi 类型/等级、attendance.status/source/check_type 等；V15 `platform` 取值对照架构 §4.1.3（ANDROID/IOS/H5/WEB） | 通过（逐条比对 store 与 dict） |
-| 批次 / 版本号单调 | V3→V19；V3~V13 与 P1→P10 一致，V14/V15 为登录改造批次，V16~V19 为员工自助注册批次（V16→V17→V18→V19），无跳号/回填/复用 | 通过 |
-| 索引变更附回滚 | V13 `CREATE INDEX` 附 `DROP INDEX` 回滚注释；V14/V19 附 `DROP COLUMN`；V15/V17 附 `DROP TABLE`（内联索引随表删）；V16 附 `DROP INDEX` + `DROP COLUMN`（先删索引后删列）；V18 附 `DROP COLUMN` | 通过 |
-| 未改历史脚本 | `V1`~`V13` 未触碰（git 校验）；V14 仅 `ALTER TABLE hr_flow ADD COLUMN`，未 `DROP`/`MODIFY` 既有列；**V16~V19 均为新增文件，未触碰 V1~V15** | 通过 |
-| 新增列可空 / 带默认值 | V14 两新列均可空（`DEFAULT NULL`）；V15 非空列均带 `DEFAULT` 或为业务必填（`employee_id`/`device_fingerprint`/`device_token_hash`/`platform`/`first_seen_time`/`last_seen_time`）；V16 `phone_active` 为生成列、V19 `position` 可空、V18 `source` 非空带 `DEFAULT 'ADMIN'`；V17 非空列均带 `DEFAULT` 或为业务必填（`apply_no`/`real_name`/`phone`/`source`/`status`），无「无默认 NOT NULL 新列」误用 | 通过 |
-| 敏感值不落库 | V15 全文检索无 `token` 明文列、无正则/验证码列；仅存 `device_token_hash`（摘要）；`last_ip` 出参脱敏由应用层实现。V17 仅存 `password_hash`（BCrypt 摘要）/`query_token_hash`（SHA-256 摘要，一期恒不写入），无明文口令/查询凭据列 | 通过（静态检索） |
+| 表名 / 索引名唯一性 | 全库检索：**44** 表名无重复；索引名全局无跨表冲突（V14/V15、V16~V19 及 V20/V21/V22/V23 新增索引均带表名前缀，与既有索引名无交集） | 通过 |
+| 字段名唯一性（表内） | 逐表核对无重复列；`hr_flow` 补列后表内 32 列无重名；`employee` 补 `phone_active`/`position` 后表内 19 列无重名；`auth_trusted_device` 18 列、`employee_registration` 21 列无重名；V20 新增 `station_payroll_setting` 10 列、`payroll_log` 14 列、`payroll_run` **17 列**无重名，`payroll` 补 3 列后表内 32 列无重名；**V21 后 `payroll_log` 16 列、`payroll_run` 18 列、`station_payroll_setting_log` 10 列**无重名；**V22 `attendance_schedule` 补 `active_shift_key` 后表内 9 列、V23 `operation_audit_log` 16 列**无重名 | 通过 |
+| 枚举取值与 Mock 一致 | 对照 `dict.js`：notification.type 1-6（公告白名单）+ 7/8/9（薪资系统联动，V21 段 4 补注释；前端字典随 B4 同批）、parcel.status 0-4、sync.status 0-3、work_order.type/status/priority、payroll.status 8 态（V20 补 `OBJECTED`/`PAID`，另见 §9.1 Q-DB-8）、hr.flow/step、leave.status/leave_type/action、kpi 类型/等级、attendance.status/source/check_type 等；V15 `platform` 取值对照架构 §4.1.3（ANDROID/IOS/H5/WEB） | 通过（逐条比对 store 与 dict；payroll 两态待前端字典同批） |
+| 批次 / 版本号单调 | V3→V23；V3~V13 与 P1→P10 一致，V14/V15 为登录改造批次，V16~V19 为员工自助注册批次（V16→V17→V18→V19），V20 为薪资结算自动化批次（3 新表 + `payroll` 加列），V21 为其 v1.2/v1.3/v1.4 增量（`payroll_log` 定位列 + `payroll_run.attempt_date` + `uk_attempt` + 删冗余索引 + 新表 `station_payroll_setting_log` + `notification.type` 注释补 7/8/9），V22/V23 为驿站精灵管理能力扩展（`attendance_schedule` 生成列式活跃唯一键 + `operation_audit_log` 新表），无跳号/回填/复用 | 通过 |
+| 索引变更附回滚 | V13 `CREATE INDEX` 附 `DROP INDEX` 回滚注释；V14/V19 附 `DROP COLUMN`；V15/V17 附 `DROP TABLE`（内联索引随表删）；V16 附 `DROP INDEX` + `DROP COLUMN`（先删索引后删列）；V18 附 `DROP COLUMN`；V20 附 `DROP TABLE ×3` + `DROP COLUMN ×3` + `MODIFY COLUMN` 还原（先撤 payroll 加列 / COMMENT，再 DROP 三新表）；V21 附 `DROP TABLE ×1` + `DROP INDEX ×2`（`uk_attempt` / `idx_payroll_log_emp_month`）+ `ADD INDEX`（还原 `idx_payroll_run_station_month`）+ `MODIFY COLUMN` ×3（还原 `skip_code` 注释、`payroll_log.payroll_id` 注释、`notification.type` 注释）+ 表 COMMENT 还原 + `DROP COLUMN` ×3（`attempt_date` / `month` / `employee_id`）；**V22 附 `DROP INDEX` + `DROP COLUMN` + 表 COMMENT 还原（先删索引后删列）；V23 附 `DROP TABLE`（索引内联随表删）** | 通过 |
+| 未改历史脚本 | `V1`~`V13` 未触碰（git 校验）；V14 仅 `ALTER TABLE hr_flow ADD COLUMN`，未 `DROP`/`MODIFY` 既有列；**V16~V23 均为新增文件，未触碰 V1~V22** | 通过 |
+| 新增列可空 / 带默认值 | V14 两新列均可空（`DEFAULT NULL`）；V15 非空列均带 `DEFAULT` 或为业务必填（`employee_id`/`device_fingerprint`/`device_token_hash`/`platform`/`first_seen_time`/`last_seen_time`）；V16 `phone_active` 为生成列、V19 `position` 可空、V18 `source` 非空带 `DEFAULT 'ADMIN'`；V17 非空列均带 `DEFAULT` 或为业务必填（`apply_no`/`real_name`/`phone`/`source`/`status`）；V20 `payroll` 三列均可空无默认，三新表非空列均带 `DEFAULT` 或为业务必填（`station_id`/`target_month`/`trigger_type`/`due_at` 等），无「无默认 NOT NULL 新列」误用；**V21 `payroll_log` 两新列可空（`DEFAULT NULL`）、`payroll_run.attempt_date` 经「先 NULL → `NOT NULL` → 撤默认」三段式最终为 `NOT NULL` 无默认（应用层必填）、`station_payroll_setting_log` 非空列均带 `DEFAULT` 或为业务必填（`station_id`/`action`/`time`）**，无「无默认 NOT NULL 新列」误用；**V22 `attendance_schedule.active_shift_key` 为 `STORED` 生成列（非持久业务数据、无需默认）；V23 `operation_audit_log` 非空列均带 `DEFAULT` 或为业务必填（`target_type`/`target_id`/`action`/`operator_type`/`result`/`time`）**，无「无默认 NOT NULL 新列」误用 | 通过 |
+| 敏感值不落库 | V15 全文检索无 `token` 明文列、无正则/验证码列；仅存 `device_token_hash`（摘要）；`last_ip` 出参脱敏由应用层实现。V17 仅存 `password_hash`（BCrypt 摘要）/`query_token_hash`（SHA-256 摘要，一期恒不写入），无明文口令/查询凭据列。V21 `station_payroll_setting_log.before/after` 仅白名单键（不含凭据 / 个人信息）。**V23 `operation_audit_log` 无任何口令列；`before`/`after`/`changed_fields` 白名单化，口令只记布尔（`{"password":"SET"/"RESET"}`），全文检索无口令明文/散列字段** | 通过（静态检索） |
 | 无存储过程 / 触发器 / 物理外键 | 全文检索 `PROCEDURE` / `TRIGGER` / `FOREIGN KEY` | 通过（0 命中） |
-| 快照与迁移一致 | `init.sql` == V1+V3..V19 表/列/索引逐项比对（含 `hr_flow` 新列 `source`、`employee` 新列 `phone_active`/`position` + `uk_employee_phone_active`、`auth_trusted_device` 表与 3 索引、`employee_registration` 表与 4 索引） | 通过（表 **39**、逐列核对） |
+| 快照与迁移一致 | `init.sql` == V1+V3..V23 表/列/索引逐项比对（含 `hr_flow` 新列 `source`、`employee` 新列 `phone_active`/`position` + `uk_employee_phone_active`、`auth_trusted_device` 表与 3 索引、`employee_registration` 表与 4 索引、V20 `station_payroll_setting`/`payroll_log`/`payroll_run` 三表与其索引、`payroll` 新列 `paid_by_id`/`paid_by_name`/`paid_time` 与 `status` 8 态 COMMENT；**V21 `payroll_log` 补 `employee_id`/`month` + `idx_payroll_log_emp_month`、`payroll_run` 补 `attempt_date` + `uk_attempt` 且移除 `idx_payroll_run_station_month`、`skip_code` COMMENT 去 `EXHAUSTED`、新表 `station_payroll_setting_log` + 其索引；**V22 `attendance_schedule` 补生成列 `active_shift_key` + `uk_attendance_schedule_active_shift`（两个既有普通索引保留）+ 表 COMMENT 更新；V23 新表 `operation_audit_log` + 3 索引**） | 通过（表 **44**、逐列核对；静态比对，未实跑） |
 | 无真实数据 / 凭据 | 脚本仅 DDL 与中文注释；无 INSERT（业务数据）、无 IP / 口令 / 密钥 / 令牌明文 | 通过 |
 | 中文注释覆盖 | 每列均有 `COMMENT`，每表均有表注释与设计说明头 | 通过 |
 
@@ -1137,7 +1360,7 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 
 | # | 项 | 复核方法 | 通过标准 |
 | - | -- | ---- | ---- |
-| U-1 | Flyway 迁移可执行性 | 服务器 `mvn` 启动触发 V3~V19，`flyway_schema_history` 逐条 success | V1~V19 共 19 条迁移无失败；checksum 稳定；V16~V19 为新增最新四条（V16 须预检 0 行后执行） |
+| U-1 | Flyway 迁移可执行性 | 服务器 `mvn` 启动触发 V3~V21，`flyway_schema_history` 逐条 success | V1~V21 共 21 条迁移无失败；checksum 稳定；V16~V21 为新增最新六条（V16 须预检 0 行后执行；V20/V21 须先过 P0.6 技术评审） |
 | U-2 | 表 / 索引真实结构 | `SHOW CREATE TABLE` 逐表比对快照 | 与 `init.sql` 一致 |
 | U-3 | `parcel` 索引命中 | `EXPLAIN` 列表查询（按驿站+状态，入库时间倒序） | `type=range/ref`，无 `Using filesort`，命中 `idx_parcel_station_status_inbound` |
 | U-4 | `parcel` 分页性能 | 首页 / 第 1000 页 `EXPLAIN ANALYZE` | 游标首页 <20 ms；深分页不达标签发 TODO-1（算法 §12.3） |
@@ -1149,6 +1372,9 @@ VALUES (1, 'admin', '{BCrypt散列，见下方说明}', '系统管理员', '1380
 | U-10 | 落盘路径 | 确认 `datadir=/data/mysql-host`、临时目录落 `/data` | 无系统盘写入 |
 | U-11 | `hr_flow` 补列后与 Java 映射一致 | 服务器 `SHOW CREATE TABLE hr_flow` 比对 + 后端移除 `HrFlow` 两字段 `exist = false` 后冒烟创建流程 | `operator_id`/`operator_name` 正常落库与回读；出参 `operatorId`/`operatorName` 非空 |
 | U-12 | `auth_trusted_device` 唯一键与 upsert 行为 | 服务器 `SHOW CREATE TABLE auth_trusted_device`；同员工同 `device_fingerprint` 重复登记 | 唯一键生效、不产生重复行、`last_seen_time` 被刷新 |
+| U-13 | V20 结构真实性与认领槽位幂等键行为 | 服务器 `SHOW CREATE TABLE station_payroll_setting / payroll_log / payroll_run / payroll` 比对快照；对同一 `(station_id, target_month)` **连续写两条 `RUNNING`**；并对 `FAILED`（`claim_key=NULL`）验证可多行 | 表 / 列 / 索引与 `init.sql` 一致；`payroll` 新列与 `status` 8 态 COMMENT 生效；`payroll_run` 含 `uk_payroll_run_claim (station_id, claim_key)` 与 `skip_code`；**第二条 `RUNNING` 触发 1062（认领槽位占位生效）**；`RUNNING`/`SUCCESS`/`SKIPPED` 各至多一条占位行、`FAILED`（`claim_key=NULL`）可多行 |
+| U-14 | V21 结构真实性、`attempt_date` 非空落地与日粒度唯一键行为 | ① 服务器 `SHOW CREATE TABLE payroll_log / payroll_run / station_payroll_setting_log` 比对快照；② 确认 `payroll_run.attempt_date` 为 `NOT NULL` 且**无 `DEFAULT`**（`SHOW CREATE TABLE` 无 DEFAULT 子句）、`skip_code` COMMENT 无 `EXHAUSTED`、`idx_payroll_run_station_month` 已不存在、`uk_attempt` 存在；③ 对同一 `(station_id, target_month)` **同日**写两条（第二条无论何状态）：**第二条触发 1062（`uk_attempt` 生效）**；④ 同 `(station_id, target_month)` **不同 `attempt_date`** 写两条：均成功（跨日重试可落行）；⑤ `payroll_log` 两新列与 `idx_payroll_log_emp_month` 生效 | 表 / 列 / 索引与 `init.sql` 一致；`attempt_date` 满足 `NOT NULL` 无默认；`uk_attempt` 与 `uk_payroll_run_claim` 正交共存；`station_payroll_setting_log` 10 列 + 1 索引、无 `is_deleted`/`update_time`；**V21 前置校验：执行后 `payroll_run` 的行均含非空 `attempt_date`** |
+| U-15 | V22 生成列/活跃唯一行为 + V23 审计表结构真实性 | ① 服务器 `SHOW CREATE TABLE attendance_schedule`：确认生成列 `active_shift_key` 为 `STORED`、表达式为 `IF(is_deleted=0, CONCAT(employee_id,'|',work_date,'|',shift_id), NULL)`、存在 `UNIQUE KEY uk_attendance_schedule_active_shift`，且 `idx_attendance_schedule_station_date` / `idx_attendance_schedule_emp_date` **仍在**；② **活跃唯一**：同 `(employee_id, work_date, shift_id)` 活跃行写第二条 → **1062**；③ **软删复用**：将已存在活跃行软删（`is_deleted=1`）后再写同 `(employee_id, work_date, shift_id)` → **成功**（软删行生成列为 NULL，不占键）；④ 同员工同天不同 `shift_id` → 均成功（多班次并存）；⑤ 服务器 `SHOW CREATE TABLE operation_audit_log` 比对快照；检索确认**无口令明文/散列字段**、`before`/`after`/`changed_fields` 仅白名单键 | V22 表 / 列 / 索引与 `init.sql` 一致；活跃重复 1062、软删可复用、多班次并存三项行为符合「活跃唯一」语义；V23 16 列 + 3 索引、时间列 `time`、无 `is_deleted`/`update_time`；口令零明文/散列 |
 
 ***
 
@@ -1391,4 +1617,132 @@ HAVING COUNT(*) > 1;
 > **收敛声明**：本章 DDL 与快照均为**静态产出**，本机无 MySQL，**未实跑迁移**；`SHOW CREATE TABLE` 逐表比对、
 > Flyway `flyway_schema_history` 校验、V16 预检实跑、唯一约束行为验证**收敛到服务器阶段**（见 §9.4 U-1/U-2）。
 > **迁移执行属 C 档**，须主智能体三步授权后由运维执行；**执行前须先跑 §11.2 预检返回 0 行并备份库**。
+
+***
+
+## 12. 驿站精灵管理能力扩展表结构设计（V22 / V23）
+
+> **权威设计**：[boss-management-architecture.md](boss-management-architecture.md) §2.4（ARCH-S-1 排班多班次唯一键）、
+> §3（ARCH-S-2 审计留痕，安全 M-1 / REG-01）；**评审**：[tech-review-boss-management.md](tech-review-boss-management.md)（**打回**，
+> 本次为修订稿，必改项 M-1 / M-6 / M-7）。
+> **DDL 落位**：`V22__attendance_schedule_multi_shift.sql`、`V23__operation_audit_log.sql`；快照 `sql/schema/mysql/init.sql`。
+> **仅 MySQL**（`postgresql/` 自 V2 冻结，本期**不产出 pg 脚本与 pg 快照**，见 §5.3）。
+> 本机无 MySQL，本章为**静态产出，未实跑**；`SHOW CREATE TABLE` 与唯一约束行为**收敛到 §9.4 U-15**。
+
+### 12.1 本章新增概览
+
+| 版本 | 变更 | 域（批次） | 增量 |
+| ---- | ---- | ---- | ---- |
+| **V22** | `attendance_schedule` 补生成列 `active_shift_key` + 唯一键 `uk_attendance_schedule_active_shift`（活跃唯一） | 考勤/排班（B7） | +0 表，+1 生成列，+1 唯一索引 |
+| **V23** | 新建 `operation_audit_log`（操作审计留痕，追加型） | 审计（B1，安全 M-1 / REG-01） | +1 表 |
+
+- 表总数 **43 → 44**；`V1`~`V21` 未改动；`init.sql` 快照随之刷新（== V1+V3..V23）。
+- 两脚本**一文件一职责**、**注释附回滚语句**；全部**属 C 档（结构变更）**，须主智能体 §10.3 三步授权后由运维执行，执行前备份。
+- **前置门禁**：两脚本须先经 **P0.6 技术评审复评「通过 / 有条件通过」**（本次为评审**打回**后修订，须重评）；V22 另需**用户裁定 A-①/A-②** 与**预检② 返回 0 行**；V23 另需**安全复验 M-1**。
+
+### 12.2 `attendance_schedule` 活跃唯一改造（V22）
+
+**用途**：支撑「一天多班次」（同员工同天可并存不同 `shift_id`），并为多班次提供 **DB 层「活跃唯一」最终防线 + 并发防线**（§8.3.3 已列字段/索引，本节补迁移专用说明）。
+
+**变更语句（DDL-only，无 DML）**：
+
+```sql
+ALTER TABLE `attendance_schedule`
+  ADD COLUMN `active_shift_key` VARCHAR(64)
+      GENERATED ALWAYS AS (IF(`is_deleted` = 0, CONCAT(`employee_id`, '|', `work_date`, '|', `shift_id`), NULL)) STORED
+      COMMENT '活跃排班键生成列：is_deleted=0 时拼 employee_id|work_date|shift_id，否则 NULL；仅活跃行唯一（V22）',
+  ADD UNIQUE KEY `uk_attendance_schedule_active_shift` (`active_shift_key`),
+  COMMENT = '排班（员工+日期+班次 活跃唯一：生成列 active_shift_key 唯一键收口「活跃唯一」，软删行置 NULL 不占键；V22）';
+```
+
+- **生成列表达式与类型**：`VARCHAR(64)`，`IF(is_deleted=0, CONCAT(employee_id,'|',work_date,'|',shift_id), NULL) STORED`。最长 `20+1+10+1+20=52 < 64`（`employee_id`/`shift_id` 为 BIGINT ≤ 20 位、`work_date` 定宽 10 位）。
+- **与逻辑删自洽（评审 M-1）**：`AttendanceSchedule` 实体带 `@TableLogic`（**逻辑删**），软删行生成列置 `NULL` → 唯一索引允许多 NULL → **软删行不占键**，「清空班次（软删）→ 再排同班次」不再 1062；活跃行同 `(employee_id, work_date, shift_id)` 仍被原子拒绝。
+- **冗余索引取舍（结论：两个普通索引均保留）**：唯一键建在**单个生成列表达式**上，最左前缀即表达式本身，**不能**服务 `WHERE station_id / employee_id / work_date`（表达式索引不按组成列下钻）→ `idx_attendance_schedule_station_date`、`idx_attendance_schedule_emp_date` **均不被覆盖，全部保留**。对照 §8.6.7 `uk_attempt`（原始复合列、可覆盖普通索引故删之），本处前提不同，不删任何索引。
+- **规模与锁**：STORED 生成列须重建表（`ALGORITHM=COPY/INPLACE`）；`attendance_schedule` 非现有设计所列大表（对照 `parcel` 20 万级），但**本机未实测存量行数** → 建议低峰执行，**是否触发「大表（数据库+算法）联评」由主智能体按实测行数裁定**。
+
+**执行前置 · 存量查重预检（评审 M-6：范围必须显式包含 `is_deleted=1` 的软删行）**：
+
+```sql
+-- 预检①（全量，含软删行；诊断用，允许 > 0 行）：核实软删行确实不占键（全为 NULL）并留证
+SELECT employee_id, work_date, shift_id,
+       SUM(is_deleted = 0) AS active_cnt,
+       SUM(is_deleted = 1) AS deleted_cnt,
+       GROUP_CONCAT(CONCAT(id, ':', is_deleted) ORDER BY id) AS id_deleted_pairs
+FROM attendance_schedule
+GROUP BY employee_id, work_date, shift_id
+HAVING SUM(is_deleted = 0) > 1 OR SUM(is_deleted = 1) > 1;
+
+-- 预检②（阻断判据：仅活跃行重复组，必须返回 0 行）—— 生成列式唯一下的正确判据
+SELECT employee_id, work_date, shift_id,
+       COUNT(*)                     AS active_cnt,
+       GROUP_CONCAT(id ORDER BY id) AS ids
+FROM attendance_schedule
+WHERE is_deleted = 0
+GROUP BY employee_id, work_date, shift_id
+HAVING COUNT(*) > 1;
+```
+
+> **纳入软删行的理由（M-6）**：原口径默认「物理删」、只查活跃行；若采用**裸三元 `UNIQUE`**，则 `is_deleted=1` 行同样占键，预检漏软删行 → 通过后建键仍 1062。本脚本改用生成列式部分唯一后，**建键失败的充要条件 = 预检② 非 0 行**（仅活跃重复）；预检① 的软删分组即便 > 0 也**不阻断**（软删行 → NULL）。预检② 非 0 行须先人工合并/软删重复活跃行（属数据变更，须 C 档授权 + 人工确认）后再执行，禁止未处理强跑。
+**回滚**：`DROP INDEX uk_attendance_schedule_active_shift` → `DROP COLUMN active_shift_key` → 表 COMMENT 还原（对齐 V16 手法，先索引后列）；若已依赖多班次，回滚须与后端 Service 查重键（`(employee_id, work_date)` → `+shift_id`）同批。
+**`TODO(扩展)` / 待确认（不在本批，勿擅自加列）**：`attendance_shift` 是否补时段/序号字段（`period_type`/`pair_id`/`shift_no`），属架构 D-6「本批不补」，待**算法/架构确认**后另立 V24+（登记 Q-DB-11 / §6.3 T3）。
+
+### 12.3 `operation_audit_log`（V23）— 操作审计留痕（追加型）
+
+**用途**：通用追加型操作审计，承载安全必做项 **M-1 / REG-01** —— 覆盖 `employee` / `station` 的**新增 / 编辑 / 启停 / 删除 / 重置口令** 9 个写入点的留痕（架构 §3.3），回答「**谁在何时把什么从 X 改成 Y**」。形态对齐 `payroll_log`（§8.6.6）/ `station_payroll_setting_log`（§8.6.8）/ `leave_log`（§7.2）。
+**字段**：
+
+| 字段 | 类型 | 允许空 | 默认值 | 注释 |
+| ---- | ---- | ---- | ---- | ---- |
+| id | BIGINT AI | 否 | - | 主键 |
+| operator_id | BIGINT | 是 | NULL | 操作人（逻辑外键 `employee.id`；SYSTEM 触发为空） |
+| operator_name | VARCHAR(50) | 是 | NULL | 操作人姓名快照（对齐 `payroll_log`） |
+| operator_role | VARCHAR(20) | 是 | NULL | 操作人角色快照（`ADMIN`/`STATION_ADMIN`/`STAFF`） |
+| operator_type | VARCHAR(16) | 否 | 'USER' | 操作主体：`USER`=人工，`SYSTEM`=系统自动（对齐 `payroll_log.operator_type`） |
+| target_type | VARCHAR(16) | 否 | - | 目标类型：`EMPLOYEE`=员工账号 / `STATION`=驿站（扩展只增取值，不改表结构） |
+| target_id | BIGINT | 否 | - | 目标主键（逻辑外键：按 `target_type` 指向 `employee.id` 或 `station.id`） |
+| target_name | VARCHAR(64) | 是 | NULL | 目标名称快照（员工姓名 / 驿站名；目标逻辑删后仍可知「改的是谁/哪个驿站」，免回表） |
+| action | VARCHAR(16) | 否 | - | 动作：`CREATE`=新增 / `UPDATE`=编辑 / `CHANGE_STATUS`=启停 / `DELETE`=删除 / `RESET_PASSWORD`=重置口令 |
+| before | JSON | 是 | NULL | 变更前快照（**白名单键**；口令只允许布尔标记，如 `{"password":"RESET"}`，**绝不落明文或散列**） |
+| after | JSON | 是 | NULL | 变更后快照（**白名单键**；同 `before` 口令约束） |
+| changed_fields | JSON | 是 | NULL | 发生变化的字段名白名单（JSON 数组，如 `["realName","phone"]`）；口令变更只记 `"password"` 字段名 |
+| client_ip | VARCHAR(50) | 是 | NULL | 客户端 IP（Nginx 透传 `X-Forwarded-For` 首个；口径对齐 `login_log.login_ip` / `employee_registration.client_ip`） |
+| result | VARCHAR(10) | 否 | 'SUCCESS' | 结果：`SUCCESS`=成功，`FAIL`=失败 |
+| fail_reason | VARCHAR(200) | 是 | NULL | 失败原因（截断，不落敏感信息 / 口令；`result=FAIL` 时可选填） |
+| time | DATETIME | 否 | CURRENT_TIMESTAMP | 操作时间（**只插不改，无 `update_time`**；命名对齐 `leave_log`/`payroll_log` 的 `time`，评审 M-7） |
+
+**索引**（两条主路径 + 动作审计）：
+
+| 索引名 | 类型 | 字段 | 用途 |
+| ---- | ---- | ---- | ---- |
+| idx_operation_audit_target | 普通 | (target_type, target_id, `time`) | 按目标对象查历史（「谁在何时改了哪个站长/哪个驿站」） |
+| idx_operation_audit_operator | 普通 | (operator_id, `time`) | 按操作人/时间审计 |
+| idx_operation_audit_action_time | 普通 | (action, `time`) | 按动作类型/时段审计（如统计全部 `RESET_PASSWORD`） |
+
+**逻辑关系**：`operator_id` → `employee.id`；`target_id` 按 `target_type` → `employee.id`（`EMPLOYEE`）或 `station.id`（`STATION`）（均逻辑外键，D6）。
+**查询走索引**：按对象取留痕走 `idx_operation_audit_target`；按操作人检索走 `idx_operation_audit_operator`；按动作类型/时段审计走 `idx_operation_audit_action_time`。
+**例外（追加型）**：**不设 `is_deleted` / `update_time`**（§8.0(4)），应用层禁止 UPDATE / DELETE，只增不改。
+**时间列命名（评审 M-7 核对结论）**：既有留痕表业务时间列**统一为 `time`**——`leave_log.time`（§7.2）、`payroll_log.time`（§8.6.6）、`station_payroll_setting_log.time`（§8.6.8）→ 本表定名 **`time`**（非 `create_time`），不新造第三套命名。
+**口令脱敏硬约束（§3.4，M-1 验收）**：**任何字段都不得落明文或 BCrypt 散列**；`before` / `after` / `changed_fields` 一律**白名单化**，口令只允许记录**布尔标记**（`{"password":"SET"}` / `{"password":"RESET"}`）；验收口径：**全表检索无口令明文/散列**。
+**写入关系**：与业务写同事务或失败可补偿（二选一由后端定稿，架构 T9）；写入实现（AOP 切面 / Service 显式）由后端定稿。`changed_fields` / `before` / `after` 的键名白名单由后端服务端裁剪（对齐 api.md I-7），非 DB 约束。
+**回滚**：`DROP TABLE IF EXISTS operation_audit_log`（索引内联，随表删）；若已产生审计数据，回滚前须确认留痕已另有归档。
+**`TODO(扩展)` / 待确认**：审计范围是否扩展至更多敏感写操作（部门 / 角色 / 薪资规则等）——架构 A-⑥ 待主智能体裁定，本期按 M-1 最小集落表，后续**只增 `target_type`/`action` 枚举**，不改表结构；归档 / 保留策略本期不做（架构 §3.5 / T6）。
+
+### 12.4 与方案 / 评审的一致性核对（守契约）
+
+| 核对项 | 依据口径 | 本章处置 | 结论 |
+| ---- | ---- | ---- | ---- |
+| V22 键形态 | 主代理裁定「生成列式部分唯一」+ 评审 M-1「须与 `@TableLogic` 逻辑删自洽」 | 生成列 `active_shift_key` + `UNIQUE`，软删行置 NULL 不占键 | 一致（对齐 §11.2 / V16 手法） |
+| V22 索引取舍 | 架构 §2.4 交数据库工程师评估删冗余索引 | **两个既有普通索引均保留**（表达式唯一键不吃其最左前缀） | 一致（结论：不构成冗余） |
+| V22 预检 | 评审 M-6「范围含软删行」 | 预检①（全量含软删，诊断）+ 预检②（仅活跃，阻断，必须 0 行） | 一致（区分诊断/阻断口径） |
+| V23 字段 / 索引 | 架构 §3.2 表设计顶层（含 `operator_type`）+ 评审核对 5 | 16 列 + 3 索引；`action` 取 `CHANGE_STATUS`（主代理指令，架构 §3.2 原写 `STATUS`） | 一致（`CHANGE_STATUS` 按主代理指令） |
+| V23 时间列命名 | 评审 M-7 对齐既有留痕 | `time`（对齐 `leave_log`/`payroll_log`/`station_payroll_setting_log`） | 一致（不新造第三套命名） |
+| V23 口令安全 | 架构 §3.4 | 无口令列；`before`/`after`/`changed_fields` 白名单化、口令只记布尔 | 一致（全表无明文/散列） |
+| 表总数 | 架构 §0.2「迁移 2 个」/ §2.8「结构变更 2」 | 43 → 44（+1 表；`attendance_schedule` +1 列 +1 唯一键） | 一致 |
+| pg 冻结 | §0.4/§5.3、db.md:8 | 仅 mysql 脚本 + mysql 快照，不产出 pg | 一致 |
+| C 档 | §5 B1/B7、§10.3 | 全部脚本未执行，须主智能体三步授权 | 一致（未执行） |
+
+**待确认项（须上游拍板）**：① `attendance_shift` 时段/序号字段（架构 D-6 / Q-DB-11，待算法/架构）；② 审计最小集是否扩展（架构 A-⑥，待主智能体）；③ `action` 取值口径（本表按主代理指令用 `CHANGE_STATUS`，架构 §3.2 原写 `STATUS`，须与后端 `api.md` 定稿同步）。
+
+> **收敛声明**：本章 DDL 与快照均为**静态产出**，本机无 MySQL，**未实跑迁移**；`SHOW CREATE TABLE` 逐表比对、V22 预检实跑、活跃唯一/软删复用行为、V23 口令脱敏检索**收敛到服务器阶段**（见 §9.4 U-15）。
+> **迁移执行属 C 档**，须主智能体三步授权后由运维执行；**V22 执行前须先跑 §12.2 预检② 返回 0 行并备份库**。
 

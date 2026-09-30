@@ -144,9 +144,4 @@ onMounted(load)
   font-size: var(--fs-h2);
   font-weight: var(--fw-semibold);
 }
-
-/* 操作栏带原因说明时会高出 --actionbar-h，补一段底部留白避免遮住「备注」行 */
-.page--bar {
-  padding-bottom: calc(var(--page-pad-bottom) + var(--sp-6));
-}
 </style>

@@ -1,5 +1,6 @@
 import { activeEmployees, db, findStationById, pushNotification } from '../db.js'
 import { CODE, DEMO_CODE } from '@kdyzgl/shared/constants/errorCode.js'
+import { NOTIFICATION_PUBLISH_TYPES } from '@kdyzgl/shared/constants/dict.js'
 import { ALL_ROLES } from '@kdyzgl/shared/constants/role.js'
 import { fail, formatDateTime, ok, paginate } from '../util.js'
 import { isBlank, pageSizeInvalid, textLen } from '../validate.js'
@@ -79,8 +80,8 @@ function readAll({ user }) {
 /* ==================== 发布通知（需求4） ==================== */
 
 const PUBLISH_SCOPES = ['ALL', 'STATION', 'EMPLOYEE']
-/** 放行的通知类型：与 dict.NOTIFICATION_TYPE 同版（5/6 为 M11 请假类型，新增值必须同步放行） */
-const PUBLISH_TYPES = [1, 2, 3, 4, 5, 6]
+/** 公告端点放行的通知类型：真源取 shared 常量（1~6；7~10 为系统联动类型，不经公告端点） */
+const PUBLISH_TYPES = NOTIFICATION_PUBLISH_TYPES
 
 /**
  * 手工发布通知（ADMIN）：按范围批量生成通知记录，返回生成条数。

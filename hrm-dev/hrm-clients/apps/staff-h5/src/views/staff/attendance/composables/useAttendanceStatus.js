@@ -67,6 +67,16 @@ export function useAttendanceStatus() {
   const rule = computed(() => (status.value ? status.value.rule : null))
   const periods = computed(() => (status.value && status.value.periods) || [])
   const hasSchedule = computed(() => !!(status.value && status.value.hasSchedule))
+  /**
+   * 该驿站是否配置了启用班次：false（后端 shiftConfigured=false / 9113）时无打卡时间基准，
+   * 页面须禁用打卡并提示联系管理员，而不是渲染一堆打不了的按钮。
+   * 兼容老接口：字段缺失时按「有时段即视为已配置」兜底，避免升级期整页误判为空态。
+   */
+  const shiftConfigured = computed(() => {
+    if (!status.value) return true
+    if (typeof status.value.shiftConfigured === 'boolean') return status.value.shiftConfigured
+    return periods.value.length > 0
+  })
   /** 已完成卡数 / 应打总数：一眼看出今天还剩几次没打 */
   const doneCount = computed(
     () => periods.value.filter((p) => p.onChecked).length + periods.value.filter((p) => p.offChecked).length
@@ -259,6 +269,7 @@ export function useAttendanceStatus() {
     rule,
     periods,
     hasSchedule,
+    shiftConfigured,
     doneCount,
     requireTotal,
     clockText,

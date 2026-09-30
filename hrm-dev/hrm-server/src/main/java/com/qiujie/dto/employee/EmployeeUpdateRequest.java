@@ -32,9 +32,12 @@ public class EmployeeUpdateRequest {
 
     private Long stationId;
 
-    /** 角色可修改，受自我保护（2001）与最后管理员保护（2002）约束 */
+    /**
+     * 角色可修改，受自我保护（2001）与最后管理员保护（2002）约束；
+     * 白名单含 {@code STATION_ADMIN}（ARCH-C-1），其归属驿站不得置空（Service 层条件必填校验）。
+     */
     @NotBlank(message = "角色不能为空")
-    @Pattern(regexp = "^(ADMIN|STAFF)$", message = "角色取值仅支持 ADMIN/STAFF")
+    @Pattern(regexp = "^(ADMIN|STATION_ADMIN|STAFF)$", message = "角色取值仅支持 ADMIN/STATION_ADMIN/STAFF")
     private String role;
 
     @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "入职日期格式须为 yyyy-MM-dd")

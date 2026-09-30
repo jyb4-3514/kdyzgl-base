@@ -204,7 +204,7 @@ public class HrProfileServiceImpl implements HrProfileService {
     private List<Employee> selectEmployees(HrEmployeeQuery query) {
         LambdaQueryWrapper<Employee> wrapper = new LambdaQueryWrapper<>();
         wrapper.select(Employee::getId, Employee::getRealName, Employee::getUsername, Employee::getPhone,
-                Employee::getDeptId, Employee::getStationId, Employee::getEntryDate);
+                Employee::getDeptId, Employee::getStationId, Employee::getPosition, Employee::getEntryDate);
         if (query.getDeptId() != null) {
             wrapper.eq(Employee::getDeptId, query.getDeptId());
         }
@@ -365,6 +365,8 @@ public class HrProfileServiceImpl implements HrProfileService {
         vo.setDeptName(deptId == null ? null : deptNames.get(deptId));
         Long stationId = employee == null ? null : employee.getStationId();
         vo.setStationName(stationId == null ? null : stationNames.get(stationId));
+        // 岗位出参补齐（取值 店员 / 站长 / 管理员；未登记为 null）
+        vo.setPosition(employee == null ? null : employee.getPosition());
         vo.setEntryDate(employee == null ? null : employee.getEntryDate());
         vo.setEducation(profile.getEducation());
         vo.setEducationLabel(HrConstants.educationLabel(profile.getEducation()));

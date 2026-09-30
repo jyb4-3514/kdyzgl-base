@@ -27,8 +27,11 @@ import { isBlank, isDate, isPhone, isStrongPassword, isUsername, pageSizeInvalid
  * `/employees/:id` 之前，否则会被路径参数吞掉（engine 按注册顺序取首个命中）
  */
 
-/** 一期仅两个可分配角色；STATION_ADMIN 一期由后端保留、暂不开放分配（api.md 4.3.3） */
-const ASSIGNABLE_ROLES = ['ADMIN', 'STAFF']
+/**
+ * 可分配角色白名单：管理能力扩展批放开启用 STATION_ADMIN（架构 ARCH-C-1 / 设计 ⑫#2），
+ * 与后端 DTO 校验 `^(ADMIN|STATION_ADMIN|STAFF)$` 保持一致。
+ */
+const ASSIGNABLE_ROLES = ['ADMIN', 'STATION_ADMIN', 'STAFF']
 
 function list({ params }) {
   if (pageSizeInvalid(params.pageSize)) return fail(CODE.BAD_REQUEST, '每页条数须为 1-100')
@@ -91,7 +94,11 @@ function validateEmployeeBody(body, { isCreate, targetId = null }) {
     // 停用驿站不可归属（存量归属保留，仅拦截新增/编辑）
     if (station.status !== 1) return { code: STATION_CODE.DISABLED }
   }
-  if (!ASSIGNABLE_ROLES.includes(body.role)) return { code: CODE.BAD_REQUEST, message: '角色仅支持 ADMIN / STAFF' }
+  if (!ASSIGNABLE_ROLES.includes(body.role))
+    return { code: CODE.BAD_REQUEST, message: '角色仅支持 ADMIN / STATION_ADMIN / STAFF' }
+  // 站长必须归属启用驿站（架构 ARCH-C-1）：ADMIN/STAFF 维持可选，STATION_ADMIN 必填
+  if (body.role === 'STATION_ADMIN' && isBlank(body.stationId))
+    return { code: CODE.BAD_REQUEST, message: '站长必须归属启用驿站' }
   if (!isDate(body.entryDate)) return { code: CODE.BAD_REQUEST, message: '入职日期格式须为 yyyy-MM-dd' }
   if (body.remark != null && !textLen(body.remark, 0, 255))
     return { code: CODE.BAD_REQUEST, message: '备注长度不可超过 255 字符' }

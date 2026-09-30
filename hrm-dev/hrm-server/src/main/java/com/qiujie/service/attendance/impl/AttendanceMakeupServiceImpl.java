@@ -3,6 +3,7 @@ package com.qiujie.service.attendance.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qiujie.common.PageResult;
+import com.qiujie.config.AlgoProperties;
 import com.qiujie.dto.attendance.AttendanceMakeupApproveRequest;
 import com.qiujie.dto.attendance.AttendanceMakeupMineQuery;
 import com.qiujie.dto.attendance.AttendanceMakeupQuery;
@@ -21,6 +22,7 @@ import com.qiujie.mapper.StationMapper;
 import com.qiujie.service.attendance.AttendanceMakeupService;
 import com.qiujie.service.attendance.AttendanceRecordService;
 import com.qiujie.service.attendance.AttendanceRuleService;
+import com.qiujie.service.attendance.AttendanceShiftService;
 import com.qiujie.service.attendance.support.AttendanceConstants;
 import com.qiujie.service.attendance.support.AttendancePeriodResolver;
 import com.qiujie.service.attendance.support.AttendanceSupport;
@@ -43,9 +45,12 @@ import java.util.Set;
 /**
  * 补卡服务实现（Mock {@code attendanceStore} 补卡段 + {@code routes/attendance.js}）。
  * <p>
- * 审批通过 → 补录打卡记录：打卡时间取该时段规定时间（上班卡取开始、下班卡取结束）；
+ * 审批通过 → 补录打卡记录：打卡时间取该<b>班次</b>规定时间（上班卡取开始、下班卡取结束）；
  * 校验项不是设备打卡产生的，统一置 null 而非伪造命中值（前端按 {@code source=MAKEUP} 区分）。
- * 时段被改配置导致原时段不存在时<b>拒绝通过</b>（否则会落下「审批通过却无打卡记录」的矛盾数据）。
+ * 班次被改配置导致原时段不存在时<b>拒绝通过</b>（否则会落下「审批通过却无打卡记录」的矛盾数据）。
+ * <p>
+ * <b>真源统一（方案 v1.2 §4.4 / §7.6）</b>：时段由该驿站启用班次派生，取值按 {@code ordinal} 按值查找（M1）；
+ * 站点无启用班次申请补卡回 {@code 9113}。
  */
 @Slf4j
 @Service
@@ -58,6 +63,9 @@ public class AttendanceMakeupServiceImpl implements AttendanceMakeupService {
     private final StationMapper stationMapper;
     private final AttendanceRuleService attendanceRuleService;
     private final AttendanceRecordService attendanceRecordService;
+    private final AttendanceShiftService attendanceShiftService;
+    /** 算法参数：班次序号界值（时段由启用班次派生） */
+    private final AlgoProperties algoProperties;
 
     @Override
     @Transactional(readOnly = true)
@@ -113,14 +121,17 @@ public class AttendanceMakeupServiceImpl implements AttendanceMakeupService {
             throw new BusinessException(ErrorCode.ATTENDANCE_PERIOD_NOT_FOUND);
         }
 
-        // 校验顺序：规则 → 时段 → 重复申请 → 已有正常打卡
+        // 校验顺序：规则 → 时段（班次派生）→ 重复申请 → 已有正常打卡
         AttendanceRule rule = attendanceRuleService.findRule(stationId);
         if (rule == null) {
             throw new BusinessException(ErrorCode.ATTENDANCE_RULE_NOT_CONFIGURED);
         }
-        List<AttendancePeriodResolver.ResolvedPeriod> periods = AttendancePeriodResolver.resolve(rule);
-        AttendancePeriodResolver.ResolvedPeriod period =
-                periodIndex < periods.size() ? periods.get(periodIndex) : null;
+        List<AttendancePeriodResolver.ResolvedPeriod> periods = derivedPeriods(stationId);
+        if (periods.isEmpty()) {
+            throw new BusinessException(ErrorCode.ATTENDANCE_NO_ENABLED_SHIFT);
+        }
+        // M1：按 ordinal 按值查找，禁止下标取值
+        AttendancePeriodResolver.ResolvedPeriod period = AttendancePeriodResolver.findByOrdinal(periods, periodIndex);
         if (period == null) {
             throw new BusinessException(ErrorCode.ATTENDANCE_PERIOD_NOT_FOUND);
         }
@@ -162,9 +173,13 @@ public class AttendanceMakeupServiceImpl implements AttendanceMakeupService {
         if (!AttendanceConstants.MAKEUP_PENDING.equals(makeup.getStatus())) {
             throw new BusinessException(ErrorCode.ATTENDANCE_MAKEUP_STATUS_INVALID);
         }
-        if (safe.getApproved() && !canWriteRecord(makeup, true)) {
-            // 时段被改配置导致原时段不存在：不能静默通过（会落下「审批通过却无打卡记录」的矛盾数据）
-            throw new BusinessException(ErrorCode.ATTENDANCE_RULE_NOT_CONFIGURED);
+        if (safe.getApproved()) {
+            // 审批通过要补录打卡记录：先干跑取「不可写原因」，按原因回码（无启用班次 → 9113，其余维持 9101）。
+            // 不能静默通过（会落下「审批通过却无打卡记录」的矛盾数据）。
+            ErrorCode blocker = writeBlocker(makeup, true);
+            if (blocker != null) {
+                throw new BusinessException(blocker);
+            }
         }
 
         Employee approver = employeeMapper.selectById(currentUserId());
@@ -176,7 +191,7 @@ public class AttendanceMakeupServiceImpl implements AttendanceMakeupService {
         attendanceMakeupMapper.updateById(makeup);
 
         if (safe.getApproved()) {
-            canWriteRecord(makeup, false);
+            writeBlocker(makeup, false);
         }
         String approverName = approver == null ? null : approver.getRealName();
         String employeeName = loadRealName(makeup.getEmployeeId());
@@ -198,28 +213,42 @@ public class AttendanceMakeupServiceImpl implements AttendanceMakeupService {
 
     /**
      * 审批通过 → 补录打卡记录（对齐 Mock {@code writeMakeupRecord}）。
+     * <p>
+     * 返回「不可写原因」而非布尔，是为了按原因回码（L-2）：站点无启用班次回 {@code 9113}（与申请路径同码同文案），
+     * 规则未配置 / 时段被改配置等其余不可写情形维持 {@code 9101}，不扩大影响面。
      *
      * @param dryRun true 只做「能不能补录」的前置判断，不落库
-     * @return 可补录/已补录返回 true；员工或时段缺失返回 false
+     * @return {@code null} = 可补录（含已存在有效卡、无需重复补录）；否则返回应回的错误码
      */
-    private boolean canWriteRecord(AttendanceMakeup makeup, boolean dryRun) {
+    private ErrorCode writeBlocker(AttendanceMakeup makeup, boolean dryRun) {
         Employee employee = employeeMapper.selectById(makeup.getEmployeeId());
+        if (employee == null) {
+            // 员工缺失：防御性兜底，维持原码
+            return ErrorCode.ATTENDANCE_RULE_NOT_CONFIGURED;
+        }
         AttendanceRule rule = attendanceRuleService.findRule(makeup.getStationId());
-        List<AttendancePeriodResolver.ResolvedPeriod> periods = rule == null ? List.of()
-                : AttendancePeriodResolver.resolve(rule);
+        if (rule == null) {
+            return ErrorCode.ATTENDANCE_RULE_NOT_CONFIGURED;
+        }
+        List<AttendancePeriodResolver.ResolvedPeriod> periods = derivedPeriods(makeup.getStationId());
+        if (periods.isEmpty()) {
+            // 站点无启用班次（申请到审批期间班次被停用/删除）：与申请路径同码 9113
+            return ErrorCode.ATTENDANCE_NO_ENABLED_SHIFT;
+        }
+        // M1：按 ordinal 按值查找（原为 `get(periodIndex)` 下标取值，单班次晚班站点会越界）
         AttendancePeriodResolver.ResolvedPeriod period =
-                makeup.getPeriodIndex() != null && makeup.getPeriodIndex() < periods.size()
-                        ? periods.get(makeup.getPeriodIndex()) : null;
-        if (employee == null || period == null) {
-            return false;
+                AttendancePeriodResolver.findByOrdinal(periods, makeup.getPeriodIndex());
+        if (period == null) {
+            // 时段被改配置导致原时段不存在：维持原码 9101（避免落下「审批通过却无打卡记录」的矛盾数据）
+            return ErrorCode.ATTENDANCE_RULE_NOT_CONFIGURED;
         }
         // 申请到审批期间本人又正常打了卡：同槽位不再补录，避免一个槽位出现两条正常卡
         if (attendanceRecordService.hasValidCard(makeup.getEmployeeId(), makeup.getWorkDate(),
                 makeup.getCheckType(), makeup.getPeriodIndex())) {
-            return true;
+            return null;
         }
         if (dryRun) {
-            return true;
+            return null;
         }
         String specTime = AttendanceConstants.CHECK_TYPE_ON.equals(makeup.getCheckType())
                 ? period.startTime() : period.endTime();
@@ -245,7 +274,13 @@ public class AttendanceMakeupServiceImpl implements AttendanceMakeupService {
         record.setDistance(null);
         record.setLocationMatched(null);
         attendanceRecordMapper.insert(record);
-        return true;
+        return null;
+    }
+
+    /** 该驿站启用班次派生的打卡时段（时段真源；站点级） */
+    private List<AttendancePeriodResolver.ResolvedPeriod> derivedPeriods(Long stationId) {
+        return AttendancePeriodResolver.resolveByShifts(attendanceShiftService.enabledShifts(stationId),
+                algoProperties.getPayroll().getMiddayBoundaryMinute());
     }
 
     private void validateFilter(String status, String startDate, String endDate) {

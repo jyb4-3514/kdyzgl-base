@@ -130,8 +130,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         // 角色以 Redis 会话为准（服务端权威，Token 内 role 仅作参考）；
         // 端类型/设备标识亦取自服务端会话（客户端自称的端类型不参与鉴权，避免伪造高权限端）
         String stationId = resolveStationId(userId, session, resolved);
-        UserContext.set(new LoginUser(userId, session.getUsername(), session.getRole(), session.getJti(), stationId,
-                session.getClientType(), session.getDeviceId()));
+        LoginUser loginUser = new LoginUser(userId, session.getUsername(), session.getRole(), session.getJti(), stationId,
+                session.getClientType(), session.getDeviceId());
+        // ARCH-C-7：注入首登改密标记，供 PwdChangedInterceptor 服务端强制拦截（未改密拦截业务接口）
+        loginUser.setPwdChanged(resolvePwdChanged(userId, session, resolved));
+        UserContext.set(loginUser);
         try {
             filterChain.doFilter(request, response);
         } finally {
@@ -173,6 +176,35 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         } catch (Exception e) {
             log.error("旧会话补齐 stationId 失败，本次按「无归属」处理，userId={}", userId, e);
             return "";
+        }
+    }
+
+    /**
+     * 取会话中的首登改密标记（ARCH-C-7）。
+     * <p>
+     * 会话已含标记则直接返回（新登录会话恒有值）。旧会话（本次升级前写入，无该字段）回查员工表补齐并回写，
+     * 与 {@link #resolveStationId} 同「自愈」口径（仅首次回查，之后请求不再查库）。
+     * <p>
+     * 兜底：回查失败或员工不可查时按「已改密」放行——本拦截器是「首登强制改密」的业务闸门，
+     * 不承担认证职责；认证失败已在上游拒绝，此处不应把认证成功用户误锁死（fail-open 仅限该过渡分支）。
+     */
+    private Boolean resolvePwdChanged(Long userId, SessionInfo session, SessionResolution.Resolved resolved) {
+        if (session.getPwdChanged() != null) {
+            return session.getPwdChanged();
+        }
+        try {
+            Employee employee = employeeMapper.selectById(userId);
+            boolean changed = employee == null || employee.getPwdChanged() == null || employee.getPwdChanged() == 1;
+            session.setPwdChanged(changed);
+            if (resolved.source() == SessionResolution.Source.SID) {
+                sessionUtil.updateBySid(session.getJti(), session);
+            } else {
+                sessionUtil.save(userId, session);
+            }
+            return changed;
+        } catch (Exception e) {
+            log.error("旧会话补齐 pwdChanged 失败，本次按「已改密」放行，userId={}", userId, e);
+            return true;
         }
     }
 

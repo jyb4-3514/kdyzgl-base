@@ -70,6 +70,15 @@ function check(name, condition, extra = '') {
   }
 }
 
+/**
+ * 按谓词从集合取元素；集合非数组或未命中时返回 null。
+ * 为什么不直接 `list.find(...)`：未命中时后续取属性会抛异常，中断整套门禁并把后续用例一并掩盖。
+ * 这里只做「不抛错」，是否通过由调用方断言显式判定（缺失即 fail 并给出明确文案），不做静默兜底。
+ */
+function pickOrNull(list, predicate) {
+  return Array.isArray(list) ? list.find(predicate) || null : null
+}
+
 async function call(method, url, options = {}) {
   const { data, params, token, responseType } = options
   const headers = {}
@@ -398,6 +407,57 @@ async function main() {
     { data: { ...base, username: 'demo_new05', password: 'abcdefgh' }, token: adminToken2 },
     400
   )
+
+  /* ---- 角色白名单放开（管理能力扩展 ② / ARCH-C-1）：STATION_ADMIN 可分配 + 站长归属必填 ---- */
+  const stationAdminCreate = await expectCode(
+    '新增站长账号（STATION_ADMIN）成功',
+    'post',
+    '/employees',
+    {
+      data: {
+        ...base,
+        username: 'demo_stadmin',
+        password: 'Init1234',
+        phone: '13512345001',
+        role: 'STATION_ADMIN',
+        stationId: 1
+      },
+      token: adminToken2
+    },
+    200
+  )
+  const stationAdminId = stationAdminCreate.ok ? stationAdminCreate.result.id : 0
+  const stationAdminVo = await call('get', `/employees/${stationAdminId}`, { token: adminToken2 })
+  check('站长账号落库角色为 STATION_ADMIN', stationAdminVo.ok && stationAdminVo.result.role === 'STATION_ADMIN')
+  await expectCode(
+    '新增站长缺 stationId → 400（站长必须归属启用驿站）',
+    'post',
+    '/employees',
+    {
+      data: {
+        ...base,
+        username: 'demo_stadmin2',
+        password: 'Init1234',
+        phone: '13512345002',
+        role: 'STATION_ADMIN',
+        stationId: null
+      },
+      token: adminToken2
+    },
+    400
+  )
+  await expectCode(
+    '新增员工非法角色 → 400',
+    'post',
+    '/employees',
+    {
+      data: { ...base, username: 'demo_badrole', password: 'Init1234', phone: '13512345003', role: 'GUEST' },
+      token: adminToken2
+    },
+    400
+  )
+  // 清理测试站长，避免影响后续员工/驿站计数类断言
+  await expectCode('清理站长测试账号', 'delete', `/employees/${stationAdminId}`, { token: adminToken2 }, 200)
 
   const created = await expectCode(
     '新增员工成功',
@@ -977,7 +1037,25 @@ async function main() {
       rule1.result.enableLocation &&
       rule1.result.enableTimeWindow
   )
-  const ruleBackup = rule1.result
+  // 规则 PUT 已不接受时段相关入参（U-5），回放旧快照时只保留可写字段，避免带回去派生的只读字段（checkPeriods 等）被 400 拒绝
+  const WRITABLE_RULE_KEYS = [
+    'ruleName',
+    'enableWifi',
+    'enableLocation',
+    'enableTimeWindow',
+    'matchMode',
+    'wifiList',
+    'longitude',
+    'latitude',
+    'radius',
+    'allowEarlyMin',
+    'allowLateMin',
+    'lateThresholdMin',
+    'earlyLeaveThresholdMin',
+    'status'
+  ]
+  const pickRuleWritable = (rule) => Object.fromEntries(WRITABLE_RULE_KEYS.map((k) => [k, rule[k]]))
+  const ruleBackup = pickRuleWritable(rule1.result)
   const wifiSsid = rule1.result.wifiList[0].ssid
 
   const ruleStaff = await expectCode(
@@ -1067,6 +1145,14 @@ async function main() {
   check(
     '班次配色取设计 Token 色',
     shifts1.ok && shifts1.result.map((s) => s.color).join(',') === '#0958D9,#FA8C16,#1F2937'
+  )
+  // 种子收敛（设计 ⑫-31）：早/中/晚三条记录保留（不打断依赖 shiftId 的排班/时段演示），
+  // 但中班停用 → 每站启用班次 ≤2 且一早一晚，与定义侧 9114 约束自洽
+  check(
+    '种子收敛：中班停用、每站启用班次恰为 2 个',
+    shifts1.ok &&
+      shifts1.result.filter((s) => s.status === 1).length === 2 &&
+      (shifts1.result.find((s) => s.shiftName === '中班') || {}).status === 0
   )
   const shiftsStaff = await expectCode(
     '非 ADMIN 班次查询强制本站',
@@ -1425,10 +1511,48 @@ async function main() {
     staffOthers.find((e) => !onHolders.has(e.id) && e.id !== 3) || activeEmployees().find((e) => e.id === 3)
   const windowEmpLogin = await login(windowEmp.username, 'demo1234')
   const windowEmpToken = windowEmpLogin.ok ? windowEmpLogin.result.token : ''
-  // 挑一个「上班卡时间窗不含当前时刻」的班次（三个班次的时间窗并集 [07:30,24:00]，任意时刻必有班次落在窗外）
-  const nonCovering = shifts1.result.find(
-    (s) => !(nowMinutes() >= clockMinutes(s.startTime) - 30 && nowMinutes() <= clockMinutes(s.endTime))
-  )
+  /*
+   * 挑一个「上班卡时间窗不含当前时刻」的**启用**班次（停用班次不可排班）。
+   * 旧写法直接挑现成启用班次，隐含「任意时刻必有启用班次落在窗外」的假设——该假设不成立：
+   * 种子启用集合早班 08:00-16:00 / 晚班 16:00-24:00，其上班卡窗（[开始-30, 结束]，OPEN_AHEAD_MIN=30）
+   * 并集为 [07:30,24:00]；15:30-16:00 内两班次的窗同时覆盖当前时刻，find 取到 undefined 后取 .id 抛错，
+   * 整套门禁随之崩掉（已用固定时钟复现）。故改为与运行时刻无关的确定性构造：
+   * 非碰撞时段仍挑现成班次（行为不变）；无窗外班次可用时，把早班临时改到「距当前时刻 ≥120 分钟」的窗口，
+   * 使「当前时刻在窗外」恒真，验证后立即还原。余量 2 分钟 > 脚本从选取到打卡的耗时，顺带消除临界分钟抖动。
+   * 该用例走单班次模型（不传 periodIndex），上班卡窗固定为 [开始-30, 结束]，与 allowEarlyMin/allowLateMin 无关，
+   * 故无需动规则；早班改后开始时间仍落午前(ordinal 0)，与晚班(ordinal 1)维持「一早一晚」，不触发 9114。
+   */
+  const clockOfMin = (minutes) =>
+    `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+  const nowM = nowMinutes()
+  const NON_COVER_MARGIN = 2
+  const outsideWindow = (s) =>
+    !(
+      nowM >= clockMinutes(s.startTime) - 30 - NON_COVER_MARGIN &&
+      nowM <= clockMinutes(s.endTime) + NON_COVER_MARGIN
+    )
+  const earlyShiftSnapshot = shifts1.result.find((s) => s.id === 1)
+  let nonCovering = shifts1.result.find((s) => s.status === 1 && outsideWindow(s))
+  let shift1Retimed = false
+  if (!nonCovering) {
+    const retimed =
+      nowM >= 130
+        ? { startTime: '00:00', endTime: clockOfMin(nowM - 120) }
+        : { startTime: clockOfMin(nowM + 120), endTime: '24:00' }
+    await call('put', '/shifts/1', {
+      data: {
+        shiftName: earlyShiftSnapshot.shiftName,
+        startTime: retimed.startTime,
+        endTime: retimed.endTime,
+        color: earlyShiftSnapshot.color,
+        restMinutes: earlyShiftSnapshot.restMinutes,
+        status: 1
+      },
+      token: attAdminToken
+    })
+    shift1Retimed = true
+    nonCovering = { ...earlyShiftSnapshot, ...retimed }
+  }
   await call('post', '/schedules/batch', {
     data: { stationId: 1, items: [{ employeeId: windowEmp.id, workDate: today, shiftId: nonCovering.id }] },
     token: attAdminToken
@@ -1440,6 +1564,29 @@ async function main() {
     { data: { checkType: 'ON', wifiSsid }, token: windowEmpToken },
     9102
   )
+  // 仅碰撞时段改过早班：立即还原并断言，还原失败必须暴露（后续多处断言依赖早班 08:00-16:00）
+  if (shift1Retimed) {
+    await call('put', '/shifts/1', {
+      data: {
+        shiftName: earlyShiftSnapshot.shiftName,
+        startTime: earlyShiftSnapshot.startTime,
+        endTime: earlyShiftSnapshot.endTime,
+        color: earlyShiftSnapshot.color,
+        restMinutes: earlyShiftSnapshot.restMinutes,
+        status: 1
+      },
+      token: attAdminToken
+    })
+    const shiftsRestored = await call('get', '/shifts', { params: { stationId: 1 }, token: attAdminToken })
+    const earlyRestored = shiftsRestored.ok ? shiftsRestored.result.find((s) => s.id === 1) : null
+    check(
+      '时间窗外用例后早班已还原种子时段（08:00-16:00）',
+      !!earlyRestored &&
+        earlyRestored.startTime === '08:00' &&
+        earlyRestored.endTime === '16:00' &&
+        earlyRestored.status === 1
+    )
+  }
   // 单会话互踢：windowEmp 可能就是 st001_admin，其重新登录会顶掉站长令牌，这里补一次登录刷新
   const attStaRefresh = await login('st001_admin', 'demo1234')
   const attStaToken2 = attStaRefresh.ok ? attStaRefresh.result.token : ''
@@ -1611,7 +1758,8 @@ async function main() {
       stationId: 1,
       items: [
         { employeeId: batchEmp.id, workDate: today, shiftId: 1 },
-        { employeeId: batchEmp.id, workDate: formatDate(addDays(new Date(), 1)), shiftId: 2 }
+        // 明日班次用晚班(id=3)：中班(id=2) 种子即停用，排班引用停用班次会回 9106
+        { employeeId: batchEmp.id, workDate: formatDate(addDays(new Date(), 1)), shiftId: 3 }
       ]
     },
     token: attAdminToken
@@ -1681,6 +1829,78 @@ async function main() {
     403
   )
 
+  /* ---- 多班次（管理能力扩展 ⑤ / ARCH-C-2/2b）：shiftIds 集合 / 覆盖式 / 上限 2 / 重叠拒绝 ---- */
+  const multi1 = await call('post', '/schedules/batch', {
+    data: { stationId: 1, items: [{ employeeId: batchEmp.id, workDate: today, shiftIds: [1, 3] }] },
+    token: attAdminToken
+  })
+  check('多班次保存（早班+晚班）班次行数 saved=2', multi1.ok && multi1.result.saved === 2)
+  const matrixMulti = await call('get', '/schedules', {
+    params: { stationId: 1, weekStart },
+    token: attAdminToken
+  })
+  const multiRow = matrixMulti.ok ? matrixMulti.result.employees.find((e) => e.employeeId === batchEmp.id) : null
+  const multiDay = multiRow ? multiRow.days.find((d) => d.workDate === today) : null
+  check(
+    '多班次回读：shiftIds 集合一致且 shiftId=最早班次',
+    !!multiDay && multiDay.shiftIds.join(',') === '1,3' && multiDay.shiftId === 1
+  )
+  // 明细缺卡按「员工 × 班次」粒度（api.md §4.6.9）：多班次站点同一员工可出多行。
+  // 选一个「种子今日轮休（无排班、故无任何打卡记录）」的员工，排上早+晚两班 → 两班皆缺 → 应出 2 行。
+  const restEmp = matrix1.ok
+    ? matrix1.result.employees.find((e) => {
+        const cell = e.days.find((d) => d.workDate === today)
+        return cell && cell.shiftId == null
+      })
+    : null
+  const multiTargetEmp = restEmp ? restEmp.employeeId : 3
+  await call('post', '/schedules/batch', {
+    data: { stationId: 1, items: [{ employeeId: multiTargetEmp, workDate: today, shiftIds: [1, 3] }] },
+    token: attAdminToken
+  })
+  const multiAbsent = await call('get', '/attendance/detail', {
+    params: { dim: 'ABSENT', stationId: 1, date: today },
+    token: attAdminToken
+  })
+  const multiAbsentRows = multiAbsent.ok ? multiAbsent.result.list.filter((r) => r.employeeId === multiTargetEmp) : []
+  check(
+    '明细缺卡按班次粒度：同一员工多班次可出多行',
+    multiAbsent.ok && multiAbsentRows.length === 2 && multiAbsentRows.every((r) => !!r.shiftName),
+    `emp=${multiTargetEmp} rows=${multiAbsentRows.length}`
+  )
+  // 时间重叠需两个「启用且重叠」的班次：种子早/晚互不重叠、中班停用，故临时把晚班(3)改到 12:00-20:00
+  // （与早班重叠、ordinal 仍一早一晚），校验后还原为 16:00-24:00。
+  await call('put', '/shifts/3', {
+    data: { shiftName: '晚班', startTime: '12:00', endTime: '20:00', color: '#1F2937', restMinutes: 60, status: 1 },
+    token: attAdminToken
+  })
+  await expectCode(
+    '单日班次时间重叠 → 400',
+    'post',
+    '/schedules/batch',
+    { data: { stationId: 1, items: [{ employeeId: batchEmp.id, workDate: today, shiftIds: [1, 3] }] }, token: attAdminToken },
+    400
+  )
+  await call('put', '/shifts/3', {
+    data: { shiftName: '晚班', startTime: '16:00', endTime: '24:00', color: '#1F2937', restMinutes: 60, status: 1 },
+    token: attAdminToken
+  })
+  await expectCode(
+    '单日班次超上限(=2) → 400',
+    'post',
+    '/schedules/batch',
+    { data: { stationId: 1, items: [{ employeeId: batchEmp.id, workDate: today, shiftIds: [1, 2, 3] }] }, token: attAdminToken },
+    400
+  )
+  const multiClear = await call('post', '/schedules/batch', {
+    data: { stationId: 1, items: [{ employeeId: batchEmp.id, workDate: today, shiftIds: [] }] },
+    token: attAdminToken
+  })
+  check(
+    '多班次清空（shiftIds=[]）：removed=2 / saved=0',
+    multiClear.ok && multiClear.result.removed === 2 && multiClear.result.saved === 0
+  )
+
   /* ---- 班次 CRUD ---- */
   await expectCode(
     '新增班次时间格式非法 → 400',
@@ -1712,6 +1932,58 @@ async function main() {
     },
     400
   )
+  // 班次名保留字防护（§6.4 M2/N2）：trim 后等于「全天班」即拒（9114），防哨兵名冲突与前置空白绕过
+  await expectCode(
+    '新增班次名为保留字「全天班」→ 9114',
+    'post',
+    '/shifts',
+    {
+      data: { stationId: 1, shiftName: '全天班', startTime: '20:00', endTime: '23:00', color: '#0958D9' },
+      token: attAdminToken
+    },
+    9114
+  )
+  await expectCode(
+    '新增班次名「 全天班」（前置空白）→ 9114（trim 后比对，N2）',
+    'post',
+    '/shifts',
+    {
+      data: { stationId: 1, shiftName: ' 全天班 ', startTime: '20:00', endTime: '23:00', color: '#0958D9' },
+      token: attAdminToken
+    },
+    9114
+  )
+  // 站点级定义侧校验（validateShiftSet，9114）：启用数超上限 / 一早一晚冲突（与后端 AttendanceShiftServiceImpl 同口径）
+  await expectCode(
+    '新增启用班次致启用数超上限(=2) → 9114',
+    'post',
+    '/shifts',
+    {
+      data: { stationId: 1, shiftName: '超限班', startTime: '20:00', endTime: '23:00', color: '#0958D9', status: 1 },
+      token: attAdminToken
+    },
+    9114
+  )
+  // 一早一晚冲突：先停用晚班腾出启用位，再用「同落上午」的开始时间新增 → ordinal 冲突 9114
+  await call('put', '/shifts/3', {
+    data: { shiftName: '晚班', startTime: '16:00', endTime: '24:00', color: '#1F2937', restMinutes: 60, status: 0 },
+    token: attAdminToken
+  })
+  await expectCode(
+    '新增启用班次与已有班次同落上午(ordinal 冲突) → 9114',
+    'post',
+    '/shifts',
+    {
+      data: { stationId: 1, shiftName: '同段班', startTime: '09:00', endTime: '12:00', color: '#0958D9', status: 1 },
+      token: attAdminToken
+    },
+    9114
+  )
+  // 还原晚班启用：否则后续 CRUD / 排班用例的启用集合被破坏
+  await call('put', '/shifts/3', {
+    data: { shiftName: '晚班', startTime: '16:00', endTime: '24:00', color: '#1F2937', restMinutes: 60, status: 1 },
+    token: attAdminToken
+  })
   await expectCode(
     '非 ADMIN 新增班次 → 403',
     'post',
@@ -1723,8 +1995,10 @@ async function main() {
     403,
     403
   )
+  // 站点已启用早/晚两班（满 2 个），新增「启用」班次会触发 9114；
+  // 以停用态新增（status=0 不计入启用数）验证 CRUD，随后单独验证「排班不得引用停用班次」
   const shiftNew = await expectCode(
-    '新增班次成功',
+    '新增班次成功（停用态，不占启用数）',
     'post',
     '/shifts',
     {
@@ -1734,7 +2008,8 @@ async function main() {
         startTime: '20:00',
         endTime: '23:00',
         color: '#0958D9',
-        restMinutes: 30
+        restMinutes: 30,
+        status: 0
       },
       token: attAdminToken
     },
@@ -1742,11 +2017,11 @@ async function main() {
   )
   const shiftNewId = shiftNew.ok ? shiftNew.result.id : 0
   const shiftEdited = await expectCode(
-    '编辑班次成功',
+    '编辑班次成功（保持停用态）',
     'put',
     `/shifts/${shiftNewId}`,
     {
-      data: { shiftName: '夜班(改)', startTime: '20:00', endTime: '23:30', color: '#0958D9', restMinutes: 30 },
+      data: { shiftName: '夜班(改)', startTime: '20:00', endTime: '23:30', color: '#0958D9', restMinutes: 30, status: 0 },
       token: attAdminToken
     },
     200
@@ -1845,10 +2120,21 @@ async function main() {
     ruleSeed1.ok && ruleSeed1.result.checkFrequency === 2 && ruleSeed1.result.checkPeriods.length === 1
   )
   check(
+    '时段由班次派生：名称与起止取自该驿站班次（早班 08:00-16:00）',
+    ruleSeed1.ok &&
+      ruleSeed1.result.checkPeriods[0].name === '早班' &&
+      ruleSeed1.result.checkPeriods[0].startTime === '08:00' &&
+      ruleSeed1.result.checkPeriods[0].endTime === '16:00'
+  )
+  check(
     'workStartTime / workEndTime 由时段派生（首段开始 / 末段结束）',
     ruleSeed1.ok &&
       ruleSeed1.result.workStartTime === ruleSeed1.result.checkPeriods[0].startTime &&
       ruleSeed1.result.workEndTime === ruleSeed1.result.checkPeriods[0].endTime
+  )
+  check(
+    '时段与频次为只读派生（checkPeriodsReadonly = true，U-4）',
+    ruleSeed1.ok && ruleSeed1.result.checkPeriodsReadonly === true
   )
   check(
     '时间窗余量字段随规则下发',
@@ -1864,109 +2150,87 @@ async function main() {
     '每条规则的时段数都等于 checkFrequency / 2',
     seedRules.ok && seedRules.result.every((r) => r.checkPeriods.length === r.checkFrequency / 2)
   )
-
-  /* ---- 保存校验：频次档位 / 时段数量 / 起止 / 重叠 / 顺序，均回 9107 ---- */
-  const freq4Rule = await saveRuleT18('保存双时段规则（checkFrequency=4）', {
-    checkFrequency: 4,
-    checkPeriods: [
-      { name: '上午班', startTime: '09:00', endTime: '12:00' },
-      { name: '下午班', startTime: '14:00', endTime: '19:00' }
-    ]
-  })
   check(
-    '保存后时段数 = 2',
-    freq4Rule.ok && freq4Rule.result.checkFrequency === 4 && freq4Rule.result.checkPeriods.length === 2
-  )
-  check(
-    '保存后 workStartTime / workEndTime 同步为首段开始 / 末段结束',
-    freq4Rule.ok && freq4Rule.result.workStartTime === '09:00' && freq4Rule.result.workEndTime === '19:00'
+    '所有规则均标记时段只读（checkPeriodsReadonly）',
+    seedRules.ok && seedRules.result.every((r) => r.checkPeriodsReadonly === true)
   )
 
+  /* ---- 保存校验：时段入参一律拒绝（U-5），频次 / 上下班时间入参只读忽略（U-4） ---- */
   await expectCode(
-    'checkFrequency 非法（3）→ 9107',
-    'put',
-    '/attendance/rule',
-    { data: { stationId: 1, checkFrequency: 3 }, token: t18AdminToken },
-    9107
-  )
-  await expectCode(
-    'checkFrequency=4 但只给 1 个时段 → 9107',
+    'PUT 带非空 checkPeriods（2 段）→ 400（时段已由班次决定，U-5）',
     'put',
     '/attendance/rule',
     {
       data: {
         stationId: 1,
-        checkFrequency: 4,
-        checkPeriods: [{ name: '全天班', startTime: '08:00', endTime: '18:00' }]
-      },
-      token: t18AdminToken
-    },
-    9107
-  )
-  await expectCode(
-    '时段结束早于开始 → 9107',
-    'put',
-    '/attendance/rule',
-    {
-      data: {
-        stationId: 1,
-        checkFrequency: 2,
-        checkPeriods: [{ name: '全天班', startTime: '18:00', endTime: '08:00' }]
-      },
-      token: t18AdminToken
-    },
-    9107
-  )
-  await expectCode(
-    '时段之间重叠 → 9107',
-    'put',
-    '/attendance/rule',
-    {
-      data: {
-        stationId: 1,
-        checkFrequency: 4,
         checkPeriods: [
-          { name: '上午班', startTime: '08:00', endTime: '13:00' },
-          { name: '下午班', startTime: '12:00', endTime: '18:00' }
+          { name: '上午班', startTime: '09:00', endTime: '12:00' },
+          { name: '下午班', startTime: '14:00', endTime: '19:00' }
         ]
       },
       token: t18AdminToken
     },
-    9107
+    400
   )
   await expectCode(
-    '时段未按开始时间升序 → 9107',
+    'PUT 带非空 checkPeriods（1 段）→ 400',
     'put',
     '/attendance/rule',
     {
-      data: {
-        stationId: 1,
-        checkFrequency: 4,
-        checkPeriods: [
-          { name: '下午班', startTime: '14:00', endTime: '18:00' },
-          { name: '上午班', startTime: '08:00', endTime: '12:00' }
-        ]
-      },
+      data: { stationId: 1, checkPeriods: [{ name: '全天班', startTime: '08:00', endTime: '18:00' }] },
       token: t18AdminToken
     },
-    9107
+    400
   )
   await expectCode(
-    '时段名称为空 → 9107',
+    'PUT checkPeriods 非数组（字符串）→ 400',
     'put',
     '/attendance/rule',
-    {
-      data: { stationId: 1, checkFrequency: 2, checkPeriods: [{ name: ' ', startTime: '08:00', endTime: '18:00' }] },
-      token: t18AdminToken
-    },
-    9107
+    { data: { stationId: 1, checkPeriods: '08:00-18:00' }, token: t18AdminToken },
+    400
   )
   await expectCode(
-    'checkPeriods 非数组 → 9107',
+    'PUT checkPeriods 缺 stationId → 400',
     'put',
     '/attendance/rule',
-    { data: { stationId: 1, checkFrequency: 2, checkPeriods: '08:00-18:00' }, token: t18AdminToken },
-    9107
+    { data: { checkPeriods: [{ name: '全天班', startTime: '08:00', endTime: '18:00' }] }, token: t18AdminToken },
+    400
+  )
+  const emptyPeriodsSave = await expectCode(
+    'PUT checkPeriods 为空数组 → 200（视为未传，仍按班次派生）',
+    'put',
+    '/attendance/rule',
+    { data: { stationId: 1, checkPeriods: [] }, token: t18AdminToken },
+    200
+  )
+  check(
+    '空数组提交未影响派生结果（仍为 1 段早班）',
+    emptyPeriodsSave.ok &&
+      emptyPeriodsSave.result.checkFrequency === 2 &&
+      emptyPeriodsSave.result.checkPeriods.length === 1 &&
+      emptyPeriodsSave.result.checkPeriods[0].name === '早班'
+  )
+  const freqIgnored = await expectCode(
+    'PUT checkFrequency=4 → 200（入参只读忽略，U-4）',
+    'put',
+    '/attendance/rule',
+    { data: { stationId: 1, checkFrequency: 4 }, token: t18AdminToken },
+    200
+  )
+  check(
+    '频次入参被忽略：仍为班次派生的 2 次',
+    freqIgnored.ok && freqIgnored.result.checkFrequency === 2 && freqIgnored.result.checkPeriods.length === 1
+  )
+  const timeIgnored = await expectCode(
+    'PUT workStartTime / workEndTime → 200（入参废弃忽略）',
+    'put',
+    '/attendance/rule',
+    { data: { stationId: 1, workStartTime: '09:00', workEndTime: '17:00' }, token: t18AdminToken },
+    200
+  )
+  check(
+    '上下班时间入参被忽略：仍由班次派生（08:00-16:00）',
+    timeIgnored.ok && timeIgnored.result.workStartTime === '08:00' && timeIgnored.result.workEndTime === '16:00'
   )
   await expectCode(
     'allowEarlyMin 为负 → 400',
@@ -1985,9 +2249,9 @@ async function main() {
     200
   )
   check(
-    '状态含 2 个时段且字段齐全（含时间窗与打卡结果）',
+    '状态含 1 个时段且字段齐全（含时间窗与打卡结果）',
     st4.ok &&
-      st4.result.periods.length === 2 &&
+      st4.result.periods.length === 1 &&
       st4.result.periods.every((p) =>
         [
           'periodIndex',
@@ -2004,38 +2268,53 @@ async function main() {
       )
   )
   check(
-    '状态时段与规则时段一致',
+    '状态时段由班次派生（早班 08:00-16:00）且 shiftConfigured=true',
     st4.ok &&
-      st4.result.periods[0].name === '上午班' &&
-      st4.result.periods[0].startTime === '09:00' &&
-      st4.result.periods[1].endTime === '19:00'
+      st4.result.shiftConfigured === true &&
+      st4.result.periods[0].name === '早班' &&
+      st4.result.periods[0].startTime === '08:00' &&
+      st4.result.periods[0].endTime === '16:00'
   )
   check(
-    '时段索引 0 起递增，时间窗按 allowEarlyMin / allowLateMin 推导',
+    '时段索引 0 起，时间窗按 allowEarlyMin / allowLateMin 推导',
     st4.ok &&
       st4.result.periods[0].periodIndex === 0 &&
-      st4.result.periods[1].periodIndex === 1 &&
-      st4.result.periods[0].windowStart === '08:30' &&
-      st4.result.periods[1].windowEnd === '20:00'
+      st4.result.periods[0].windowStart === '07:30' &&
+      st4.result.periods[0].windowEnd === '17:00'
   )
   check(
-    '规则要求摘要含频次',
-    st4.ok && st4.result.checkFrequency === 4 && /每日 4 次/.test(String(st4.result.requireSummary))
+    '规则要求摘要含频次（每日 2 次）',
+    st4.ok && st4.result.checkFrequency === 2 && /每日 2 次/.test(String(st4.result.requireSummary))
   )
 
   /* ---- 时段模型打卡：时间窗 / 越界 / 迟到早退 / 分时段去重 ---- */
   const nowMin = nowMinutes()
-  // 与当前时刻相距 ≥2 小时的时段：时间窗判定必然落在窗外
+  /**
+   * 时段用例把城东的「派生时段」钉到目标时间。站点级约束下（同站启用班次 ≤2 且一早一晚，否则 9114），
+   * 不能再把三条班次同时启用；城东为单班站点（时段取最早启用班次），故只保留早班(id=1)启用、其余置停用，
+   * 单条即可唯一确定派生结果（时段真源=班次，故用例通过改班次而非改规则驱动）。顺序执行以保证约束逐步成立。
+   */
+  const setStation1Shifts = async (name, startTime, endTime) => {
+    await call('put', '/shifts/3', {
+      data: { shiftName: '晚班', startTime: '16:00', endTime: '24:00', color: '#1F2937', restMinutes: 60, status: 0 },
+      token: t18AdminToken
+    })
+    await call('put', '/shifts/2', {
+      data: { shiftName: '中班', startTime: '12:00', endTime: '20:00', color: '#FA8C16', restMinutes: 60, status: 0 },
+      token: t18AdminToken
+    })
+    await call('put', '/shifts/1', {
+      data: { shiftName: name, startTime, endTime, color: '#0958D9', restMinutes: 60, status: 1 },
+      token: t18AdminToken
+    })
+  }
+  // 与当前时刻相距 ≥2 小时的时段：时间窗判定必然落在窗外。
   const farPeriod =
     nowMin >= 130
       ? { name: '早班', startTime: '00:00', endTime: clockText(nowMin - 120) }
       : { name: '晚班', startTime: clockText(nowMin + 120), endTime: '24:00' }
-  await saveRuleT18('时段用例：写入时间窗外的时段', {
-    checkFrequency: 2,
-    checkPeriods: [farPeriod],
-    allowEarlyMin: 0,
-    allowLateMin: 0
-  })
+  await setStation1Shifts(farPeriod.name, farPeriod.startTime, farPeriod.endTime)
+  await saveRuleT18('时段用例：时间窗余量归零', { allowEarlyMin: 0, allowLateMin: 0 })
   await expectCode(
     '时段模型：时间窗外打卡 → 9102',
     'post',
@@ -2072,9 +2351,9 @@ async function main() {
   })
   const aroundStart = Math.max(0, nowMin - 120)
   const aroundEnd = Math.min(1440, nowMin + 120)
-  const aroundRule = await saveRuleT18('时段用例：写入覆盖当前时刻的时段', {
-    checkFrequency: 2,
-    checkPeriods: [{ name: '全天班', startTime: clockText(aroundStart), endTime: clockText(aroundEnd) }],
+  // 覆盖当前时刻的时段：同样改城东三个班次来驱动（时段=班次派生）
+  await setStation1Shifts('早班', clockText(aroundStart), clockText(aroundEnd))
+  const aroundRule = await saveRuleT18('时段用例：覆盖当前时刻 + 余量归零', {
     allowEarlyMin: 0,
     allowLateMin: 0,
     lateThresholdMin: 30,
@@ -2096,7 +2375,7 @@ async function main() {
   )
   check(
     '时段模型：记录落到指定时段（periodIndex / periodName）',
-    aroundOn.ok && aroundOn.result.periodIndex === 0 && aroundOn.result.periodName === '全天班'
+    aroundOn.ok && aroundOn.result.periodIndex === 0 && aroundOn.result.periodName === '早班'
   )
   await expectCode(
     '时段模型：同一时段同类型重复打卡 → 9105',
@@ -2116,25 +2395,44 @@ async function main() {
         expectPeriodStatus(aroundOff.result.checkTime, aroundRule.result.checkPeriods[0], 'OFF', aroundRule.result)
   )
 
-  // 双时段 + 极大提前量：两个时段的窗都覆盖当前时刻，用于验证「去重按 periodIndex 而不是按 checkType」
-  const dualRule = await saveRuleT18('时段用例：写入两段（窗均覆盖当前时刻）', {
-    checkFrequency: 4,
-    checkPeriods: [
-      { name: '上午班', startTime: '00:00', endTime: '00:30' },
-      { name: '下午班', startTime: '00:31', endTime: '01:00' }
-    ],
-    allowEarlyMin: 60,
-    allowLateMin: 1440
-  })
+  // 双时段 + 极大余量：两个时段的窗都覆盖当前时刻，用于验证「去重按 periodIndex 而不是按 checkType」。
+  // 城东为单班站点（1 段），双段用例改在城西（班次计划 = 2 段）执行；时段起止由班次派生，故改该站班次。
+  // 为什么起止取 00:00-12:00 / 12:00-24:00：班次定义侧有站点级校验（启用数 ≤2 且须「一早一晚」ordinal 互异，
+  // 否则 9114），两段必须分落午前/午后两侧才能同时启用且互不重叠，从而稳定得到 periodIndex 0=早班、1=晚班。
+  // 为什么余量取 720/1440：派生窗口 = [start - allowEarlyMin, end + allowLateMin]，
+  // 早班窗口 [-720, 2160]、晚班窗口 [0, 2880]，在 00:00-24:00 的任意运行时刻都覆盖「现在」
+  // —— 打卡不再因「运行时刻落在窗外」被判 9102，用例与运行时钟解耦。
+  const dualEmp = activeEmployees().find((e) => e.station_id === 2 && e.status === 1)
+  const dualLogin = dualEmp ? await login(dualEmp.username, 'demo1234') : { ok: false }
+  const dualToken = dualLogin.ok ? dualLogin.result.token : ''
+  const setDualShift = (id, name, startTime, endTime, status = 1) =>
+    call('put', `/shifts/${id}`, {
+      data: { shiftName: name, startTime, endTime, color: '#0958D9', restMinutes: 0, status },
+      token: t18AdminToken
+    })
+  await setDualShift(4, '早班', '00:00', '12:00')
+  await setDualShift(5, '中班', '12:00', '20:00', 0) // 停用：启用集只留一早一晚两段，避免第 3 条启用撞 9114
+  await setDualShift(6, '晚班', '12:00', '24:00')
+  const dualRule = await expectCode(
+    '时段用例：城西双班站点（时段起止由班次派生）',
+    'put',
+    '/attendance/rule',
+    {
+      data: { stationId: 2, enableWifi: false, enableLocation: false, allowEarlyMin: 720, allowLateMin: 1440 },
+      token: t18AdminToken
+    },
+    200
+  )
   const dualOn = await call('post', '/attendance/check-in', {
     data: { checkType: 'ON', periodIndex: 1 },
-    token: t18StaToken
+    token: dualToken
   })
   check(
     '时段模型：同一类型在不同时段可各打一次（去重键含 periodIndex）',
-    dualOn.ok && dualOn.result.periodIndex === 1 && dualOn.result.periodName === '下午班'
+    dualOn.ok && dualOn.result.periodIndex === 1 && dualOn.result.periodName === '晚班'
   )
-  const stDual = await call('get', '/attendance/status', { token: t18StaToken })
+  await call('post', '/attendance/check-in', { data: { checkType: 'ON', periodIndex: 0 }, token: dualToken })
+  const stDual = await call('get', '/attendance/status', { token: dualToken })
   check(
     '今日状态按已打时段分别标记 onChecked',
     stDual.ok &&
@@ -2143,12 +2441,11 @@ async function main() {
       stDual.result.periods[1].onChecked === true &&
       stDual.result.periods[0].onTime != null
   )
-  check('双时段规则下 status 下发 2 个时段', dualRule.ok && stDual.ok && stDual.result.periods[1].name === '下午班')
+  check('双班站点 status 下发 2 个时段（早班 / 晚班）', dualRule.ok && stDual.ok && stDual.result.periods[1].name === '晚班')
 
   // 早退分支的确定性用例：末段收在 24:00 + 早退阈值 0 → 任何时刻打下班卡都必然早退
-  await saveRuleT18('时段用例：末段 24:00 收班', {
-    checkFrequency: 2,
-    checkPeriods: [{ name: '全天班', startTime: '00:00', endTime: '24:00' }],
+  await setStation1Shifts('早班', '00:00', '24:00')
+  await saveRuleT18('时段用例：末段 24:00 收班 + 阈值 0', {
     allowEarlyMin: 0,
     allowLateMin: 0,
     lateThresholdMin: 0,
@@ -2161,6 +2458,49 @@ async function main() {
   check(
     '时段模型：末段 24:00 收班 + 阈值 0 → 下班卡必然早退',
     earlyPeriod.ok && earlyPeriod.result.status === 'EARLY_LEAVE' && earlyPeriod.result.checkType === 'OFF'
+  )
+
+  /* ---- 站点未配置启用班次：status 空态 + 打卡 / 补卡 9113（契约新增，§7.4 / §7.7） ---- */
+  const st4Emp = activeEmployees().find((e) => e.station_id === 4 && e.status === 1)
+  const st4Login = st4Emp ? await login(st4Emp.username, 'demo1234') : { ok: false }
+  const st4Token = st4Login.ok ? st4Login.result.token : ''
+  // 停用城北（4）的三个班次（id 10/11/12）→ 该站点无启用班次
+  await Promise.all(
+    [10, 11, 12].map((id, index) =>
+      call('put', `/shifts/${id}`, {
+        data: {
+          shiftName: ['早班', '中班', '晚班'][index],
+          startTime: index === 2 ? '16:00' : index === 1 ? '12:00' : '08:00',
+          endTime: index === 2 ? '24:00' : index === 1 ? '20:00' : '16:00',
+          color: '#0958D9',
+          restMinutes: 0,
+          status: 0
+        },
+        token: t18AdminToken
+      })
+    )
+  )
+  const stNoShift = await call('get', '/attendance/status', { token: st4Token })
+  check(
+    '站点无启用班次：shiftConfigured=false 且时段为空（前端渲染空态）',
+    stNoShift.ok && stNoShift.result.shiftConfigured === false && stNoShift.result.periods.length === 0
+  )
+  await expectCode(
+    '站点无启用班次打卡 → 9113',
+    'post',
+    '/attendance/check-in',
+    { data: { checkType: 'ON' }, token: st4Token },
+    9113
+  )
+  await expectCode(
+    '站点无启用班次补卡 → 9113',
+    'post',
+    '/attendance/makeup',
+    {
+      data: { workDate: formatDate(addDays(new Date(), -1)), periodIndex: 0, checkType: 'ON', reason: '无班次站点补卡' },
+      token: st4Token
+    },
+    9113
   )
 
   /* ---- 记录字段：periodIndex / periodName ---- */
@@ -2198,28 +2538,44 @@ async function main() {
     histT18.ok && histT18.result.list.every((r) => r.periodName === ruleSeed1.result.checkPeriods[0].name)
   )
 
-  /* ---- 旧客户端兼容：管理端规则页当前只发上下班时间 ---- */
+  /* ---- 旧客户端兼容：管理端规则页若仍带上下班时间入参，只读忽略，派生值不变 ---- */
   const legacySave = await expectCode(
-    '旧客户端只发上下班时间可正常保存',
+    '旧客户端只发上下班时间可正常保存（入参被忽略）',
     'put',
     '/attendance/rule',
     { data: { stationId: 1, workStartTime: '09:00', workEndTime: '17:00' }, token: t18AdminToken },
     200
   )
   check(
-    '旧客户端路径：上下班时间写入时段且派生值同步（不出现两个口径打架）',
+    '旧客户端路径：上下班时间入参被忽略，仍由班次派生（不出现两个口径打架）',
     legacySave.ok &&
       legacySave.result.checkFrequency === 2 &&
-      legacySave.result.checkPeriods[0].startTime === '09:00' &&
-      legacySave.result.checkPeriods[0].endTime === '17:00' &&
-      legacySave.result.workStartTime === '09:00' &&
-      legacySave.result.workEndTime === '17:00'
+      legacySave.result.checkPeriods[0].startTime === legacySave.result.workStartTime &&
+      legacySave.result.workStartTime === '00:00' &&
+      legacySave.result.workEndTime === '24:00'
   )
+  // 恢复城东种子：早/晚回种子起止且启用、中班回停用（与收敛后种子一致）+ 余量/阈值回默认。
+  // 顺序执行：站点级约束下「启用集合」逐步收敛，避免并发 PUT 下的不确定结果。
+  await call('put', '/shifts/1', {
+    data: { shiftName: '早班', startTime: '08:00', endTime: '16:00', color: '#0958D9', restMinutes: 60, status: 1 },
+    token: t18AdminToken
+  })
+  await call('put', '/shifts/2', {
+    data: { shiftName: '中班', startTime: '12:00', endTime: '20:00', color: '#FA8C16', restMinutes: 60, status: 0 },
+    token: t18AdminToken
+  })
+  await call('put', '/shifts/3', {
+    data: { shiftName: '晚班', startTime: '16:00', endTime: '24:00', color: '#1F2937', restMinutes: 60, status: 1 },
+    token: t18AdminToken
+  })
   await expectCode(
-    '时段用例后恢复城东种子规则',
+    '时段用例后恢复城东种子规则（可写字段）',
     'put',
     '/attendance/rule',
-    { data: { ...ruleSeed1.result, stationId: 1 }, token: t18AdminToken },
+    {
+      data: { stationId: 1, allowEarlyMin: 30, allowLateMin: 60, lateThresholdMin: 30, earlyLeaveThresholdMin: 30 },
+      token: t18AdminToken
+    },
     200
   )
 
@@ -2425,7 +2781,7 @@ async function main() {
     '补卡申请落库为待审批且带时段名 / 申请人 / 驿站',
     mkSubmit.ok &&
       mkSubmit.result.status === 'PENDING' &&
-      mkSubmit.result.periodName === '全天班' &&
+      mkSubmit.result.periodName === '早班' &&
       mkSubmit.result.employeeId === emptySlot.employeeId &&
       mkSubmit.result.stationId === 1 &&
       mkSubmit.result.approverId == null
@@ -2573,7 +2929,7 @@ async function main() {
   check(
     '补卡记录绑定申请时段名且不伪造校验命中项',
     !!madeRec &&
-      madeRec.periodName === '全天班' &&
+      madeRec.periodName === '早班' &&
       madeRec.checkMode === null &&
       madeRec.wifiMatched === null &&
       madeRec.locationMatched === null
@@ -3900,7 +4256,7 @@ async function main() {
   )
 
   const bOverwrite = await call('post', '/schedules/batch-by-station', {
-    data: batchBody({ weekdays: [1], shiftId: 2, skipExisting: false }),
+    data: batchBody({ weekdays: [1], shiftId: 3, skipExisting: false }),
     token: cfgAdminToken
   })
   check(
@@ -3910,7 +4266,7 @@ async function main() {
   const bOverwriteRow = await batchRowOf(cfgAdminToken)
   check(
     '覆盖后排班改为本次班次',
-    !!bOverwriteRow && bOverwriteRow.days.filter((d) => monDates.includes(d.workDate)).every((d) => d.shiftId === 2)
+    !!bOverwriteRow && bOverwriteRow.days.filter((d) => monDates.includes(d.workDate)).every((d) => d.shiftId === 3)
   )
 
   const bTue = await call('post', '/schedules/batch-by-station', {
@@ -5241,39 +5597,49 @@ async function main() {
       pay0.actions.includes('submit')
   )
   const finSalary4 = await call('get', '/hr/salary-structures/4', { token: finAdminToken })
+  const pay0Basic = pickOrNull(pay0 && pay0.items, (i) => i.key === 'BASIC')
   check(
     '人事定薪项（FIXED）取自 HR 定薪真源',
-    !!pay0 &&
-      finSalary4.ok &&
-      pay0.items.find((i) => i.key === 'BASIC').amount === finSalary4.result.current.basicSalary
+    finSalary4.ok && !!pay0Basic && pay0Basic.amount === finSalary4.result.current.basicSalary,
+    '未找到 BASIC 明细项（工资单数据问题）'
   )
+  const pay0FullAttend = pickOrNull(pay0 && pay0.items, (i) => i.key === 'FULL_ATTEND')
   check(
     '考勤推算项生效（零缺勤 → 全勤奖 200）',
-    !!pay0 && pay0.items.find((i) => i.key === 'FULL_ATTEND').amount === 200
+    !!pay0FullAttend && pay0FullAttend.amount === 200,
+    '未找到 FULL_ATTEND 明细项（工资单数据问题）'
   )
   await expectCode(
-    '人工项可改（MANUAL）',
+    '人工项可改（MANUAL，须带变更事由 C-3）',
     'put',
     `/finance/payrolls/${pay0 ? pay0.id : 0}/items`,
-    { data: { items: [{ key: 'OTHER', amount: 888 }] }, token: finAdminToken },
+    { data: { items: [{ key: 'OTHER', amount: 888 }], reason: '9 月绩效补偿调整' }, token: finAdminToken },
     200
   )
   await expectCode(
     '非人工项不可手改 → 400',
     'put',
     `/finance/payrolls/${pay0 ? pay0.id : 0}/items`,
-    { data: { items: [{ key: 'BASIC', amount: 1 }] }, token: finAdminToken },
+    { data: { items: [{ key: 'BASIC', amount: 1 }], reason: '结构错误优先于事由校验' }, token: finAdminToken },
     400
+  )
+  await expectCode(
+    '金额变更缺事由 → 9412（C-3 事由必填 2-200）',
+    'put',
+    `/finance/payrolls/${pay0 ? pay0.id : 0}/items`,
+    { data: { items: [{ key: 'OTHER', amount: 999 }] }, token: finAdminToken },
+    9412
   )
 
   // 重新生成把人工项还原为规则默认值，作为「规则驱动」比对的干净基线
   await finGenerate()
   const payBase = await finListOf(finMonth)
+  const payBaseOther = pickOrNull(payBase && payBase.items, (i) => i.key === 'OTHER')
+  const payBaseFullAttend = pickOrNull(payBase && payBase.items, (i) => i.key === 'FULL_ATTEND')
   check(
     '重新生成后人工项回到规则默认值（基线干净）',
-    !!payBase &&
-      payBase.items.find((i) => i.key === 'OTHER').amount === 0 &&
-      payBase.items.find((i) => i.key === 'FULL_ATTEND').amount === 200
+    !!payBaseOther && payBaseOther.amount === 0 && !!payBaseFullAttend && payBaseFullAttend.amount === 200,
+    '未找到 OTHER / FULL_ATTEND 明细项（工资单数据问题）'
   )
 
   const finRuleAmount = await expectCode(
@@ -5283,15 +5649,22 @@ async function main() {
     { data: { items: finRuleItems({ fullAttendAmount: 500 }) }, token: finAdminToken },
     200
   )
+  const ruleItemFullAttend = pickOrNull(
+    finRuleAmount.ok && finRuleAmount.result.items,
+    (i) => i.key === 'FULL_ATTEND'
+  )
   check(
     '规则项金额已写入',
-    finRuleAmount.ok && finRuleAmount.result.items.find((i) => i.key === 'FULL_ATTEND').params.amount === 500
+    !!ruleItemFullAttend && ruleItemFullAttend.params.amount === 500,
+    '未找到 FULL_ATTEND 规则项（规则数据问题）'
   )
   const gen1 = await finGenerate()
   const pay1 = await finListOf(finMonth)
+  const pay1FullAttend = pickOrNull(pay1 && pay1.items, (i) => i.key === 'FULL_ATTEND')
   check(
     '改金额后重新生成：全勤奖变为 500',
-    gen1.ok && !!pay1 && pay1.items.find((i) => i.key === 'FULL_ATTEND').amount === 500
+    gen1.ok && !!pay1FullAttend && pay1FullAttend.amount === 500,
+    '未找到 FULL_ATTEND 明细项（工资单数据问题）'
   )
   check(
     '改金额后净额较基线 +300（金额由规则驱动，非写死公式）',
@@ -5305,9 +5678,14 @@ async function main() {
     { data: { items: finRuleItems({ fullAttendAmount: 500, fullAttendEnabled: 0 }) }, token: finAdminToken },
     200
   )
+  const ruleItemDisabled = pickOrNull(
+    finRuleDisabled.ok && finRuleDisabled.result.items,
+    (i) => i.key === 'FULL_ATTEND'
+  )
   check(
     '规则项停用状态已写入',
-    finRuleDisabled.ok && finRuleDisabled.result.items.find((i) => i.key === 'FULL_ATTEND').enabled === 0
+    !!ruleItemDisabled && ruleItemDisabled.enabled === 0,
+    '未找到 FULL_ATTEND 规则项（规则数据问题）'
   )
   const gen2 = await finGenerate()
   const pay2 = await finListOf(finMonth)
@@ -5366,9 +5744,9 @@ async function main() {
     token: finStaffToken
   })
   check(
-    '员工「我的工资单」只含已发布 / 已确认',
+    '员工「我的工资单」只含已发布 / 已确认 / 已发放（C-6 归档态对本人可见）',
     finMyList.ok &&
-      finMyList.result.list.every((p) => ['PUBLISHED', 'CONFIRMED'].includes(p.status)) &&
+      finMyList.result.list.every((p) => ['PUBLISHED', 'CONFIRMED', 'PAID'].includes(p.status)) &&
       finMyList.result.list.some((p) => p.id === finChainId)
   )
   const finConfirmed = await expectCode(
@@ -5383,6 +5761,57 @@ async function main() {
     finConfirmed.ok && finConfirmed.result.status === 'CONFIRMED' && !!finConfirmed.result.confirmTime
   )
   await expectCode('重复确认 → 9403', 'post', `/finance/payrolls/${finChainId}/confirm`, { token: finStaffToken }, 9403)
+
+  /* ---- C-1 员工异议落 OBJECTED / C-2 再发布与非法来源显式报错 ---- */
+  const finObjMonth = monthShift(currentMonth(), -4)
+  await call('post', '/finance/payrolls/generate', {
+    data: { month: finObjMonth, employeeIds: [4], ruleId: finRuleId },
+    token: finAdminToken
+  })
+  const finObjPay = await finListOf(finObjMonth)
+  await call('post', '/finance/payrolls/submit', { data: { ids: [finObjPay.id] }, token: finAdminToken })
+  await call('post', `/finance/payrolls/${finObjPay.id}/approve`, {
+    data: { approved: true },
+    token: finAdminToken
+  })
+  await call('post', '/finance/payrolls/publish', { data: { ids: [finObjPay.id] }, token: finAdminToken })
+  const finObjected = await expectCode(
+    '员工提异议（已发布 → 异议退回 OBJECTED，C-1）',
+    'post',
+    `/finance/payrolls/${finObjPay.id}/objection`,
+    { data: { reason: '9 月缺勤天数与实际不符' }, token: finStaffToken },
+    200
+  )
+  check(
+    '异议后状态为 OBJECTED 且异议原因/时间落库',
+    finObjected.ok &&
+      finObjected.result.status === 'OBJECTED' &&
+      !!finObjected.result.objectionReason &&
+      !!finObjected.result.objectionTime
+  )
+  const finRepublished = await expectCode(
+    '管理员再发布（异议退回 → 已发布，C-2 来源允许 OBJECTED）',
+    'post',
+    '/finance/payrolls/publish',
+    { data: { ids: [finObjPay.id] }, token: finAdminToken },
+    200
+  )
+  check(
+    '再发布 published=1 且不静默计入 skipped',
+    finRepublished.ok && finRepublished.result.published === 1 && finRepublished.result.skipped === 0
+  )
+  const finRepubDetail = await call('get', `/finance/payrolls/${finObjPay.id}`, { token: finAdminToken })
+  check(
+    '再发布后状态 PUBLISHED 且异议信息已清空',
+    finRepubDetail.ok && finRepubDetail.result.status === 'PUBLISHED' && !finRepubDetail.result.objectionReason
+  )
+  await expectCode(
+    'ids 路径非法来源（已确认单）显式报错 9403（不静默 skipped，C-2）',
+    'post',
+    '/finance/payrolls/publish',
+    { data: { ids: [finChainId] }, token: finAdminToken },
+    9403
+  )
 
   /* ---- 越权与未发布可见性 ---- */
   const finOtherList = await call('get', '/finance/payrolls', {
@@ -5435,6 +5864,13 @@ async function main() {
     { data: { month: currentMonth() }, token: finAdminToken },
     9405
   )
+  await expectCode(
+    '按驿站生成：本驿站未出账可生成（C-7 9405 按驿站收敛，不再被其他驿站整批阻断）',
+    'post',
+    '/finance/payrolls/generate',
+    { data: { month: currentMonth(), stationId: 1, ruleId: finRuleId }, token: finAdminToken },
+    200
+  )
   await expectCode('工资单不存在 → 9402', 'get', '/finance/payrolls/999999', { token: finAdminToken }, 9402)
   await expectCode(
     '发布缺少 ids 与 month → 400',
@@ -5465,9 +5901,9 @@ async function main() {
     token: finAdminToken
   })
   check(
-    '工资单种子六态齐备（草稿 / 待审核 / 已通过 / 已驳回 / 已发布 / 已确认）',
+    '工资单种子八态齐备（草稿 / 待审核 / 已通过 / 已驳回 / 已发布 / 已确认 / 异议退回 / 已发放）',
     finSeedList.ok &&
-      ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'PUBLISHED', 'CONFIRMED'].every(
+      ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'PUBLISHED', 'CONFIRMED', 'OBJECTED', 'PAID'].every(
         (k) => finSeedList.result.counts[k] >= 1
       )
   )
@@ -5476,6 +5912,346 @@ async function main() {
     token: finAdminToken
   })
   check('按 billType 筛选结算单可用', finSettlementList.ok && Array.isArray(finSettlementList.result.list))
+
+  /* ---------- 薪资结算自动化 I-1~I-10（payroll-settings / payroll-runs / items / pay / logs / summary） ---------- */
+  // 用未被既有用例占用的账期（-7 月），避免与已生成的工资单、运行记录相互干扰
+  const runMonth = monthShift(currentMonth(), -7)
+
+  /* ---- I-1 / I-2 / I-3 / I-9 驿站算薪配置 ---- */
+  const finSettings = await expectCode(
+    '算薪配置列表 GET /finance/payroll-settings（ADMIN）',
+    'get',
+    '/finance/payroll-settings',
+    { params: { pageNum: 1, pageSize: 20 }, token: finAdminToken },
+    200
+  )
+  check(
+    '算薪配置列表覆盖全部在营驿站，未配置驿站 payrollDay 为空',
+    finSettings.ok && finSettings.result.total === 8 && finSettings.result.list.some((s) => s.payrollDay === null)
+  )
+  const finSettingEnabled = await call('get', '/finance/payroll-settings', {
+    params: { enabled: 1, pageNum: 1, pageSize: 20 },
+    token: finAdminToken
+  })
+  check(
+    '算薪配置按 enabled=1 过滤只剩已启用驿站',
+    finSettingEnabled.ok && finSettingEnabled.result.list.every((s) => s.enabled === 1) && finSettingEnabled.result.list.length >= 1
+  )
+  await expectCode('STAFF 访问算薪配置 → 403', 'get', '/finance/payroll-settings', { token: finStaffToken }, 403, 403)
+  const finSetting1 = await expectCode(
+    '单驿站配置 GET /finance/payroll-settings/1',
+    'get',
+    '/finance/payroll-settings/1',
+    { token: finAdminToken },
+    200
+  )
+  check(
+    '单驿站配置含算薪日 / 执行时间 / 推送开关',
+    finSetting1.ok && finSetting1.result.payrollDay === 1 && finSetting1.result.payrollTime === '09:00' && finSetting1.result.notifyEnabled === 1
+  )
+  await expectCode('未配置驿站 → 9406', 'get', '/finance/payroll-settings/5', { token: finAdminToken }, 9406)
+  await expectCode('驿站不存在（配置详情）→ 4001', 'get', '/finance/payroll-settings/9999', { token: finAdminToken }, 4001)
+  await expectCode(
+    '算薪日非法（32）→ 9407',
+    'put',
+    '/finance/payroll-settings/2',
+    { data: { enabled: 0, payrollDay: 32, payrollTime: '09:00', notifyEnabled: 1 }, token: finAdminToken },
+    9407
+  )
+  await expectCode(
+    '算薪时间非法（25:00）→ 9408',
+    'put',
+    '/finance/payroll-settings/2',
+    { data: { enabled: 0, payrollDay: 10, payrollTime: '25:00', notifyEnabled: 1 }, token: finAdminToken },
+    9408
+  )
+  await expectCode(
+    '备注超 255 字 → 400',
+    'put',
+    '/finance/payroll-settings/2',
+    {
+      data: { enabled: 0, payrollDay: 10, payrollTime: '09:00', notifyEnabled: 1, remark: 'x'.repeat(256) },
+      token: finAdminToken
+    },
+    400
+  )
+  const finSettingEnable = await expectCode(
+    '启用驿站算薪（enabled 0→1）',
+    'put',
+    '/finance/payroll-settings/2',
+    { data: { enabled: 1, payrollDay: 10, payrollTime: '08:30', notifyEnabled: 1, remark: '演示启用' }, token: finAdminToken },
+    200
+  )
+  check(
+    '启用后返回配置 enabled=1 且时间已更新',
+    finSettingEnable.ok && finSettingEnable.result.enabled === 1 && finSettingEnable.result.payrollTime === '08:30'
+  )
+  await expectCode(
+    '未配置驿站首次保存即创建',
+    'put',
+    '/finance/payroll-settings/5',
+    { data: { enabled: 0, payrollDay: 20, payrollTime: '09:00', notifyEnabled: 1 }, token: finAdminToken },
+    200
+  )
+  const finSettingLogs = await expectCode(
+    '配置变更历史 GET /finance/payroll-settings/2/logs',
+    'get',
+    '/finance/payroll-settings/2/logs',
+    { params: { pageNum: 1, pageSize: 20 }, token: finAdminToken },
+    200
+  )
+  check(
+    '变更历史含 ENABLE 动作且按时间倒序',
+    finSettingLogs.ok &&
+      finSettingLogs.result.list.some((l) => l.action === 'ENABLE') &&
+      finSettingLogs.result.list[0].time >= finSettingLogs.result.list[finSettingLogs.result.list.length - 1].time
+  )
+  const finCreateLogs = await call('get', '/finance/payroll-settings/5/logs', {
+    params: { pageNum: 1, pageSize: 20 },
+    token: finAdminToken
+  })
+  check('首次保存写 CREATE 留痕', finCreateLogs.ok && finCreateLogs.result.list.some((l) => l.action === 'CREATE'))
+  await expectCode('配置历史驿站不存在 → 4001', 'get', '/finance/payroll-settings/9999/logs', { token: finAdminToken }, 4001)
+
+  /* ---- I-4 / I-5 自动算薪运行 ---- */
+  const finTriggerOk = await expectCode(
+    '手工触发算薪 POST /finance/payroll-runs/trigger（SUCCESS）',
+    'post',
+    '/finance/payroll-runs/trigger',
+    { data: { stationId: 1, month: runMonth }, token: finAdminToken },
+    200
+  )
+  check(
+    '触发成功返回 generatedCount 且逐单自动提交守恒',
+    finTriggerOk.ok &&
+      finTriggerOk.result.status === 'SUCCESS' &&
+      finTriggerOk.result.generatedCount >= 1 &&
+      finTriggerOk.result.submittedCount + finTriggerOk.result.skippedCount === finTriggerOk.result.generatedCount
+  )
+  await expectCode(
+    '同账期重复触发 → 9410',
+    'post',
+    '/finance/payroll-runs/trigger',
+    { data: { stationId: 1, month: runMonth }, token: finAdminToken },
+    9410
+  )
+  await expectCode(
+    '未启用自动算薪 → 9415',
+    'post',
+    '/finance/payroll-runs/trigger',
+    { data: { stationId: 4, month: runMonth }, token: finAdminToken },
+    9415
+  )
+  const finTriggerSkip = await call('post', '/finance/payroll-runs/trigger', {
+    data: { stationId: 6, month: runMonth },
+    token: finAdminToken
+  })
+  check(
+    '未配置驿站触发：配置非法映射为 SKIPPED 结果（非错误码）',
+    finTriggerSkip.ok && finTriggerSkip.result.status === 'SKIPPED' && finTriggerSkip.result.skipCode === 'CONFIG_INVALID'
+  )
+  await expectCode(
+    '触发驿站不存在 → 4001',
+    'post',
+    '/finance/payroll-runs/trigger',
+    { data: { stationId: 9999, month: runMonth }, token: finAdminToken },
+    4001
+  )
+  await expectCode('触发缺账期 → 400', 'post', '/finance/payroll-runs/trigger', { data: { stationId: 1 }, token: finAdminToken }, 400)
+  const finRuns = await expectCode(
+    '运行记录列表 GET /finance/payroll-runs',
+    'get',
+    '/finance/payroll-runs',
+    { params: { stationId: 1, pageNum: 1, pageSize: 20 }, token: finAdminToken },
+    200
+  )
+  check(
+    '运行记录列表含本次手工触发结果与站点名',
+    finRuns.ok && finRuns.result.list.some((r) => r.targetMonth === runMonth && r.triggerType === 'MANUAL' && !!r.stationName)
+  )
+  const finRunsFailed = await call('get', '/finance/payroll-runs', {
+    params: { status: 'FAILED', pageNum: 1, pageSize: 20 },
+    token: finAdminToken
+  })
+  check(
+    '僵死回收记录：FAILED + failReason=STALE_RECLAIMED',
+    finRunsFailed.ok && finRunsFailed.result.list.some((r) => r.failReason === 'STALE_RECLAIMED')
+  )
+  await expectCode('STAFF 访问运行记录 → 403', 'get', '/finance/payroll-runs', { token: finStaffToken }, 403, 403)
+
+  /* ---- I-6 手工加 / 扣款 ---- */
+  const finRunList = await call('get', '/finance/payrolls', {
+    params: { month: runMonth, stationId: 1, pageNum: 1, pageSize: 20 },
+    token: finAdminToken
+  })
+  const finRunPay = finRunList.ok ? finRunList.result.list[0] : null
+  await expectCode(
+    '加扣款事由过短 → 9412',
+    'post',
+    `/finance/payrolls/${finRunPay ? finRunPay.id : 0}/items/add`,
+    { data: { itemType: 'DEDUCTION', itemName: '设备赔偿', amount: 120, reason: '短' }, token: finAdminToken },
+    9412
+  )
+  await expectCode(
+    '加扣款金额非正 → 400',
+    'post',
+    `/finance/payrolls/${finRunPay ? finRunPay.id : 0}/items/add`,
+    { data: { itemType: 'ADDITION', itemName: '补贴', amount: 0, reason: '加班补贴' }, token: finAdminToken },
+    400
+  )
+  const finAdd = await expectCode(
+    '手工扣款 → 200 并重算合计',
+    'post',
+    `/finance/payrolls/${finRunPay ? finRunPay.id : 0}/items/add`,
+    { data: { itemType: 'DEDUCTION', itemName: '设备赔偿', amount: 120, reason: '扫码枪损坏赔偿' }, token: finAdminToken },
+    200
+  )
+  check(
+    '扣款后新增 MANUAL 明细且扣项合计含 120',
+    finAdd.ok &&
+      finAdd.result.items.some((i) => i.source === 'MANUAL' && i.type === 'DEDUCTION' && i.amount === 120) &&
+      finAdd.result.deductionTotal >= 120
+  )
+  const finAdd2 = await expectCode(
+    '手工加款 → 200',
+    'post',
+    `/finance/payrolls/${finRunPay ? finRunPay.id : 0}/items/add`,
+    { data: { itemType: 'ADDITION', itemName: '加班补贴', amount: 300, reason: '加班补贴发放' }, token: finAdminToken },
+    200
+  )
+  check('加款计入应发合计（应发 = 增项合计）', finAdd2.ok && finAdd2.result.grossAmount === finAdd2.result.additionTotal)
+
+  /* ---- C-3 修改人工项金额（必填事由） ---- */
+  const manualItem = finAdd2.ok ? finAdd2.result.items.find((i) => i.source === 'MANUAL' && i.name === '加班补贴') : null
+  const finRunPayId = finRunPay ? finRunPay.id : 0
+  await expectCode(
+    '改金额事由过短 → 9412',
+    'put',
+    `/finance/payrolls/${finRunPayId}/items`,
+    { data: { items: [{ key: manualItem ? manualItem.key : 'X', amount: 400 }], reason: '短' }, token: finAdminToken },
+    9412
+  )
+  const finUpdate = await expectCode(
+    '修改人工项金额 → 200 且重算实发',
+    'put',
+    `/finance/payrolls/${finRunPayId}/items`,
+    {
+      data: { items: [{ key: manualItem ? manualItem.key : 'X', amount: 400 }], reason: '加班补贴口径修正' },
+      token: finAdminToken
+    },
+    200
+  )
+  const finUpdatedItem = pickOrNull(
+    finUpdate.ok && finUpdate.result.items,
+    (i) => i.key === (manualItem ? manualItem.key : '')
+  )
+  check(
+    '改金额后明细按新值重算',
+    !!finUpdatedItem && finUpdatedItem.amount === 400,
+    '未找到目标调整明细项（工资单数据 / manualItem 缺失）'
+  )
+
+  /* ---- I-8 确认发放归档 ---- */
+  const finConfirmedSeed = await call('get', '/finance/payrolls', {
+    params: { status: 'CONFIRMED', pageNum: 1, pageSize: 10 },
+    token: finAdminToken
+  })
+  const finConfirmedPay = finConfirmedSeed.ok ? finConfirmedSeed.result.list[0] : null
+  const finConfirmedPayId = finConfirmedPay ? finConfirmedPay.id : 0
+  const finPayDone = await expectCode(
+    '确认工资已发放（CONFIRMED → PAID）',
+    'post',
+    `/finance/payrolls/${finConfirmedPayId}/pay`,
+    { token: finAdminToken },
+    200
+  )
+  check(
+    '发放后状态 PAID 且记 paidByName / paidTime',
+    finPayDone.ok && finPayDone.result.status === 'PAID' && !!finPayDone.result.paidByName && !!finPayDone.result.paidTime
+  )
+  await expectCode('已发放重复发放 → 9413', 'post', `/finance/payrolls/${finConfirmedPayId}/pay`, { token: finAdminToken }, 9413)
+  const finDraftSeed = await call('get', '/finance/payrolls', {
+    params: { status: 'DRAFT', pageNum: 1, pageSize: 10 },
+    token: finAdminToken
+  })
+  const finDraftPay = finDraftSeed.ok ? finDraftSeed.result.list[0] : null
+  await expectCode(
+    '非 CONFIRMED 来源发放 → 9403',
+    'post',
+    `/finance/payrolls/${finDraftPay ? finDraftPay.id : 0}/pay`,
+    { token: finAdminToken },
+    9403
+  )
+  await expectCode(
+    '已发放单加扣款 → 9413',
+    'post',
+    `/finance/payrolls/${finConfirmedPayId}/items/add`,
+    { data: { itemType: 'ADDITION', itemName: '补发', amount: 10, reason: '发放后补发测试' }, token: finAdminToken },
+    9413
+  )
+
+  /* ---- I-7 操作留痕（含角色裁剪） ---- */
+  const finLogs = await expectCode(
+    '操作留痕 GET /finance/payrolls/:id/logs（ADMIN 全量）',
+    'get',
+    `/finance/payrolls/${finConfirmedPayId}/logs`,
+    { token: finAdminToken },
+    200
+  )
+  check(
+    'ADMIN 留痕含动作 / 操作人 / 时间且含 PAY 记录',
+    finLogs.ok &&
+      finLogs.result.length >= 1 &&
+      finLogs.result.every((l) => l.action && l.operatorName && l.time) &&
+      finLogs.result.some((l) => l.action === 'PAY')
+  )
+  const finMyListLogs = await call('get', '/finance/payrolls/my', {
+    params: { pageNum: 1, pageSize: 10 },
+    token: finStaffToken
+  })
+  const finMyPay = finMyListLogs.ok ? finMyListLogs.result.list[0] : null
+  const finStaffLogs = await call('get', `/finance/payrolls/${finMyPay ? finMyPay.id : 0}/logs`, { token: finStaffToken })
+  check(
+    '非 ADMIN 留痕仅返回 action/time/reason/toStatus（服务端裁剪，无操作人与金额快照）',
+    finStaffLogs.ok &&
+      finStaffLogs.result.every((l) => !('operatorName' in l) && !('before' in l) && !('after' in l) && 'action' in l)
+  )
+  await expectCode(
+    'STAFF 访问他人留痕 → 9404',
+    'get',
+    `/finance/payrolls/${finConfirmedPayId}/logs`,
+    { token: finStaffToken },
+    9404
+  )
+
+  /* ---- I-10 手工调整对账汇总 ---- */
+  await expectCode('对账缺账期 → 400', 'get', '/finance/payrolls/manual-adjustments/summary', { token: finAdminToken }, 400)
+  const finSummary = await expectCode(
+    '对账汇总 GET（按员工 + 合计行）',
+    'get',
+    '/finance/payrolls/manual-adjustments/summary',
+    { params: { month: runMonth, stationId: 1 }, token: finAdminToken },
+    200
+  )
+  check(
+    '对账汇总含加扣款与改金额口径，合计行 employeeId 为空',
+    finSummary.ok &&
+      finSummary.result.total.employeeName === '合计' &&
+      finSummary.result.total.employeeId === null &&
+      finSummary.result.list.some((r) => r.additionCount >= 1 && r.deductionCount >= 1 && r.updateCount >= 1)
+  )
+  check(
+    '净影响 = 加款总额 − 扣款总额',
+    finSummary.ok && finSummary.result.list.every((r) => Math.abs(r.netImpact - (r.additionTotal - r.deductionTotal)) < 0.001)
+  )
+  await expectCode(
+    'STAFF 访问对账 → 403',
+    'get',
+    '/finance/payrolls/manual-adjustments/summary',
+    { token: finStaffToken },
+    403,
+    403
+  )
 
   /* ---------- 需求10：入职 / 离职流程（hr.js，离职结算跨域引用 finance） ---------- */
   resetDb()
@@ -5502,6 +6278,14 @@ async function main() {
     '入职流程含 6 个步骤且带 progress',
     onboardList.ok &&
       onboardList.result.list.every((f) => f.steps.length === 6 && f.progress.total === 6 && !!f.statusLabel)
+  )
+  // 审批中心「注册」标识（设计 ⑧.4）依赖入离职列表出参 source：断言两种来源均可达
+  check(
+    '入职流程列表出参携带 source，且同时含 SELF_REGISTER 与 ADMIN 两种来源',
+    onboardList.ok &&
+      onboardList.result.list.every((f) => f.source === 'ADMIN' || f.source === 'SELF_REGISTER') &&
+      onboardList.result.list.some((f) => f.source === 'SELF_REGISTER') &&
+      onboardList.result.list.some((f) => f.source === 'ADMIN')
   )
   await expectCode('STAFF 访问入职流程 → 403', 'get', '/hr/onboarding', { token: flowStaffToken }, 403, 403)
   const onboardDetail = await expectCode(
@@ -5663,7 +6447,12 @@ async function main() {
       obDone.result.progress.done === 6 &&
       obDone.result.currentStepKey === null
   )
-  check('入库员工此时才转为在职（status=1）', db.employees.find((e) => e.id === onboardEmpId).status === 1)
+  const onboardEmpAfter = db.employees.find((e) => e.id === onboardEmpId)
+  check(
+    '入库员工此时才转为在职（status=1）',
+    !!onboardEmpAfter && onboardEmpAfter.status === 1,
+    '未找到入库员工记录（员工 id 或脚本数据问题）'
+  )
   const onboardLogin = await call('post', '/auth/login', {
     data: { username: 'onboard_demo01', password: 'Init1234', clientType: 'H5', as: 'station' }
   })

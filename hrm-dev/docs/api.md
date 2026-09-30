@@ -2,13 +2,16 @@
 
 | 项目 | 内容 |
 | ---- | ---- |
-| 文档版本 | v1.2 |
+| 文档版本 | v1.5 |
 | 编写日期 | 2026-09-06 |
-| 最近修订 | 2026-09-26（B1-C1 人事 / 入离职补录 + 注册域契约定稿） |
+| 最近修订 | 2026-09-27（v1.5 考勤「时段真源统一」契约回填：补录错误码 `9110~9114`；`GET /rule` 与 `/rule/list` 新增出参 `checkPeriodsReadonly`；`GET /status` 新增出参 `shiftConfigured`；`PUT /rule` 废弃 `checkPeriods` / `checkFrequency` / `workStartTime` / `workEndTime` 入参；`periodIndex` / `periodName` 语义与存量哨兵口径统一；班次定义侧校验 `9114`；明细缺卡改班次粒度） |
 | 状态 | 待评审 |
 | 服务前缀 | `/api/v1`（生产经 Nginx 同域反代，本地经 Vite proxy） |
-| 接口总数 | 65（= §4.0 概览行数；含 3 条「契约先行」行） |
-| 关联文档 | [requirement.md](requirement.md)、[db.md](db.md)、[registration-design.md](registration-design.md) |
+| 接口总数 | 90（= §4.0 概览行数；含 **12** 条「契约先行」行：注册域 3 + 财务域 I-1~I-9；**I-10 本批已实现**） |
+| 本次范围（v1.3） | 财务域（`/api/v1/finance/**`）**首次成文收录**：既有 15 端点（工资单 10 + 计薪规则 5）+ 薪资结算自动化新增 9（I-1~I-9）；8 态状态机入 §4.12.1；错误码 9401~9416 入 §2.2（9406~9416 为本批新增，9414 / 9416 作废）；通知类型 7/8/9 入 §4.12.21。口径真源：`payroll-automation-design.md` v1.5 §2/§3/§4。 |
+| 本次范围（v1.4） | **B4a 通知联动与对账补录**（口径真源：`payroll-automation-design.md` v1.5 §4.5 与 `security-payroll-automation-review.md` M-7）：① 通知类型 7/8/9 **后端落地**（`sendSystem` 独立白名单，公告白名单维持 1..6），新增运行失败/僵死回收告警类型 **10**（§4.12.21）；② 新增 **I-10** `GET /api/v1/finance/payrolls/manual-adjustments/summary`（ADMIN，§4.12.22）。 |
+| 本次范围（v1.5） | **考勤「时段真源统一」契约回填**（口径真源：`attendance-time-source-design.md` v1.2 §4~§7）：时段真源改为**该驿站启用班次**，`periodIndex = shiftOrdinal(start_time)`（早 0 / 晚 1，**非数组下标**）、`periodName` = 班次名快照。① §2.2 补录 `9110~9114`（并补注 91xx 段位）；② §4.6.1 / §4.6.2 新增出参 `checkPeriodsReadonly`（恒 true）；③ §4.6.4 新增出参 `shiftConfigured`；④ §4.6.3 废弃 `checkPeriods`（非空回 400）/ `checkFrequency` / `workStartTime` / `workEndTime` 入参；⑤ §4.6.5~§4.6.9、§4.7 统一 `periodIndex`/`periodName` 与存量哨兵口径，明细缺卡改班次粒度；⑥ §4.8.2 / §4.8.3 班次定义侧校验（`9114`）；⑦ §4.9.3 / §4.9.4 排班侧 `9110` / `9111` / `9112`。**未新增任何端点**。 |
+| 关联文档 | [requirement.md](requirement.md)、[db.md](db.md)、[registration-design.md](registration-design.md)、[payroll-automation-design.md](payroll-automation-design.md) |
 
 ***
 
@@ -91,7 +94,7 @@
 | 95xx | 同步配置中心 |
 | 96xx | 请假 |
 
-> 段位与后端 `ErrorCode` 枚举一致，本表为**全域分段总表**。已展开明细的段位：通用 + 10xx~50xx + 91xx + 93xx（见 2.2）、96xx（见 7.2）；其余段位为后端 `ErrorCode` 已定义、本文档尚未展开。
+> 段位与后端 `ErrorCode` 枚举一致，本表为**全域分段总表**。已展开明细的段位：通用 + 10xx~50xx + 91xx + 93xx（见 2.2）、94xx 财务段（见 2.2，9401~9416）、96xx（见 7.2）；其余段位为后端 `ErrorCode` 已定义、本文档尚未展开。
 
 ### 2.2 错误码明细
 
@@ -140,12 +143,35 @@
 | 9107 | 打卡时段不存在 | 时段缺失 / 规则时段配置非法（同码两语义，前端按接口区分） |
 | 9108 | 该时段当日已有补卡申请或已正常打卡 | 补卡重复 |
 | 9109 | 补卡申请状态不允许该操作 | 补卡状态非法 |
+| 9110 | 同日班次时间重叠 | 排班侧：同员工同天班次时间重叠（半开区间 `[start,end)`，相邻不算重叠；`hrm.algo.attendance.allowShiftOverlap=true` 可显式关闭该拒绝，默认 false，§4.9.3 / §4.9.4） |
+| 9111 | 单日排班班次超过上限 | 排班侧：单日班次数超上限（`hrm.algo.attendance.maxShiftsPerDay`，默认 2，§4.9.3 / §4.9.4） |
+| 9112 | 同日排班须一早一晚（时段归属冲突） | 排班侧：同日各排班次 `ordinal` 冲突（`hrm.algo.attendance.requireDistinctOrdinalPerDay` 默认 true，§4.9.3 / §4.9.4） |
+| 9113 | 该驿站未配置启用班次，无法打卡，请先维护班次 | 打卡 / 补卡（申请与审批）：该驿站无 `status=1` 班次，时段无真源（§4.6.5 / §4.7.3 / §4.7.4） |
+| 9114 | 班次定义非法：请检查班次名称与时段归属 | 班次定义侧（`POST` / `PUT /api/v1/shifts`）：`shiftName` trim 后 = 保留哨兵名 `全天班`，或启用班次数将超上限（2），或启用班次 `ordinal` 冲突（§4.8.2 / §4.8.3） |
 | 9307 | 该手机号已有进行中的入职申请，请勿重复提交 | 注册重复提交（同 phone 存在 `SUBMITTED` 申请） |
 | 9308 | 入职申请不存在 | 申请单不存在（段位保留、一期未启用） |
 | 9309 | 申请状态不允许该操作 | 注册审批 / 驳回时申请状态非法 |
 | 9310 | （已废弃，不使用） | 原「手机号已注册」；注册提交对「是否已注册」响应恒定，不返回该码（详见 §4.11.2） |
+| 9401 | 计薪规则不存在 | 规则 id 无效（财务域，§4.12.15） |
+| 9402 | 工资单不存在 | 工资单 id 无效（财务域，§4.12.4） |
+| 9403 | 工资单状态不允许该操作 | 状态守卫失败（财务域；亦用于「规则被工资单引用，不可删除」，见 §4.12.15） |
+| 9404 | 无权查看他人工资单 | 非 ADMIN 访问非本人单据（财务域越权，§4.12.4） |
+| 9405 | 该月工资单已提交审核或已发布，不可重复生成 | 生成幂等（财务域；C-7 起判定**按驿站收敛**，§4.12.5） |
+| 9406 | 该驿站尚未配置算薪设置 | 新增（I-2，§4.12.16） |
+| 9407 | 算薪日取值非法（须为 1-31，月末自动钳位到当月最后一天） | 新增（I-3，§4.12.16） |
+| 9408 | 算薪时间格式非法（须为 HH:mm） | 新增（I-3，§4.12.16） |
+| 9409 | 运行记录不存在 | 新增；号段保留（自动算薪运行记录，§4.12.18） |
+| 9410 | 该驿站该账期正在运行、已占位或当日已尝试，不可重复触发 | 新增（I-4 / claim 占位 / 日粒度闸门，§4.12.18） |
+| 9411 | 工资单项键已存在 | 新增（I-6，item_key 重复，§4.12.12） |
+| 9412 | 加扣款事由必填（2-200 字） | 新增；**可判定业务分支**（I-6、C-3 金额变更强制事由，§4.12.11 / §4.12.12） |
+| 9413 | 工资单已发放归档，不可修改 | 新增；**可判定业务分支**（`PAID` 终态冻结，统一由 `assertMutable` 收口，§4.12.1） |
+| 9414 | （已作废，不使用） | 原「补跑窗口已过期」；v1.3 作废，**保留号段不复用**（日粒度重试模型下无「超窗口」概念，§4.12.18） |
+| 9415 | 该驿站未启用自动算薪 | 新增（I-4 / I-5，enabled=0 时触发或查询，§4.12.18） |
+| 9416 | （已作废，不使用） | 原「重试次数耗尽」；v1.3 作废，**保留号段不复用**（不得设重试硬上限，连续失败改告警，§4.12.18） |
 
+> **91xx 考勤 / 排班 / 补卡段位**：`9101~9109` 既有；本批补录 `9110~9112`（**排班侧**：重叠 / 单日上限 / `ordinal` 冲突，端点见 §4.9）与 `9113` / `9114`（**时段真源统一**新增：`9113` 站点无启用班次，打卡与补卡申请/审批同码；`9114` 班次定义侧保留名 / 超上限 / `ordinal` 冲突，端点见 §4.8）。`9110~9112` 与 `9114` 语义域不同（排班侧 vs 定义侧），**不得互相复用**。
 > **93xx 人事 / 入离职段位**：既有 `9301~9306`（人事档案 / 入离职流程，端点见 §4.10）；注册侧续号 `9307~9309`（端点见 §4.11）。手机号查重命中复用 **`2003`**（不新增 9311）；非法短信场景复用 **`400`**（不新增 1111）；`9310` 已废弃。
+> **94xx 财务 / 工资单段位**：既有 `9401~9405` 随财务域契约（§4.12）**本批首次展开**；本批新增 `9406~9415`（其中 `9412` / `9413` 为可判定业务分支，建议独立码；`9406`~`9411`、`9415` 亦可用通用 `400` + 具体文案替代）；**`9414` / `9416` 于 v1.3 作废，保留号段不复用**。文案须与后端 `ErrorCode.java` 94xx 段及前端 `errorCode.js` 同步（本次仅核对、未改代码）。
 
 ***
 
@@ -188,7 +214,7 @@
 
 ## 4. 接口明细
 
-### 4.0 接口概览（65 个）
+### 4.0 接口概览（89 个）
 
 | 分组 | 方法 | 路径 | 权限 | 说明 |
 | ---- | ---- | ---- | ---- | ---- |
@@ -257,9 +283,34 @@
 | 员工自助注册 | POST | /api/v1/registration | 公开 | 提交注册申请（R-2，契约先行） |
 | 员工自助注册 | GET | /api/v1/registration/{applyNo} | ADMIN | 申请单详情（R-3，契约先行） |
 | 员工自助注册 | POST | /api/v1/hr/onboarding/{id}/approve | ADMIN | 审批通过·聚合联动（R-6，契约先行） |
+| 财务·工资单 | GET | /api/v1/finance/payrolls/my | ADMIN / STATION_ADMIN / STAFF（仅本人） | 我的工资单 |
+| 财务·工资单 | GET | /api/v1/finance/payrolls | ADMIN | 工资单列表（附各状态计数） |
+| 财务·工资单 | GET | /api/v1/finance/payrolls/{id} | ADMIN / 本人 | 工资单详情 |
+| 财务·工资单 | POST | /api/v1/finance/payrolls/generate | ADMIN | 按月批量生成（C-7） |
+| 财务·工资单 | POST | /api/v1/finance/payrolls/submit | ADMIN | 批量提交审核（C-5） |
+| 财务·工资单 | POST | /api/v1/finance/payrolls/{id}/approve | ADMIN | 审核（通过/驳回，C-5） |
+| 财务·工资单 | POST | /api/v1/finance/payrolls/publish | ADMIN | 批量发布 / 再发布（C-2） |
+| 财务·工资单 | POST | /api/v1/finance/payrolls/{id}/confirm | ADMIN / 本人 | 员工确认（C-4） |
+| 财务·工资单 | POST | /api/v1/finance/payrolls/{id}/objection | ADMIN / 本人 | 员工异议（C-1） |
+| 财务·工资单 | PUT | /api/v1/finance/payrolls/{id}/items | ADMIN | 修改人工项金额（C-3） |
+| 财务·工资单 | POST | /api/v1/finance/payrolls/{id}/items/add | ADMIN | 手工加/扣款（I-6） |
+| 财务·工资单 | POST | /api/v1/finance/payrolls/{id}/pay | ADMIN | 确认发放归档（I-8） |
+| 财务·工资单 | GET | /api/v1/finance/payrolls/{id}/logs | ADMIN / 本人（裁剪） | 工资单操作留痕（I-7） |
+| 财务·工资单 | GET | /api/v1/finance/payrolls/manual-adjustments/summary | ADMIN | 手工调整对账汇总（I-10） |
+| 财务·计薪规则 | GET | /api/v1/finance/payroll-rules | ADMIN | 规则列表 |
+| 财务·计薪规则 | POST | /api/v1/finance/payroll-rules | ADMIN | 新建规则 |
+| 财务·计薪规则 | GET | /api/v1/finance/payroll-rules/{id} | ADMIN | 规则详情 |
+| 财务·计薪规则 | PUT | /api/v1/finance/payroll-rules/{id} | ADMIN | 编辑规则 |
+| 财务·计薪规则 | DELETE | /api/v1/finance/payroll-rules/{id} | ADMIN | 删除规则 |
+| 财务·算薪配置 | GET | /api/v1/finance/payroll-settings | ADMIN | 驿站算薪配置列表（I-1） |
+| 财务·算薪配置 | GET | /api/v1/finance/payroll-settings/{stationId} | ADMIN | 单驿站算薪配置（I-2） |
+| 财务·算薪配置 | PUT | /api/v1/finance/payroll-settings/{stationId} | ADMIN | 保存算薪配置（I-3） |
+| 财务·算薪配置 | GET | /api/v1/finance/payroll-settings/{stationId}/logs | ADMIN | 算薪配置变更历史（I-9） |
+| 财务·自动算薪 | POST | /api/v1/finance/payroll-runs/trigger | ADMIN | 手工触发自动算薪（I-4） |
+| 财务·自动算薪 | GET | /api/v1/finance/payroll-runs | ADMIN | 自动算薪运行记录（I-5） |
 
-> 权限列：`ADMIN` = 管理员、`STATION_ADMIN` = 站长、`STAFF` = 员工（角色码与后端 `UserContext` 一致）。考勤 / 补卡 / 班次 / 排班的查询类端点对非 ADMIN 的 `stationId` **静默收敛为本人驿站**；「本人」端点以登录身份收口，详见 §4.6~§4.9。人事 / 入离职见 §4.10（入离职 10 端点全 `ADMIN`；人事档案详情任意登录角色可达，非本人非 ADMIN → 403 越权）；员工自助注册见 §4.11（**公开仅 R-1 / R-2 两条**）。
-> **计数说明**：本表 65 = 原 46 + §4.10 人事 / 入离职 16 + 注册域 3（R-2 / R-3 / R-6）。R-1 为既有公开端点 `/api/v1/auth/sms/send` 的场景扩展（仅新增 `scene=REGISTER`），不单独计入。**标注「契约先行」者为注册域新增端点**：本批仅定稿契约，R-2 / R-3 由 B3 落地、R-6 由 B4 落地。
+> 权限列：`ADMIN` = 管理员、`STATION_ADMIN` = 站长、`STAFF` = 员工（角色码与后端 `UserContext` 一致）。考勤 / 补卡 / 班次 / 排班的查询类端点对非 ADMIN 的 `stationId` **静默收敛为本人驿站**；「本人」端点以登录身份收口，详见 §4.6~§4.9。人事 / 入离职见 §4.10（入离职 10 端点全 `ADMIN`；人事档案详情任意登录角色可达，非本人非 ADMIN → 403 越权）；员工自助注册见 §4.11（**公开仅 R-1 / R-2 两条**）；财务 / 工资单见 §4.12（`/api/v1/finance/**` 共 **25** 端点）。
+> **计数说明**：本表 90 = 65（原 46 + §4.10 人事 / 入离职 16 + 注册域 3）+ **财务域 25**（工资单 14 = 既有 10 + I-6 / I-7 / I-8 / **I-10**；计薪规则 5；算薪配置 4 = I-1 / I-2 / I-3 / I-9；自动算薪 2 = I-4 / I-5）。R-1 为既有公开端点 `/api/v1/auth/sms/send` 的场景扩展（仅新增 `scene=REGISTER`），不单独计入。**标注「契约先行」者为注册域新增端点**：本批仅定稿契约，R-2 / R-3 由 B3 落地、R-6 由 B4 落地。**财务域 25 条中，既有 15 条为代码已实现（`PayrollController` 10 + `PayrollRuleController` 5），I-1~I-9 为契约先行（`payroll-automation-design.md` v1.5 §4.1），I-10 已由 B4a 实现。**
 
 ### 4.1 认证接口
 
@@ -482,6 +533,7 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
         "stationId": 3,
         "stationName": "城东驿站",
         "role": "STAFF",
+        "position": "店员",
         "status": 1,
         "entryDate": "2026-03-01",
         "remark": null,
@@ -492,6 +544,8 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
   }
 }
 ```
+
+> **员工 VO 出参字段补充**：`position` = 岗位，取值 `店员` / `站长` / `管理员`；未定岗（未登记）时为 `null`（前端显示「—」）。该字段为新增出参（只增不减）；列表（§4.3.1）与详情（§4.3.2）共用同一 VO。
 
 #### 4.3.2 员工详情
 
@@ -748,7 +802,13 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 > 端点由 `AttendanceController` 提供，路径前缀 `/api/v1/attendance`；全部端点均需登录（`Authorization: Bearer {token}`）。
 > **数据范围收敛（L1）**：查询类端点的 `stationId` 对非 ADMIN **静默收敛为本人驿站**（会话缺归属时收敛为「无数据」，不报错、不越权）；`employeeId` 不参与收敛。「本人」端点（`/status`、`/check-in`、`/my`）一律以登录身份收口，不接受前端传 `employeeId` 代他人操作。
 > 角色门槛：`GET /rule`、`/status`、`/check-in`、`/my` 为 `ADMIN/STATION_ADMIN/STAFF`；`/records`、`/export`、`/summary`、`/detail` 为 `ADMIN/STATION_ADMIN`；`/rule/list`、`PUT /rule` 为 `ADMIN`。
-> 错误码见 §2.2「91xx 考勤 / 排班 / 补卡」段（9101–9109）；字段校验类错误统一 `400`。
+> 错误码见 §2.2「91xx 考勤 / 排班 / 补卡」段（9101–9114）；字段校验类错误统一 `400`。
+> **时段序号 / 名称统一口径（v1.4，时段真源 = 该驿站启用班次）**：本域 `periodIndex`（记录 / 补卡 / 打卡出参）恒为
+> **`shiftOrdinal(shift.start_time, middayBoundaryMinute)`**——早班 `0` / 晚班 `1`（界值默认 `720`，即 12:00），
+> **不是时段数组下标**（单班次晚班站点唯一时段 `periodIndex = 1`，故禁用 `periods[periodIndex]` 下标取值，一律按值查找）；
+> `periodName` 为**班次名快照**（`attendance_shift.shift_name`），**历史记录保持原值不改写**（存量哨兵名 `全天班` 见下）。
+> **存量哨兵兼容读取**：`periodName` 命中哨兵 `全天班` → 视为覆盖当日全部班次；`periodName` 为空 → 当日单班次归该班次、
+> 多班次计全部班次（不判缺）；其余按 `(workDate, periodIndex)` 定位。该三态口径为考勤概况与明细的**共同真源**。
 
 #### 4.6.1 打卡规则查询
 
@@ -768,10 +828,11 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | matchMode | string | `ALL` / `ANY`（多校验项组合方式） |
 | wifiList | `WifiEntry[]` | 白名单（`ssid` 为判定依据、`bssid` 仅留痕）；旧数据 `>1` 条**原样返回**（见 4.6.3） |
 | longitude / latitude / radius | decimal / decimal / int | 电子围栏原点与半径（米） |
-| checkFrequency | int | 每日打卡次数：`2` / `4` |
-| checkPeriods | `CheckPeriod[]` | 打卡时段（`name` / `startTime` / `endTime`），时间判定唯一真源 |
+| checkFrequency | int | **只读派生** = 该驿站启用班次数 × 2（无启用班次 = `0`） |
+| checkPeriods | `CheckPeriod[]` | **只读派生**打卡时段，由该驿站启用班次派生（`name` = 班次名、`startTime` / `endTime` = 班次起止）；为兼容旧客户端保留字段名与形态 |
+| checkPeriodsReadonly | boolean | **恒 `true`**：`checkPeriods` 已改为由班次派生的只读值，前端据此渲染「由班次决定」并隐藏编辑 |
 | allowEarlyMin / allowLateMin | int | 允许提前 / 延后打卡分钟数（时间窗余量） |
-| workStartTime / workEndTime | string | **派生值** = 首段开始 / 末段结束（由 `checkPeriods` 重算，非入参真源） |
+| workStartTime / workEndTime | string | **只读派生** = 启用班次按 `startTime` 升序的首班开始 / 末班结束；无启用班次为 `null` |
 | lateThresholdMin / earlyLeaveThresholdMin | int | 迟到 / 早退判定阈值（分钟） |
 | status | int | 0=停用，1=启用 |
 | updateTime | string | 最近更新时间 `yyyy-MM-dd HH:mm:ss` |
@@ -782,13 +843,14 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 
 `GET /api/v1/attendance/rule/list`（ADMIN）
 
-无入参，返回全量规则 `AttendanceRuleVO[]`（按 id 升序）。无业务错误码（仅 401 / 403）。
+无入参，返回全量规则 `AttendanceRuleVO[]`（按 id 升序）。元素同 `4.6.1`：`checkPeriods` / `checkFrequency` / `workStartTime` / `workEndTime` **逐条按各自驿站启用班次派生**（`checkPeriodsReadonly` 恒 `true`），服务端批量预取班次后内存派生。无业务错误码（仅 401 / 403）。
 
 #### 4.6.3 保存打卡规则
 
 `PUT /api/v1/attendance/rule`（ADMIN）
 
-请求体为**差量更新**：字段缺省（`null`）表示沿用现值；`checkPeriods` 是时间判定的唯一真源，保存时据此重算 `workStartTime / workEndTime`。首次为某驿站保存时创建记录并套用默认规则（默认时段与电子围栏自洽）。
+请求体为**差量更新**：字段缺省（`null`）表示沿用现值。**时段真源已改为「该驿站启用班次」**：`checkPeriods` / `checkFrequency` / `workStartTime` / `workEndTime` **不再由本接口写入**，出参一律按启用班次派生（见 4.6.1）。首次为某驿站保存时创建记录并套用默认规则（围栏与阈值部分，不再播种时段）。
+> **发布顺序约束**：现网 web `RuleCard.vue` 与 boss-h5 `attendanceRule.vue` 若仍上报 `checkPeriods`，则「本接口非空 `checkPeriods` 回 `400`」的新口径**必须与前端去掉上报的改动同批发布**，否则现网规则保存将全面 `400`。
 
 | 入参 | 类型 | 必填 | 校验（违反即 400） |
 | ---- | ---- | ---- | ---- |
@@ -799,12 +861,12 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | wifiList | `WifiEntry[]` | 否 | 见下表「`wifiList` 约束」；缺省沿用现值、显式 `[]` 清空 |
 | longitude / latitude | decimal | 否 | — |
 | radius | int | 否 | > 0 |
-| checkFrequency | int | 否 | 仅 `2` / `4`（否则 9107） |
-| checkPeriods | `CheckPeriod[]` | 否 | 见下表「`checkPeriods` 约束」（否则 9107） |
+| checkFrequency | int | 否 | **废弃：忽略入参**；出参只读派生（见 4.6.1） |
+| checkPeriods | `CheckPeriod[]` | 否 | **废弃：显式非空即回 `400`**「时段已由该驿站班次决定，请维护班次」；缺省 / `[]` 放行，不再写入、不再校验段数量 / 重叠（见下「`checkPeriods` 入参口径」） |
 | allowEarlyMin / allowLateMin | int | 否 | ≥ 0 |
 | lateThresholdMin / earlyLeaveThresholdMin | int | 否 | ≥ 0 |
-| workStartTime | string | 否 | `HH:mm`（旧客户端兼容：无 `checkPeriods` 时映射到首段开始） |
-| workEndTime | string | 否 | `HH:mm`（可 `24:00` 表示跨零点收班） |
+| workStartTime | string | 否 | **废弃：忽略入参**；出参只读派生 |
+| workEndTime | string | 否 | **废弃：忽略入参**；出参只读派生 |
 | status | int | 否 | 0 / 1 |
 
 **`wifiList` 约束**（`AttendanceWifiValidator`，校验顺序：逐条字段 → 去重 → 条数，返回首个命中项）：
@@ -830,15 +892,15 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 
 本约束**不新增错误码**，全部沿用 `400`（`ErrorCode.BAD_REQUEST`）。`enableWifi=true` 且白名单为空**允许保存**（fail-open，「先开开关、后配 WiFi」属正当分步流程），该态下打卡将因 WiFi 未命中失败（9103），风险由前端 warning 承担。
 
-**`checkPeriods` 约束**（统一回 9107，具体字段由 `message` 说清）：
+**`checkPeriods` 入参口径（U-5 已裁定；真源统一后时段由班次决定）**：
 
-| 项 | 约束 |
+| 情形 | 口径 |
 | ---- | ---- |
-| 数量 | 非空数组；长度须等于 `checkFrequency / 2`（2 次 → 1 段，4 次 → 2 段） |
-| `name` | 1-20 字符 |
-| `startTime` / `endTime` | `HH:mm`；`endTime` 可 `24:00` |
-| 单段 | 结束时间须晚于开始时间 |
-| 段间 | 不允许重叠，须按开始时间升序 |
+| 缺省（`null`）/ 空数组 `[]` | **放行**（不写入、不校验） |
+| 显式非空数组 | **拒绝** → `400`「时段已由该驿站班次决定，请维护班次」（**不采用静默忽略**，防管理员误以为已改时段） |
+| 错误码 | 统一用**通用 `400`**（`ErrorCode.BAD_REQUEST`）；**不新增 91xx、不复用 `9107` / `9113` / `9114`** |
+
+`workStartTime` / `workEndTime` / `checkFrequency` 入参一律**忽略**（出参改派生）；时段维护入口为 `POST` / `PUT /api/v1/shifts`（见 §4.8）。
 
 **旧数据 `wifiList.length > 1` 的边界口径**（面向将来的兜底；现网实测无历史多条数据）：
 
@@ -848,7 +910,7 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | 提交（`PUT /rule`） | 恒要求 **≤ 1 条**；`>1` 返回 `400`（兜底，防 PC 端 / 直调 API 绕过前端） |
 | 前端收敛 | 加载到 `>1` 条时**只渲染首条并提示**（前端责任），服务端不代劳裁剪 |
 
-响应 `data` 为保存后的 `AttendanceRuleVO`。错误码：400 / 4001 / 9107。
+响应 `data` 为保存后的 `AttendanceRuleVO`（`checkPeriods` / `checkFrequency` / `workStartTime` / `workEndTime` 为班次派生的只读值，`checkPeriodsReadonly=true`）。错误码：400（含非空 `checkPeriods` 拒绝）/ 4001。
 
 #### 4.6.4 今日打卡状态
 
@@ -860,12 +922,13 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | ---- | ---- | ---- |
 | workDate | string | 今日 `yyyy-MM-dd` |
 | hasSchedule | boolean | 今日是否有排班 |
-| shift | `AttendanceShiftVO` | 今日班次；未排班时为规则合成的**兜底班次**（`id=null`、`shiftName=默认班次`），无规则时为 `null` |
+| shift | `AttendanceShiftVO` | 今日班次；未排班时取该驿站**首个启用班次**合成的**兜底班次**（`id=null`、`shiftName` 取该班次名），无启用班次时为 `null` |
+| shiftConfigured | boolean | 该驿站是否已配置启用班次（`status=1`）；`false` 表示无打卡时间真源，前端据此禁用打卡并引导「去维护班次」（打卡将回 9113） |
 | onChecked / offChecked | boolean | 今日上 / 下班卡是否已完成（有效卡，排除 `ABNORMAL`） |
 | onRecord / offRecord | `AttendanceRecordVO` | 今日最近一次有效上 / 下班卡（无则 `null`） |
-| checkFrequency | int | 规则要求的每日打卡次数（无规则时 `null`） |
+| checkFrequency | int | **只读派生** = 启用班次数 × 2（无规则时 `null`，无启用班次 = `0`） |
 | requireSummary | string | 规则要求摘要（无规则时 `null`） |
-| periods | `PeriodStatus[]` | 按时段展开：`periodIndex` / `name` / `startTime` / `endTime` / `windowStart`（时段开始 − `allowEarlyMin`）/ `windowEnd`（时段结束 + `allowLateMin`）/ `onChecked` / `offChecked` / `onTime` / `offTime` |
+| periods | `PeriodStatus[]` | 按**启用班次**展开：`periodIndex` = 班次序号（早 `0` / 晚 `1`，**非数组下标**）/ `name` = 班次名 / `startTime` / `endTime` / `windowStart`（班次开始 − `allowEarlyMin`）/ `windowEnd`（班次结束 + `allowLateMin`）/ `onChecked` / `offChecked` / `onTime` / `offTime` |
 | rule | `AttendanceRuleVO` | 当前驿站规则（无规则时 `null`） |
 
 错误码：401（会话无归属员工，防御性兜底）。
@@ -880,13 +943,13 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | checkType | string | 是 | `ON` / `OFF`，其他值 400 |
 | wifiSsid | string | 否 | 当前 WiFi 名称（`enableWifi` 时参与判定） |
 | longitude / latitude | decimal | 否 | 定位坐标（`enableLocation` 时参与判定） |
-| periodIndex | int | 否 | 缺省走单班次模型（排班班次为时间基准）；传入则按时段模型判定 |
+| periodIndex | int | 否 | 缺省走单班次模型（以排班班次 / 首个启用班次为时间基准）；传入则按该班次序号判定（`periodIndex` = 班次序号，早 `0` / 晚 `1`，**按值查找、非数组下标**）。站点无启用班次 → 9113；无匹配序号 → 9107 |
 
 判定链顺序（不得变更）：规则 → 时段 / 班次 → 时间窗 → 重复 → 校验项（WiFi / 定位，按 `matchMode` ALL/ANY）→ 迟到 / 早退。
 
-服务端判定，**校验未通过仍落一条 `ABNORMAL` 留痕记录**后回码（时间窗越窗与重复打卡除外，此二者在落库前短路、不留痕）。响应 `data` 为 `AttendanceRecordVO`。
+服务端判定，**校验未通过仍落一条 `ABNORMAL` 留痕记录**后回码（时间窗越窗与重复打卡除外，此二者在落库前短路、不留痕）。响应 `data` 为 `AttendanceRecordVO`（其中 `periodIndex` = 命中班次序号、`periodName` = 命中班次名快照）。
 
-错误码：400 / 9101（未配规则）/ 9107（时段不存在）/ 9106（班次不存在或已停用，单班次模型）/ 9102（不在时间窗内，不留痕）/ 9105（今日该类型打卡已完成，不留痕）/ 9103（WiFi 校验未通过，留痕）/ 9104（定位未通过，留痕）。
+错误码：400 / 9101（未配规则）/ 9113（站点无启用班次，无时间真源）/ 9107（时段 / 班次序号不存在）/ 9106（班次不存在或已停用，单班次模型）/ 9102（不在时间窗内，不留痕）/ 9105（今日该类型打卡已完成，不留痕）/ 9103（WiFi 校验未通过，留痕）/ 9104（定位未通过，留痕）。
 
 #### 4.6.6 打卡记录
 
@@ -901,12 +964,13 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | startDate / endDate | string | 否 | `yyyy-MM-dd`（含），格式非法 400 |
 
 响应为分页 `{ total, pageNum, pageSize, list }`，`list` 元素为 `AttendanceRecordVO`（含 `id` / `employeeId` / `employeeName` / `stationId` / `workDate` / `periodIndex` / `periodName` / `checkType` / `checkTime` / `status` / `source` / `checkMode` / `wifiSsid` / `wifiMatched` / `longitude` / `latitude` / `distance` / `locationMatched` / `remark`）。补卡补录行 `source=MAKEUP`，设备校验字段为 `null`。排序 `check_time DESC`（同刻按 id 倒序）。错误码：400。
+> `periodIndex` / `periodName` 取值口径见 §4.6 前言（`periodIndex` = 班次序号，早 `0` / 晚 `1`；`periodName` = 写入时班次名快照；**存量记录保持原值不改写**，哨兵值 `全天班` 原样返回）。
 
 #### 4.6.7 考勤记录导出
 
 `GET /api/v1/attendance/export`（ADMIN / STATION_ADMIN）
 
-入参与筛选口径同 4.6.6（**不分页，全量导出**）。响应为 CSV 文件流（`Content-Type: text/csv`，文件名 `考勤记录_yyyyMMdd.csv`），13 列：员工姓名 / 登录账号 / 所属驿站 / 日期 / 时段名称 / 卡类型 / 打卡时间 / 打卡方式 / WiFi / 距离(米) / 状态 / 来源 / 备注（枚举列输出中文，空值输出空串）。内存流写出，不落盘。错误码：400。
+入参与筛选口径同 4.6.6（**不分页，全量导出**）。响应为 CSV 文件流（`Content-Type: text/csv`，文件名 `考勤记录_yyyyMMdd.csv`），13 列：员工姓名 / 登录账号 / 所属驿站 / 日期 / **班次/时段** / 卡类型 / 打卡时间 / 打卡方式 / WiFi / 距离(米) / 状态 / 来源 / 备注（枚举列输出中文，空值输出空串；第 5 列取 `periodName` 快照，**列序与列数保持 13 列不变**）。内存流写出，不落盘。错误码：400。
 
 #### 4.6.8 打卡概况
 
@@ -917,7 +981,7 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | stationId | long | 否 | 非 ADMIN 静默收敛为本人驿站 |
 | date | string | 否 | 统计日期 `yyyy-MM-dd`，缺省今天；格式非法 400 |
 
-响应 `data` 为 `AttendanceSummaryVO`：`date` / `shouldCount`（应到 = 当天有排班人数）/ `actualCount`（实到 = 有有效上班卡人数，去重）/ `normalCount` / `lateCount` / `earlyLeaveCount` / `absentCount`（缺卡 = `max(0, 应到 − 实到)`）。错误码：400。
+响应 `data` 为 `AttendanceSummaryVO`：`date` / `shouldCount`（**应到 = 当天排班班次数**，一天两班计 2）/ `actualCount`（**实到 = 有效上班卡映射到班次后与应到取交** `|A∩R|`，只减不增、多打卡不超额）/ `normalCount` / `lateCount` / `earlyLeaveCount`（按有效上班卡 / 下班卡条数逐班次统计）/ `absentCount`（**缺卡 = 应到班次数去掉已到班次数**，某班次无匹配有效上班卡即缺）。缺卡粒度为可配项 `hrm.algo.attendance.absentGranularity`（默认 `PER_SHIFT` 班次粒度；`PER_DAY` 为旧「按人/天去重」回落口径）。**`absentCount` 与明细 `dim=ABSENT` 的 `total` 同源等值**（见 4.6.9）。错误码：400。
 
 #### 4.6.9 考勤明细
 
@@ -930,6 +994,7 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | date | string | 否 | 统计日期，缺省今天；格式非法 400 |
 
 响应 `data` 为 `AttendanceDetailVO`：`dim` / `date` / `total` / `list[]`（行含 `employeeId` / `employeeName` / `stationId` / `stationName` / `shiftName`（仅 SHOULD/ABSENT）/ `periodName` / `onCheck` / `offCheck`（各含 `time` / `status`）/ `dayState`（`MISS` / `LATE` / `EARLY_LEAVE` / `NORMAL`）/ `remark`）。排序：迟到 / 早退按命中卡时间倒序，缺卡按姓名，应到按风险优先，实到 / 正常按上班卡时间倒序。错误码：400。
+> **缺卡（ABSENT）按班次粒度**（与概况同源，见 4.6.8）：明细行以「员工 × 班次」为单位，某员工某班次无匹配有效上班卡即出一行缺卡，`total` 与概况 `absentCount` 等值。**多班次站点同一员工可出多行**（单班次站点行为与改造前<b>逐项一致</b>）；`shiftName` 取该班次名，`periodName` 取代表卡 / 班次快照。**存量记录保持原值不改写**（哨兵 `全天班`、空名按 §4.6 前言三态口径读取）。
 
 #### 4.6.10 我的打卡
 
@@ -963,6 +1028,7 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 ### 4.7 补卡接口
 
 > 端点由 `AttendanceMakeupController` 提供，路径前缀 `/api/v1/attendance/makeup`。申请人一律为登录人本人，`stationId` 取登录人归属、**不接受前端传参**（防代他人申请）。
+> `periodIndex` / `periodName` 与本域 §4.6 前言同一口径（`periodIndex` = 班次序号，早 `0` / 晚 `1`，按值查找、非数组下标；`periodName` = 班次名快照）。站点无启用班次时，**申请与审批一律回 `9113`**（同码同文案）。
 
 #### 4.7.1 我的补卡
 
@@ -989,13 +1055,13 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | 入参 | 类型 | 必填 | 校验（违反即 400） |
 | ---- | ---- | ---- | ---- |
 | workDate | string | 是 | `yyyy-MM-dd`；不能晚于今天 |
-| periodIndex | int | 是 | ≥ 0（否则 9107） |
+| periodIndex | int | 是 | ≥ 0；须命中该驿站启用班次派生的某个班次序号（`periodIndex` = 班次序号，按值查找），否则 9107 |
 | checkType | string | 是 | `ON` / `OFF` |
 | reason | string | 是 | 2-200 字 |
 
-校验顺序：规则 → 时段 → 重复申请 → 已有正常打卡。申请人为登录人本人，`stationId` 取登录人归属（未归属 → 400「当前账号未归属驿站，无法提交补卡」）。响应 `data` 为 `AttendanceMakeupVO`。
+校验顺序：规则 → 时段（班次派生）→ 重复申请 → 已有正常打卡。申请人为登录人本人，`stationId` 取登录人归属（未归属 → 400「当前账号未归属驿站，无法提交补卡」）。响应 `data` 为 `AttendanceMakeupVO`。
 
-错误码：400 / 9101（该驿站尚未配置打卡规则）/ 9107（时段不存在）/ 9108（该时段当日已有补卡申请或已正常打卡）。
+错误码：400 / 9101（该驿站尚未配置打卡规则）/ **9113（该驿站未配置启用班次，无法打卡）** / 9107（班次序号 / 时段不存在）/ 9108（该时段当日已有补卡申请或已正常打卡）。
 
 #### 4.7.4 审批补卡
 
@@ -1006,9 +1072,9 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | approved | boolean | 是 | 缺省 / 非布尔 → 400「approved 须为布尔值」 |
 | approveRemark | string | 否 | ≤ 200 字 |
 
-审批通过 → 补录打卡记录：打卡时间取该时段规定时间（上班卡取时段开始、下班卡取时段结束），`source=MAKEUP`，设备校验字段（`checkMode` / `wifiSsid` / `wifiMatched` / `longitude` / `latitude` / `distance` / `locationMatched`）统一置 `null`（不伪造命中值）。若时段被改配置导致原时段不存在，审批通过将被**拒绝**（9101），避免落下「审批通过却无打卡记录」的矛盾数据。
+审批通过 → 补录打卡记录：打卡时间取该**班次**规定时间（上班卡取班次开始、下班卡取班次结束），`source=MAKEUP`，设备校验字段（`checkMode` / `wifiSsid` / `wifiMatched` / `longitude` / `latitude` / `distance` / `locationMatched`）统一置 `null`（不伪造命中值）。审批通过前会干跑校验可写性，按原因回码：**站点无启用班次 → 9113**；时段被改配置导致原班次序号不存在 → **9101**（避免落下「审批通过却无打卡记录」的矛盾数据）。
 
-响应 `data` 为 `AttendanceMakeupVO`（含 `id` / `employeeId` / `employeeName` / `stationId` / `stationName` / `workDate` / `periodIndex` / `periodName` / `checkType` / `reason` / `status` / `applyTime` / `approverId` / `approverName` / `approveTime` / `approveRemark`）。错误码：400 / 404（补卡申请不存在）/ 9109（补卡申请状态不允许该操作）/ 9101。
+响应 `data` 为 `AttendanceMakeupVO`（含 `id` / `employeeId` / `employeeName` / `stationId` / `stationName` / `workDate` / `periodIndex` / `periodName` / `checkType` / `reason` / `status` / `applyTime` / `approverId` / `approverName` / `approveTime` / `approveRemark`）。错误码：400 / 404（补卡申请不存在）/ 9109（补卡申请状态不允许该操作）/ **9113（站点无启用班次）** / 9101（规则未配置或原班次序号不存在）。
 
 ### 4.8 班次接口
 
@@ -1031,19 +1097,29 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | 入参 | 类型 | 必填 | 校验（违反即 400） |
 | ---- | ---- | ---- | ---- |
 | stationId | long | 是 | 须为存在驿站（4001） |
-| shiftName | string | 是 | 1-20 字符 |
+| shiftName | string | 是 | 1-20 字符；**trim 后不得为保留哨兵名**（见下） |
 | startTime / endTime | string | 是 | `HH:mm`；`endTime` 可 `24:00`；结束须晚于开始 |
 | color | string | 是 | `#RRGGBB`（存储归一为大写） |
 | restMinutes | int | 否 | ≥ 0，缺省 0 |
 | status | int | 否 | 缺省 1 |
 
-响应 `data` 为 `AttendanceShiftVO`。错误码：400 / 4001。
+**班次定义侧校验**（`validateShift` + `validateShiftSet`，违反回 `9114`，具体由 `message` 说清）：
+
+| 项 | 约束 | 判据（违反即 9114） |
+| --- | --- | --- |
+| 保留名 | `shiftName` **trim 后**不得等于计薪哨兵名 `全天班`（默认，`hrm.algo.payroll.legacyPeriodSentinel`） | trim 后 = `全天班` |
+| 启用班次数上限 | 该驿站 `status=1` 班次数（含本次）≤ **2** | > 2 |
+| `ordinal` 互异 | 同一驿站启用班次的 `ordinal`（`start_time` < 界值 → 早 `0`，否则晚 `1`）须互异，保证「一早一晚」 | 新增 / 编辑后启用班次 `ordinal` 冲突 |
+
+> `9114` 为**班次定义侧**语义（保留名 / 超上限 / `ordinal` 冲突），**不复用**排班侧 `9111` / `9112`；停用（`status=0`）班次不计入启用班次数与 `ordinal` 互异校验。
+
+响应 `data` 为 `AttendanceShiftVO`。错误码：400 / 4001 / 9114。
 
 #### 4.8.3 编辑班次
 
 `PUT /api/v1/shifts/{id}`（ADMIN）
 
-入参同 4.8.2，但 `stationId` **忽略**（归属不可改）。响应 `data` 为 `AttendanceShiftVO`。错误码：400 / 404（班次不存在）。
+入参同 4.8.2（`status` 改为 0 = 停用可把该班次移出启用集），但 `stationId` **忽略**（归属不可改）；班次定义侧校验同 4.8.2（编辑时排除自身后重新校验启用班次数与 `ordinal` 互异）。响应 `data` 为 `AttendanceShiftVO`。错误码：400 / 404（班次不存在）/ 9114（保留名 / 超上限 / `ordinal` 冲突）。
 
 #### 4.8.4 删除班次
 
@@ -1088,7 +1164,11 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | items[].workDate | string | 是 | `yyyy-MM-dd` |
 | items[].shiftId | long | 否 | 须存在、同驿站且 `status=1`（否则 9106）；**缺省 / 空表示清空该天排班** |
 
-唯一性 = `employeeId + workDate`（同一员工同一天重复提交即覆盖）。整批为**原子提交**（`@Transactional`；与 Mock「逐条应用、中途报错留下部分改动」有意不同，实时后端不出现半成功状态）。响应 `data` 为 `{ saved, removed }`（新增 / 改派条数、清空条数）。错误码：400 / 9106。
+唯一性 = `employeeId + workDate`（同一员工同一天重复提交即覆盖）。整批为**原子提交**（`@Transactional`；与 Mock「逐条应用、中途报错留下部分改动」有意不同，实时后端不出现半成功状态）。响应 `data` 为 `{ saved, removed }`（新增 / 改派条数、清空条数）。
+
+> **排班时段约束（触发 9110 / 9111 / 9112）**：同一员工同天班次时间**重叠**（半开区间 `[start,end)`，相邻不算）→ `9110`（`hrm.algo.attendance.allowShiftOverlap=true` 可关闭）；单日班次数超上限 `hrm.algo.attendance.maxShiftsPerDay`（默认 2）→ `9111`；同日启用班次 `ordinal` 冲突 → `9112`（`hrm.algo.attendance.requireDistinctOrdinalPerDay` 默认 true）。整批原子，命中即回码、不落半批。
+
+错误码：400 / 9106 / 9110 / 9111 / 9112。
 
 #### 4.9.4 整站排班
 
@@ -1106,7 +1186,7 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 - **手动模式**（`shiftId` 给定）：`shiftId` 须存在、同驿站且 `status=1`（否则 9106）。
 - **智能模式**（`shiftId` 缺省）：由 S3 算法（贪心构造 + 模拟退火）逐格生成班次，尊重「每日每班最少在岗 / 连续工作上限 / 轮休均衡 / 班次均衡」约束；该驿站无启用班次时快速失败（9106）；算法超参外置于 `hrm.algo.schedule.*`（`minPerShift` / `maxConsecutiveWork` / `restCycleDays` / `weights.*` / `sa.*`），失败**降级**返回贪心解 + 违规清单（不抛异常）。
 
-响应 `data` 为 `ScheduleStationResultVO`：`created` / `skipped` / `total`（= created + skipped）/ `violations[]`（仅智能模式返回，手动模式省略）/ `fallback`（是否走了失败降级）。错误码：400 / 4001 / 9106。
+响应 `data` 为 `ScheduleStationResultVO`：`created` / `skipped` / `total`（= created + skipped）/ `violations[]`（仅智能模式返回，手动模式省略）/ `fallback`（是否走了失败降级）。排班时段约束（重叠 / 单日上限 / `ordinal` 冲突，触发 `9110` / `9111` / `9112`）同 4.9.3。错误码：400 / 4001 / 9106 / 9110 / 9111 / 9112。
 
 ### 4.10 人事 / 入离职接口
 
@@ -1141,7 +1221,7 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | education | string | 否 | 白名单 `MASTER` / `BACHELOR` / `COLLEGE` / `HIGH_SCHOOL` |
 | deptId | long | 否 | 部门须存在（否则 400「指定的部门不存在」） |
 | stationId | long | 否 | 驿站须存在（否则 400「指定的驿站不存在」） |
-| position | string | 否 | 岗位（自由文本） |
+| position | string | 否 | 岗位；**取值 `店员` / `站长` / `管理员`**（缺省留空；非法值 → 400「岗位仅支持 店员 / 站长 / 管理员」） |
 | expectedEntryDate | string | 否 | `yyyy-MM-dd`，缺省今天 |
 | remark | string | 否 | ≤ 200 字 |
 
@@ -1169,7 +1249,7 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | stationId | long | `CREATE_ACCOUNT` / `ASSIGN_STATION` | 驿站须存在（4001）且启用（4004） |
 | probationMonths | int | `CREATE_ACCOUNT` | 试用期（月） |
 | contractType | string | `CREATE_ACCOUNT` | 合同类型 |
-| position | string | `ASSIGN_STATION` | 岗位（写入 `hr_flow.position`） |
+| position | string | `ASSIGN_STATION` | **必填**；取值 `店员` / `站长` / `管理员`；命中则**双写 `employee.position`（权威事实）+ `hr_flow.position`（留痕）**（空白 → 400「请填写岗位」；非法 → 400「岗位仅支持 店员 / 站长 / 管理员」） |
 | role | string | `ASSIGN_STATION` | 仅 `STATION_ADMIN` / `STAFF`（其他 400） |
 | basicSalary / postSalary / performanceBase | decimal | `SET_SALARY` | ≥ 0（`HrSalaryValidator`） |
 | allowances | `AllowanceItem[]` | `SET_SALARY` | 元素 `{key?, name(1-20), amount(≥0)}` |
@@ -1242,7 +1322,7 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 行为：非本人且非 `ADMIN` → 403「无权查看他人人事档案」；档案不存在 → 9301。响应 `data` 为 `HrProfileDetailVO`（= `HrProfileVO` + `salary` 定薪摘要，无定薪时 `salary=null`）。错误码：403 / 9301。
 
 > **`HrProfileVO` 字段**（`phone` / `emergencyContactPhone` / `bankAccount` 一律脱敏）：
-> `employeeId, employeeName, username, phone(脱敏), deptName, stationName, entryDate, education, educationLabel, contractType, contractTypeLabel, contractStart, contractEnd, probationMonths, probationEnd, regularDate, socialSecurityBase, emergencyContactName, emergencyContactPhone(脱敏), emergencyContactRelation, bankName, bankAccount(脱敏), leaveDate, createTime, updateTime`
+> `employeeId, employeeName, username, phone(脱敏), deptName, stationName, position(岗位，取值 店员 / 站长 / 管理员；未登记为 null), entryDate, education, educationLabel, contractType, contractTypeLabel, contractStart, contractEnd, probationMonths, probationEnd, regularDate, socialSecurityBase, emergencyContactName, emergencyContactPhone(脱敏), emergencyContactRelation, bankName, bankAccount(脱敏), leaveDate, createTime, updateTime`
 
 #### 4.10.13 编辑人事档案
 
@@ -1345,7 +1425,7 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 ```json
 // 请求（无 role / 薪资 / deptId）
 { "realName": "李四", "phone": "13912345678", "smsCode": "123456",
-  "intentStationId": 3, "intentPosition": "分拣员", "password": "Init1234", "agreementVersion": "v1.0" }
+  "intentStationId": 3, "intentPosition": "分拣员", "agreementVersion": "v1.0" }
 
 // 响应（HTTP 200，对「已注册 / 未注册」逐字段一致）
 { "code": 200, "message": "success",
@@ -1373,7 +1453,7 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 | deptId | long | 是 | 部门（注册不采集，审批必填）；不存在 → 3001 |
 | stationId | long | 否 | 缺省取 `hr_flow.station_id`（意向）；停用 → 4004 |
 | role | string | 否 | 缺省 `STAFF`；仅 `STATION_ADMIN` / `STAFF` |
-| position | string | 否 | 缺省取 `hr_flow.position`（意向）；**定岗时双写 `hr_flow.position` + `employee.position`**（以 `employee.position` 为权威事实） |
+| position | string | 是 | 岗位（**审批台必填**，主智能体裁定）；取值 `店员` / `站长` / `管理员`；**定岗时双写 `employee.position`（权威事实）+ `hr_flow.position`（留痕）**（空白 → 400「请填写岗位」；非法 → 400「岗位仅支持 店员 / 站长 / 管理员」） |
 | probationMonths | int | 否 | 缺省取 `hrm.hr.default-probation-months` |
 | contractType | string | 否 | 缺省 `FIXED_TERM` |
 | basicSalary / postSalary / performanceBase / allowances | decimal / `AllowanceItem[]` | 是 | 定薪（**必填**，防工资单静默为 0） |
@@ -1396,6 +1476,393 @@ SELECT COUNT(DISTINCT employee_id) FROM login_log
 - **R-7** 审批列表：`GET /api/v1/hr/onboarding`（ADMIN），行为不变（见 §4.10.1）。
 - **R-8** 审批详情：`GET /api/v1/hr/onboarding/{id}`（ADMIN），出参**新增** `registration` 子对象（`applyNo / intentPosition / agreementVersion / source / status / createTime`）+ 展示 `employee.position`（见 §4.10.3）。
 - **R-9** 驳回：`POST /api/v1/hr/onboarding/{id}/reject`（ADMIN），行为**扩展**：同事务回写 `registration.status=REJECTED` + `reject_reason` + 清空凭据列（见 §4.10.5）。
+
+### 4.12 财务 / 工资单接口
+
+> 前缀 `/api/v1/finance`；错误码 94xx（§2.2）。状态机、表设计与口径真源为 [payroll-automation-design.md](payroll-automation-design.md) **v1.5** §2 / §3 / §4。
+> 本段共 **25** 端点：工资单 14（既有 10 + I-6 / I-7 / I-8 / **I-10**）、计薪规则 5、算薪配置 4（I-1 / I-2 / I-3 / I-9）、自动算薪 2（I-4 / I-5）。
+> **标记约定**：`C-1~C-7` = 对既有端点的契约变更（相对当前实现，逐条就地标注，汇总见 §4.12.19）；`I-1~I-10` = 方案新增端点（`payroll-automation-design.md` v1.5 §4.1；I-10 为 v1.4 对账补录，见 §4.12.22）。
+> **数据安全口径（全段适用）**：写操作一律鉴权 + 越权校验 + 入参校验；金额变更强制事由（`9412`）；`payroll_log` 的 `before` / `after` 白名单为「明细级 `{itemKey,itemType,itemName,amount}` + 合计级 `{additionTotal,deductionTotal,grossAmount,netAmount}`」，**禁止**写入 `rule_snapshot`、凭据与个人证件信息；`fail_reason` 由服务端构造、≤500 字符截断、不落 SQL 原文与业务数据。
+
+#### 4.12.1 工资单状态机（8 态）与动作矩阵
+
+**状态集合**（**权威枚举顺序 = 末尾追加**，以 `PayrollStatus.values()` 为准；下表按生命周期概念分组展示，非枚举序）：`DRAFT / PENDING_APPROVAL / APPROVED / REJECTED / PUBLISHED / CONFIRMED / OBJECTED / PAID`。
+
+| 状态 | label | 含义 | 终态 | 明细可编辑 `isItemEditable` | 可被生成覆盖 `isOverwritable` | 可删除 |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| `DRAFT` | 草稿 | 生成 / 覆盖重建期 | 否 | 是 | 是 | 是（物理重建范围） |
+| `PENDING_APPROVAL` | 待审核 | 已提交，审批中 | 否 | **是（Q6 新增）** | 否 | 否 |
+| `APPROVED` | 已通过 | 审批通过，待发布 | 否 | 否 | 否 | 否 |
+| `REJECTED` | 已驳回 | 管理员审批驳回 | 否 | 是 | 是 | 是（物理重建范围） |
+| `PUBLISHED` | 已发布 | 已发给员工，待本人确认 | 否 | 否 | 否 | **否（Q9 铁律）** |
+| `CONFIRMED` | 已确认 | 员工已确认 | 否 | 否 | 否 | 否 |
+| `OBJECTED` | **异议退回（新增）** | 员工提异议，退回管理员处理 | 否 | **是** | 否 | **否** |
+| `PAID` | **已发放（新增）** | 管理员确认已发放，**归档冻结** | **是** | 否 | 否 | **否** |
+
+> `OBJECTED` / `PAID` 为**追加在枚举末尾**：既有 6 键的相对顺序与名称不变，`counts` 仅在尾部多 2 个键。`OBJECTED` 为内部处理态，**不加入员工可见集**；`PAID` 加入（§4.12.2）。`generate` 覆盖重建仅限 `DRAFT` / `REJECTED`（`isOverwritable`）。
+
+**动作矩阵**（动作级：`submit` / `approve` / `reject` / `publish` / `confirm` / `objection` / `pay`；明细级：`item-add` / `item-update`）：
+
+| 当前状态 | 允许动作 | 前置条件 | 副作用（含留痕） |
+| ---- | ---- | ---- | ---- |
+| `DRAFT` | `submit`、`item-add`、`item-update`、（可被 `generate` 覆盖） | 加扣款需 `reason` 非空；被覆盖时既有 `source=MANUAL` 明细**保留迁移** | `submit` → `PENDING_APPROVAL`，清 `approve_remark`；每次改动写 `payroll_log`（action / operator / before / after / reason） |
+| `PENDING_APPROVAL` | `approve`、`reject`、**`item-add`、`item-update`（Q6 新增）** | 加扣款需 `reason` 非空 | `approve` → `APPROVED`（记 `approver_*` / `approve_time`）；`reject` → `REJECTED`（记 `approve_remark`）；改金额后**重算合计**并写 log |
+| `APPROVED` | `publish` | — | → `PUBLISHED`，记 `publisher_*` / `publish_time`；写 `payroll_log(PUBLISH)` |
+| `REJECTED` | `submit`、`item-add`、`item-update`、（可被 `generate` 覆盖） | 同 `DRAFT`；被覆盖时 MANUAL 明细保留迁移 | 同 `DRAFT` 的 `submit`；改动写 `payroll_log` |
+| `PUBLISHED` | `confirm`（本人）、`objection`（本人） | 均须本人且已发布 | `confirm` → `CONFIRMED`（记 `confirm_time`）；`objection`（`reason` 必填 2-200）→ **`OBJECTED`**（记 `objection_reason` / `objection_time`，清 `confirm_time` / `publish_time` / `publisher_*`） |
+| `OBJECTED` | `item-add`、`item-update`、`publish`（**再发布**）、`submit`（可选二次审批） | 再发布前须 `reason` 非空（处理说明） | `publish` → `PUBLISHED`（记**新的** `publisher_*` / `publish_time`，清 `objection_reason` / `objection_time`）；异议历史永久留 `payroll_log`（action=`REPUBLISH`） |
+| `CONFIRMED` | `pay`（**I-8**） | 仅 ADMIN；前置 `status=CONFIRMED`（来源非法回 `9403`） | → `PAID`（记 `paid_by_id` / `paid_by_name` / `paid_time`）；写 `payroll_log(PAY)`；进入 `PAID` 后冻结 |
+| `PAID` | **无（终态冻结）** | — | 任何改动 / 删除一律 `9413`（统一由 `assertMutable` 收口） |
+
+> **再发布是否需二次审批**：退回粒度为**单员工单据级**；`OBJECTED → PUBLISHED` **直发（再发布）为默认路径**，同时**保留 `submit` 作为可选路径**（供需二次审批的组织口径）。
+> **自动路径状态落点**：自动算薪 `generate` 成功后**自动 `submit`**、落 `PENDING_APPROVAL`（**非** `DRAFT`），随后发通知类型 7；与 Q6「生成后先推管理员审核」一致。
+
+**「可编辑」拆分为三判据**（各自独立真源，同时解 Q6「审核时可改」与 Q9「异议退回后可改」）：
+
+| 判据 | 语义 | 状态集合 |
+| ---- | ---- | ---- |
+| `isItemEditable(status)` | 能否改 / 加明细金额 | `DRAFT`、`REJECTED`、**`PENDING_APPROVAL`**、**`OBJECTED`** |
+| `isOverwritable(status)` | 能否被 `generate` 物理覆盖重建 | `DRAFT`、`REJECTED`（不变） |
+| 账期锁 `isMonthLocked` | 该账期是否已出账 | `!isOverwritable(status)`（改绑 `isOverwritable`，行为零突变） |
+
+**终态写守卫 `assertMutable(payroll, action)`**：所有工资单写入口（改明细、加扣款、`submit`、`approve`、`reject`、`publish`（含再发布）、`objection`、`pay`、`generate` 覆盖重建）在进入业务分支前**统一调用**；`status == PAID` 一律 `9413`（不区分动作）；`publish(ids)` 对非允许来源**返回显式错误码**，不得静默计入 `skipped`。
+
+#### 4.12.2 我的工资单
+
+`GET /api/v1/finance/payrolls/my`（ADMIN / STATION_ADMIN / STAFF）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 入参 | `month?`（yyyy-MM）、`status?`（**取值 `PUBLISHED` / `CONFIRMED` / `PAID`**）、`pageNum`、`pageSize` |
+| 出参 | `{ total, pageNum, pageSize, list: PayrollVO[], employeeId }`（`employeeId` = 当前登录员工 id，服务端按登录身份过滤，**不接受前端传参**） |
+| 错误码 | `400`（`month` 格式非法 / `status` 取值非法） |
+| 业务规则 | 员工**可见集 = `{PUBLISHED, CONFIRMED, PAID}`**；服务端强制按登录身份 `employee_id` 过滤，非本人单不出现 |
+| 示例 | `GET .../payrolls/my?month=2026-09&status=PUBLISHED&pageNum=1&pageSize=10` |
+
+> **契约变更（C-6）**：员工可见集由 `{PUBLISHED, CONFIRMED}` **加入 `PAID`**（归档态对员工可见，否则确认后单据从列表消失）；`OBJECTED` **不加入**（内部处理态）。`status` 入参合法集随之扩为三值。
+
+#### 4.12.3 工资单列表
+
+`GET /api/v1/finance/payrolls`（ADMIN）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 入参 | `month?`、`stationId?`、`employeeId?`、`status?`（8 态之一）、`billType?`（`MONTHLY` / `SETTLEMENT`）、`keyword?`（匹配员工姓名或工资单号）、`pageNum`、`pageSize` |
+| 出参 | `{ total, pageNum, pageSize, list: PayrollVO[], counts: Map<状态,Integer>, month }` |
+| 错误码 | `400`（`month` / `status` / `billType` 取值非法） |
+| 业务规则 | `counts` **不含 `status` 筛选**（否则切标签页后其余计数归零），键为**全部 8 态**、键序与枚举一致 |
+| 示例 | `GET .../payrolls?month=2026-09&status=OBJECTED&pageNum=1&pageSize=10` |
+
+> **契约变更（C-6）**：`counts` 键新增 `OBJECTED` / `PAID`（尾部追加，既有 6 键相对顺序不变）；`status` 入参合法集扩为 8 态；`list[].statusLabel` 随 8 态扩展。
+
+#### 4.12.4 工资单详情
+
+`GET /api/v1/finance/payrolls/{id}`（ADMIN / STATION_ADMIN / STAFF）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 入参 | `id`（路径） |
+| 出参 | `PayrollVO`（见下） |
+| 错误码 | `404`（`id` 无效 → 语义同 `9402`）、`9404`（非本人）、`9403`（非 ADMIN 且状态不在可见集，`message` = 工资单尚未发布，暂不可查看） |
+| 越权口径 | 非 ADMIN：**必须复用 `detail()` 单一真源** = `employeeId == 当前登录 userId` ∧ `status ∈ {PUBLISHED, CONFIRMED, PAID}`；违规 `9404` / `9403`。**不得**仅校验角色 |
+| 示例 | `GET .../payrolls/1024` |
+
+`PayrollVO` 字段：`id / payrollNo / employeeId / employeeName / stationId / stationName / month / billType / billTypeLabel / ruleId / ruleName / items[] / additionTotal / deductionTotal / grossAmount / netAmount / status / statusLabel / remark / approveRemark / approverId / approverName / approveTime / publisherId / publisherName / publishTime / confirmTime / objectionReason / objectionTime / paidById / paidByName / paidTime / offboardingId / actions[] / createTime / updateTime`。
+其中 `items[]` = `PayrollItemVO`（`key / name / type / typeLabel / source / sourceLabel / amount / detail`）；`actions[]` = 服务端下发的**当前状态允许动作**（动作级子集，前端不自行维护状态机）；`rule_snapshot` 为内部留存字段，**不在此出参**。
+
+> **契约变更（C-6）**：`statusLabel` 新增「异议退回」「已发放」两态中文；新增出参 `paidById` / `paidByName` / `paidTime`；`actions` 随 8 态扩展（`CONFIRMED` 增 `pay`；`OBJECTED` 增 `publish`）；非 ADMIN 可见状态集加入 `PAID`。
+
+#### 4.12.5 按月批量生成（含覆盖重建）
+
+`POST /api/v1/finance/payrolls/generate`（ADMIN）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 入参 | `{ month（必填）, stationId?, deptId?, employeeIds?, ruleId? }`（员工筛选三选一 / 组合，均未传 = 全部在职员工；`ruleId` 未传取「第一个启用规则」） |
+| 出参 | `{ month, ruleId, ruleName, created, payrollIds[] }`（`created` = 生成（含覆盖重建）单据数） |
+| 错误码 | `400`（`month` 格式非法）、`9401`（规则不存在）、`9405`（**按驿站收敛**：同驿站该账期存在非可覆盖态单）、`9410`（claim 占位被占，见下） |
+| 业务规则 | ① **9405 判定按驿站收敛**（新增 `stationId` 维度可覆盖性判定）；② 覆盖重建（`deleteExisting` → `createPayroll`）须**保留既有 `source=MANUAL` 明细**并按「规则项 + 保留项」**重算四项合计**；③ **须占用与调度相同的 `(station_id, target_month)` claim**，占位失败 → `9410`；④ 写 `payroll_log`（`GENERATE_AUTO` / `GENERATE_MANUAL`），`after` 含 `manualKept` |
+| 示例 | `POST .../payrolls/generate` body `{"month":"2026-09","stationId":8,"ruleId":1}` |
+
+> **契约变更（C-7）**：① **9405 由「账期全局级」收敛为「按驿站」**（否则多驿站自动算薪只能成功第一个站点）；② 覆盖重建**保留 `source=MANUAL` 明细**并重算合计（撤销「手工项须在 `DRAFT` / `REJECTED` 之外录入」约束）；③ 手工 `generate` **占用与调度相同的 claim**（Layer 0 硬防线覆盖全部生成路径）。
+
+#### 4.12.6 批量提交审核
+
+`POST /api/v1/finance/payrolls/submit`（ADMIN）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 入参 | `{ ids: Long[] }`（须为非空数组） |
+| 出参 | `{ submitted, payrollIds[] }` |
+| 错误码 | `400`（`ids` 为空）、`9403`（状态不允许 `submit`）、`9413`（`PAID` 冻结） |
+| 业务规则 | 来源须为 `DRAFT` / `REJECTED`（`OBJECTED` 可选二次审批走同一端点）；写 `payroll_log(SUBMIT)` |
+
+> **契约变更（C-5）**：无状态变更；**补写 `payroll_log(SUBMIT)`**（全链路留痕）。
+
+#### 4.12.7 审核（通过 / 驳回）
+
+`POST /api/v1/finance/payrolls/{id}/approve`（ADMIN）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 入参 | `{ approved: boolean, approveRemark? ≤200 字 }`（`approved=false` 时 `approveRemark` 记入驳回意见） |
+| 出参 | `PayrollVO` |
+| 错误码 | `400`（`approved` 非布尔 / 意见超 200 字）、`9403`（状态不允许）、`9413`（`PAID` 冻结） |
+| 业务规则 | 来源须为 `PENDING_APPROVAL`；`true → APPROVED`（记 `approver_*` / `approve_time`）、`false → REJECTED`（记 `approve_remark`）；写 `payroll_log(APPROVE / REJECT)` |
+
+> **契约变更（C-5）**：无状态变更；**补写 `payroll_log(APPROVE/REJECT)`**。
+
+#### 4.12.8 批量发布 / 再发布
+
+`POST /api/v1/finance/payrolls/publish`（ADMIN）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 入参 | `{ ids?: Long[], month?: string, stationId?: Long }`（`ids` 与「`month + stationId`」**二选一**；`ids` 非空时优先） |
+| 出参 | `{ published, skipped, payrollIds[] }` |
+| 错误码 | `400`（两者均未传 / `month` 格式非法）、`9403`（**来源非法且显式报错**，见业务规则）、`9413`（`PAID` 冻结） |
+| 业务规则 | ① **允许来源扩展为 `APPROVED`（首发）或 `OBJECTED`（再发布）**；② **不限 `ids` 的 `month` 批量路径维持仅 `APPROVED`**（避免误批再发布），非 `APPROVED` 计入 `skipped`；③ **`ids` 路径**遇非允许来源（含 `PAID` / `CONFIRMED`）**显式返回错误码、不得静默计入 `skipped`**；④ 再发布成功记**新的** `publisher_*` / `publish_time`、清 `objection_*`，写 `payroll_log(REPUBLISH)`；⑤ 状态落 `PUBLISHED` 后触发通知类型 8（员工本人） |
+| 示例 | `POST .../payrolls/publish` body `{"ids":[1024,1025]}` |
+
+> **契约变更（C-2）**：发布来源由 `APPROVED` 扩展为 **`APPROVED` 或 `OBJECTED`**；`ids` 路径非法来源改为**显式错误码**（不再静默 `skipped`）；`month` 批量路径口径不变（仅 `APPROVED`）。
+
+#### 4.12.9 员工确认
+
+`POST /api/v1/finance/payrolls/{id}/confirm`（ADMIN / STATION_ADMIN / STAFF）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 入参 | `id`（路径） |
+| 出参 | `PayrollVO` |
+| 错误码 | `9404`（非本人）、`9403`（已确认，无需重复确认 / 尚未发布，暂不可确认）、`9413`（`PAID` 冻结） |
+| 业务规则 | 仅本人 + 已发布（`PUBLISHED → CONFIRMED`），记 `confirm_time`；写 `payroll_log(CONFIRM)` |
+
+> **契约变更（C-4）**：无行为变更；**补写 `payroll_log(CONFIRM)`**。
+
+#### 4.12.10 员工异议
+
+`POST /api/v1/finance/payrolls/{id}/objection`（ADMIN / STATION_ADMIN / STAFF）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 入参 | `{ reason: string }`（必填 2-200 字） |
+| 出参 | `PayrollVO` |
+| 错误码 | `400`（原因长度非 2-200）、`9404`（非本人）、`9403`（仅已发布可提异议）、`9413`（`PAID` 冻结） |
+| 业务规则 | 仅本人 + 已发布；**目标状态 → `OBJECTED`**；记 `objection_reason` / `objection_time`，清 `confirm_time` / `publish_time` / `publisher_*`；写 `payroll_log(OBJECTION)`；随后发通知类型 9（管理员待处理） |
+| 示例 | `POST .../payrolls/1024/objection` body `{"reason":"9 月缺勤天数与实际不符"}` |
+
+> **契约变更（C-1）**：目标状态由 `PENDING_APPROVAL` **改为 `OBJECTED`**（原落 `PENDING_APPROVAL` 与该态 `isEditable=false` 相矛盾，致「退回后可改再发布」不可达）。清空口径沿用（清 `confirm_time` / `publish_time` / `publisher_*`）。
+
+#### 4.12.11 修改人工项金额
+
+`PUT /api/v1/finance/payrolls/{id}/items`（ADMIN）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 入参 | `{ items: [{ key, amount }] }`（非空数组；`amount` 非数字 → `400` 文案「金额须为数字」） |
+| 出参 | `PayrollVO`（含重算后的四项合计） |
+| 错误码 | `400`（`items` 为空 / 项不存在 / 非 `MANUAL` 项 / 金额非数字）、`9402`（工资单不存在）、`9403`（**非 `isItemEditable` 状态**）、`9412`（金额变更事由必填 2-200）、`9413`（`PAID` 冻结） |
+| 业务规则 | ① 可编辑判据由 `isEditable` 改为 **`isItemEditable`**（新增 `PENDING_APPROVAL` / `OBJECTED`）；② 仍**仅允许改 `source=MANUAL` 项**；③ **`reason` 必填 2-200**；④ 每次改动写 `payroll_log(ITEM_UPDATE)`，`before` / `after` 限 §4.12 白名单；⑤ 不得覆盖 `payroll_item.detail` 中的事由全文 |
+
+> **契约变更（C-3）**：① 可编辑判据改 `isItemEditable`；② **`reason` 由「可选」改为「必填 2-200」**（原可选与 Q3「每笔必填事由」冲突），违规回 `9412`；③ **修正既有实现**：现实现以 `400` 文案「工资单项不存在」「由规则计算，不可手工修改」「金额须为数字」，且会把 `detail` 覆盖为「人工填写」——本契约要求 `detail` 事由全文不被覆盖。
+
+#### 4.12.12 手工加 / 扣款（I-6）
+
+`POST /api/v1/finance/payrolls/{id}/items/add`（ADMIN）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 入参 | `{ itemType: "ADDITION" / "DEDUCTION", itemName, amount（>0）, reason（必填 2-200）, detail? }` |
+| 出参 | `PayrollVO`（含重算合计） |
+| 错误码 | `9402`（工资单不存在）、`9403`（状态不允许，须 `isItemEditable`）、`9411`（`item_key` 重复）、`9412`（事由必填 2-200）、`9413`（`PAID` 冻结） |
+| 业务规则 | ① 一次性语义：仅在目标工资单下新增一行 `payroll_item`（`source=MANUAL`，不建员工级长期项表）；② `item_key` 由**服务端生成**、**强制 `MANUAL_` 前缀**（如 `MANUAL_<账期>_<序号>`）；③ **加款计入应发、扣款计入扣项，实发 = 应发 − 扣项**（沿用 `PayrollTotalsPolicy`，不改公式），保存后**自动重算四项合计**；④ 写 `payroll_log(ITEM_ADD, reason 必填, before/after 合计, operator_*)` |
+| 示例 | `POST .../payrolls/1024/items/add` body `{"itemType":"DEDUCTION","itemName":"设备赔偿","amount":120.00,"reason":"9 月扫码枪损坏赔偿","detail":"事由：9 月扫码枪损坏赔偿"}` |
+
+> 允许状态 = `isItemEditable`（`DRAFT` / `REJECTED` / `PENDING_APPROVAL` / `OBJECTED`）；`DRAFT` / `REJECTED` 期的 MANUAL 项在 `generate` 覆盖重建时**保留迁移**，故不禁止在 `DRAFT` 录入。金额方向为主代理解释、**待用户最终确认**（存在性登记见 §4.12.19）。
+
+#### 4.12.13 确认发放归档（I-8）
+
+`POST /api/v1/finance/payrolls/{id}/pay`（ADMIN）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 入参 | `id`（路径）；`{ remark? }`（可选） |
+| 出参 | `PayrollVO`（`status=PAID`，含 `paidTime` / `paidByName`） |
+| 错误码 | `9402`（工资单不存在）、`9403`（**来源非 `CONFIRMED`**）、`9413`（已发放归档） |
+| 业务规则 | 仅 ADMIN；来源须 `CONFIRMED`（且 `confirm_time` 非空）；→ `PAID`（记 `paid_by_id` / `paid_by_name` / `paid_time`）；写 `payroll_log(PAY)`；进入 `PAID` 后受 `assertMutable` 全面冻结。**必须显式报错、不得静默 skip**（与 `publish` 的批量 `skipped` 语义不同） |
+| 示例 | `POST .../payrolls/1024/pay` |
+
+> Q9「管理员确认工资已发放 → 归档」的落地端点。`pay` **不新增错误码**：来源非法复用 `9403`；`PAID` 冻结用 `9413`。`PAID` 绝对冻结（U-03），本期**无冲正 / 反归档出口**（受限项登记见 §4.12.19）。
+
+#### 4.12.14 工资单操作留痕（I-7）
+
+`GET /api/v1/finance/payrolls/{id}/logs`（ADMIN / STATION_ADMIN / STAFF）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 入参 | `id`（路径） |
+| 出参 | 留痕时间线数组，按 `time` 倒序。**服务端按角色裁剪**：ADMIN 返回 `action / operatorName / operatorRole / time / fromStatus / toStatus / reason / before / after`；**非 ADMIN 仅返回 `action / time / reason / toStatus`**（**不返回** `before` / `after` / `operator_id` / `operator_role`） |
+| 错误码 | `9402`（工资单不存在）、`9404`（越权）、`9403`（不可见状态） |
+| 业务规则 | 越权判定**必须复用 `detail()` 单一真源**（`employeeId == userId` ∧ 状态 ∈ `{PUBLISHED, CONFIRMED, PAID}`）；**不得**仅校验角色而未逐单校验「本人 + 可见状态」（否则任一 STAFF 可按 id 遍历任意单据留痕 → IDOR）；**字段裁剪由服务端强制**（前端隐藏而后端照返 = 越权信息泄漏） |
+| 示例 | `GET .../payrolls/1024/logs` |
+
+> 数据源 `payroll_log`（追加型审计表，只增不改、无删除入口）。`action` 取值：`GENERATE_AUTO / GENERATE_MANUAL / ITEM_ADD / ITEM_UPDATE / SUBMIT / APPROVE / REJECT / PUBLISH / REPUBLISH / CONFIRM / OBJECTION / PAY / NOTIFY / NOTIFY_SKIP / AUTO_SUBMIT_SKIPPED`（末项为 v1.4/B4a 修补新增：自动算薪逐单自动提交失败时的留痕，`operator_type=SYSTEM`；需数据库工程师同步 `db.md` §8.6.6 取值清单，列型 `VARCHAR(32)` 无需 DDL）。
+
+#### 4.12.15 计薪规则（5 端点）
+
+| # | 方法 | 路径 | 权限 | 入参 | 出参 | 错误码 |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| 1 | GET | `/api/v1/finance/payroll-rules` | ADMIN | — | `{ list: PayrollRuleVO[] }`（规则数少，不分页，含规则项） | — |
+| 2 | POST | `/api/v1/finance/payroll-rules` | ADMIN | `PayrollRuleRequest` | `PayrollRuleVO` | `400`（规则名校验 / 规则项校验） |
+| 3 | GET | `/api/v1/finance/payroll-rules/{id}` | ADMIN | `id` 路径 | `PayrollRuleVO` | `9401`（规则不存在） |
+| 4 | PUT | `/api/v1/finance/payroll-rules/{id}` | ADMIN | `PayrollRuleRequest`（`items` 传入即**整体覆盖**） | `PayrollRuleVO` | `9401`、`400`（校验失败） |
+| 5 | DELETE | `/api/v1/finance/payroll-rules/{id}` | ADMIN | `id` 路径 | `null` | `9401`、`9403`（**规则已被工资单引用，只能改为停用**） |
+
+`PayrollRuleRequest`：`ruleName（2-50 字；新建必填） / remark（≤200 字） / status（0=停用 1=启用） / items: PayrollRuleItemRequest[]`。
+`PayrollRuleItemRequest`：`key（1-30，须匹配 ^[A-Z][A-Z0-9_]*$） / name（1-20 字） / type（ADDITION / DEDUCTION） / source（FIXED / ATTENDANCE / KPI / MANUAL） / params（结构随 source） / enabled（0/1，缺省 1） / sortOrder`。
+`PayrollRuleVO`：`id / ruleName / remark / status / statusLabel / itemCount / enabledItemCount / items[]（PayrollRuleItemVO：id / key / name / type / typeLabel / source / sourceLabel / params / enabled / sortOrder） / createTime / updateTime`。
+
+> 删除保护的 `9403` 与「工资单状态不允许该操作」**同码两语义**（沿用既有实现）；本批**不改码**，登记见 §4.12.19。
+
+#### 4.12.16 驿站算薪配置（I-1 / I-2 / I-3）
+
+| # | 方法 | 路径 | 权限 | 入参 | 出参 | 错误码 |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| I-1 | GET | `/api/v1/finance/payroll-settings` | ADMIN | `stationId?`、`enabled?`（过滤，可空） | 驿站列表 + 各站算薪配置（`stationId / stationName / enabled / payrollDay / payrollTime / notifyEnabled / remark / updateTime`） | — |
+| I-2 | GET | `/api/v1/finance/payroll-settings/{stationId}` | ADMIN | `stationId` 路径 | 单驿站算薪配置（同 I-1 字段） | `4001`（驿站不存在）、`9406`（该驿站尚未配置算薪设置） |
+| I-3 | PUT | `/api/v1/finance/payroll-settings/{stationId}` | ADMIN | `{ enabled, payrollDay, payrollTime（HH:mm）, notifyEnabled, remark }` | 保存后的配置 | `4001`、`9407`（算薪日非法）、`9408`（时间格式非法） |
+
+- `payrollDay` 范围 **1..31**（用户 U-05 裁定）；当月无该日时 `dueAt` **钳位到当月最后一天**（例 `31→4/30`、`30→2026/2/28`、`29→2024/2/29`），保证每月恒定有且仅有一个 `dueAt`。
+- `enabled` 默认 **0**（默认不自动跑数）；`notifyEnabled` 默认 **1**（生成即推管理员）。
+- **I-3 副作用（M-9 硬要求）**：每次保存成功即**在同一事务内追加一条** `station_payroll_setting_log`：首次创建 → `CREATE`；`enabled` `0→1` → `ENABLE`；`1→0` → `DISABLE`；其余字段变更 → `UPDATE`。**「启用 0→1」由 `action=ENABLE` 行承载、可追溯**。`before` / `after` 仅写白名单键 `{enabled,payrollDay,payrollTime,notifyEnabled,remark}`。
+- **I-3 示例**：`PUT .../payroll-settings/8` body `{"enabled":1,"payrollDay":31,"payrollTime":"09:00","notifyEnabled":1,"remark":"月末结算"}`。
+
+> **I-2 的 `9406`** 为「驿站存在但尚无配置」的可判定分支；若实现选择返回默认值而非报错，须与前端一致（登记见 §4.12.19）。新接口全 `{"ADMIN"}`，与 boss-h5 端准入（fail-closed 仅 `ADMIN`）一致。
+
+#### 4.12.17 算薪配置变更历史（I-9）
+
+`GET /api/v1/finance/payroll-settings/{stationId}/logs`（ADMIN）
+
+| 项 | 内容 |
+| ---- | ---- |
+| 入参 | `stationId` 路径；可选时间范围、`pageNum` / `pageSize` |
+| 出参 | 该驿站算薪配置**变更历史时间线**（`action / operatorName / operatorRole / time / before / after / remark`），按 `time` 倒序 |
+| 错误码 | `4001`（驿站不存在） |
+| 业务规则 | 数据源 `station_payroll_setting_log`（追加型审计表，只增不改、无删除入口）；`action` ∈ `CREATE / UPDATE / ENABLE / DISABLE`。**不在 I-1 / I-2 出参内嵌历史**（列表接口不背负时间线，与 I-7 单据留痕同构） |
+| 示例 | `GET .../payroll-settings/8/logs?pageNum=1&pageSize=20` |
+
+> 承载 M-9「配置变更留痕、启用 0→1 可追溯」的查询出口。
+
+#### 4.12.18 自动算薪运行（I-4 / I-5）
+
+| # | 方法 | 路径 | 权限 | 入参 | 出参 | 错误码 |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| I-4 | POST | `/api/v1/finance/payroll-runs/trigger` | ADMIN | `{ stationId, month（yyyy-MM） }`（**无 `force` 参数**） | 本次运行结果（`runId / status / generatedCount / submittedCount / skippedCount`；或 `SKIPPED` + 原因） | `4001`、`9410`（正在运行 / 已占位 / **当日已尝试**）；命中 `9405` 时**映射为 `SKIPPED` 结果**而非错误码 |
+| I-5 | GET | `/api/v1/finance/payroll-runs` | ADMIN | `stationId`、`month`、`status`、`triggerType`、`pageNum` / `pageSize` | 运行记录分页（`id / stationId / targetMonth / attemptDate / triggerType / dueAt / status / skipCode / skipReason / generatedCount / failReason / operatorName / startTime / finishTime`；本列表**不含** `submittedCount / skippedCount`，二者为触发响应运行内存态、无持久列） | — |
+
+- **生成后自动提交待审（v1.4/B4a 修补，Q6）**：自动算薪（含 I-4 手工触发运行）在 `generate` 成功后，**对本次生成单据逐单调用既有 `POST /payrolls/submit` 同源逻辑**，落 `PENDING_APPROVAL`；随后（提交事务已提交）才投递类型 7。顺序固定为「逐单 submit 成功 → 事务提交 → 发通知」。
+  - **逐单隔离**：每单各自独立事务提交（`REQUIRES_NEW`），某单失败**只影响本单**、**不回滚**本次已成功的生成与其它已提交单。
+  - **失败口径**：失败的单一律保持 `DRAFT`，追加 `payroll_log(action=AUTO_SUBMIT_SKIPPED, operator_type=SYSTEM)` 留痕，运行结果 `skippedCount` 计入，由管理员后续手工 `submit`。`submittedCount + skippedCount = generatedCount`。
+  - **手工 `POST /payrolls/generate`（I-3）不受影响**：仍只落 `DRAFT`，不自动提交（管理员自行核对后再提交）。
+  - `submittedCount / skippedCount` 仅随 I-4 触发响应返回；`payroll_run` **无对应持久列**，I-5 列表不返回（如需持久化须走结构变更）。
+
+- **可选错误码（§2.2 已定义、当前端点按下述口径使用）**：`9415`（该驿站未启用自动算薪）用于 I-4 对 `enabled=0` 驿站触发时的可判定分支；`9409`（运行记录不存在）**号段保留**，现有 I-4 / I-5 端点不返回。二者若实现侧不收口，亦可用 `400` + 具体文案替代（§2.2 说明）。
+- **I-4 触发约束（v1.5，复-2 / 复-3）**：① 仍受**占位**约束（已 `SUCCESS` / `SKIPPED` / `RUNNING` → `9410`）；② 对**无占位**账期（前次 `FAILED` 或从未执行）受**日粒度闸门**约束 —— `now ≥ 当日 catch-up-time-of-day` **且** `(stationId, month)` **当日尚未尝试**方可执行；③ **同日重复触发一律 `9410`**（由 DB 唯一键 `uk_attempt` 硬拒绝）；④ **不提供 `force` 参数**，故无「同日再试 / 强制重跑已成功账期」能力；⑤ `targetMonth` 恒为 `dueAt` 所在月（补跑仅**执行日推后**，账期归属不因跨月改变）。
+- **`triggerType`**：`AUTO`（定时到点）/ `CATCH_UP`（补跑）/ `MANUAL`（手工触发）。判定基准 `(now − dueAt) ≤ tickInterval ? AUTO : CATCH_UP`（仅可观测性标签，不影响执行语义）。
+- **`status`**：`RUNNING` / `SUCCESS` / `FAILED` / `SKIPPED`。**`skipCode`**：`BLOCKED_9405` / `CONFIG_INVALID` / `DRAFT_PROTECTED`（**已移除 `EXHAUSTED`**，无重试硬上限）。
+- **僵死 `RUNNING` 回收**：`start_time < now − running-timeout-minutes`（默认 30）判为僵死，回收动作（同一 `UPDATE`，四条同时执行）：`claim_key=NULL`（释放占位）+ `status=FAILED` + `fail_reason=STALE_RECLAIMED` + `finish_time=now`，**并触发失败告警**；回收后允许**次日**按日粒度闸门重试。受 `stale-reclaim-enabled` 控制，**单实例默认 `true`（开启）**。
+- **失败重试**：以自然日为粒度持续重试至成功，**无硬性天数上限**；连续失败达 `alert-after-consecutive-fail-days`（默认 3）推送管理员告警（**只提醒、不停止重试**）。
+
+> **已作废能力（登记，不沉默）**：`9414`（超窗口）/ `9416`（重试耗尽）随 v1.3 **作废、号段不复用**；「释放占位 / 强制重跑已成功账期」「配置修正后重算已 `SKIPPED(CONFIG_INVALID)` 的账期」本批**无出口**（须走新账期或 C 档人工处置）。
+
+#### 4.12.19 契约变更点汇总（C-1~C-7）与登记项
+
+| # | 端点 | 变更点 | 落点 |
+| ---- | ---- | ---- | ---- |
+| C-1 | `POST /payrolls/{id}/objection` | 目标状态 `PENDING_APPROVAL` → **`OBJECTED`**；清 `confirm_time` / `publish_time` / `publisher_*` 口径沿用 | §4.12.10 |
+| C-2 | `POST /payrolls/publish` | 发布来源扩展为 **`APPROVED` 或 `OBJECTED`**；不限 `ids` 的 `month` 批量路径维持仅 `APPROVED`；`ids` 路径非法来源**显式报错**（不静默 `skipped`） | §4.12.8 |
+| C-3 | `PUT /payrolls/{id}/items` | 可编辑判据 `isEditable` → **`isItemEditable`**（新增 `PENDING_APPROVAL` / `OBJECTED`）；**`reason` 必填 2-200** | §4.12.11 |
+| C-4 | `POST /payrolls/{id}/confirm` | 无行为变更；补写 `payroll_log(CONFIRM)` | §4.12.9 |
+| C-5 | `POST /payrolls/{id}/approve`、`POST /payrolls/submit` | 无状态变更；补写 `payroll_log(APPROVE / REJECT / SUBMIT)` | §4.12.6 / §4.12.7 |
+| C-6 | `GET /payrolls`、`GET /payrolls/{id}`、`GET /payrolls/my` | `statusLabel` 新增两态中文；`counts` 键新增 `OBJECTED` / `PAID`；详情补 `paidTime` / `paidByName`、`actions` 随 8 态扩展；`my` 员工可见集加入 `PAID` | §4.12.2~§4.12.4 |
+| C-7 | `POST /payrolls/generate` | ① 9405 判定**按驿站收敛**；② 覆盖重建**保留 `source=MANUAL` 明细**并重算合计；③ 手工 `generate` **占用与调度相同的 claim**（占位失败 `9410`） | §4.12.5 |
+
+**本批登记项（不改代码，仅登记；详见 B0 交付汇报）**：
+1. `PayrollStateMachine` 现为 6 态、动作集不含 `pay`，`isEditable` 单一判据；`isItemEditable` / `isOverwritable` / `assertMutable` 尚未落地 —— 与 §4.12.1 目标契约存在差距（本批为契约先行）。
+2. `PayrollStatus` 枚举、`labels()`、`counts` 键序目前为 6 态，需按末尾追加补 `OBJECTED` / `PAID`。
+3. `EMPLOYEE_VISIBLE_STATUS` 现为 `{PUBLISHED, CONFIRMED}`，需加 `PAID`（C-6）。
+4. `PayrollGenerateGuard` 现为「账期全局级」9405 判定，需按驿站收敛（C-7）。
+5. `updateItems` 现以 `400` 文案承载「项不存在 / 非 MANUAL / 金额非数字」，且覆盖 `item.detail`；`9411` / `9412` 尚未使用（C-3 / I-6）。
+6. `PayrollRuleServiceImpl` 删除保护复用 `9403`（「工资单状态不允许该操作」），与规则语义不同源 —— 同码两语义，本批不改码。
+7. ~~`NotificationServiceImpl.PUBLISH_TYPES = {1..6}`，尚无 `SYSTEM_TYPES = {7,8,9}` 与 `findAdminEmployeeIds()`（§4.12.21 目标契约）。~~ **（v1.4/B4a 已闭环）**：白名单拆分（`PUBLISH_TYPES{1..6}` / `LEAVE_SYSTEM_TYPES{5,6}` / `SYSTEM_TYPES{7,8,9,10}`）、`findAdminEmployeeIds()`、类型 7/8/9 投递点与失败告警 10 均已落地。
+8. `payroll-settings` / `payroll-runs` 两组端点（I-1~I-5、I-9）后端尚无 Controller —— 本批契约先行。
+9. 主代理解释项「加扣款金额方向（加款计入应发、扣款计入扣项、实发 = 应发 − 扣项）」**待用户最终确认**。
+10. 新增错误码 `9406`（I-2「尚未配置」）、`9415`（「未启用自动算薪」）、`9409`（号段保留）在方案 §4.1 的端点错误码列中未逐条钉死（方案 §4.3 已定义文案）；本契约按语义就近归位并在 §4.12.16 / §4.12.18 标注，**实现侧如选择以通用 `400` + 文案替代，须与本契约同步回改**。
+11. 代码现状与方案 v1.5 的其余已登记差异（见 `payroll-automation-design.md` §0.2、§10、§11）：多实例 / 僵死回收的前提（单实例 `fixedDelay` 不重叠）、`payroll` 单据层无 DB 唯一约束等，均为**已知残余风险**，不在本 B0 契约批内处理。
+
+#### 4.12.20 权限与端准入一致性
+
+| 项 | 结论 |
+| ---- | ---- |
+| 角色口径 | 所有**新增**接口（I-1~I-6、I-8、I-9、**I-10**）均 `{"ADMIN"}`；**I-7 为 ADMIN + 本人**（服务端按角色裁剪 `before` / `after` / `operator_*`） |
+| boss-h5 端准入 | Q5 要求设置在 boss-h5；boss-h5 fail-closed 仅 `ADMIN`，与 I-1~I-3 的 `ADMIN` 口径一致 |
+| web（PC 管理端） | 仅 `ADMIN`，承载 I-3~I-8 的管理操作 |
+| staff-h5 | 仅涉及 C-1 / C-4（员工异议 / 确认）与 I-7（本人留痕），均为既有「本人」口径 |
+| 权限放宽 | **无**。本方案不引入任何跨角色越权；`@RequireRoles` 全部沿用既有角色常量。**无「待安全评估的权限放宽项」** |
+| 间接安全面（非权限放宽） | ① 新增**进程内定时调度 + 自动写库**（生产变更面）；② 新增 `payroll_run` / `payroll_log` / `station_payroll_setting_log` 可含个人薪资信息的表（数据面）—— 均已登记为需网络安全工程师评估项（`payroll-automation-design.md` §8） |
+
+> **`@RequireRoles` 取值须为编译期字面量**（既有约定）；角色常量见 `RoleEnum`。
+
+#### 4.12.21 通知类型扩展（7 / 8 / 9）
+
+| 类型值 | 用途 | 触发点 | 接收人 |
+| ---- | ---- | ---- | ---- |
+| 7 | 工资单待审核 | 自动算薪生成**并自动提交**（落 `PENDING_APPROVAL`）后（`notify_enabled=1`） | **管理员**（单一真源 `findAdminEmployeeIds()`） |
+| 8 | 工资单已发布 | `publish` / 再发布成功后（**状态已落 `PUBLISHED` 才触发**） | **员工本人**（Q8：发布后才推员工） |
+| 9 | 工资单异议退回 | `objection` 后 | **管理员**（待处理） |
+| 10 | 自动算薪运行失败 / 僵死回收告警 | 单驿站执行 `FAILED`、僵死 `RUNNING` 被回收（`STALE_RECLAIMED`）后（受 `notify-on-fail` 控制） | **管理员** |
+
+- `biz_type='payroll'`、`biz_id=payroll.id`（对齐 `sendSystem` 契约）。
+- **公告白名单维持 1..6**：**不得**把 `7/8/9` 并入 `PUBLISH_TYPES`（现 `1..6`）；`sendSystem` 放行集 = `PUBLISH_TYPES{1..6}`（工单 1/2、请假 5/6 等既有系统联动沿用）**∪** 薪资段 `SYSTEM_TYPES{7,8,9}` 与失败告警 `10`；而 `POST /notifications/publish` 的公告发布路径白名单维持 `1..6` 不变 —— 否则 ADMIN 可经公告接口（`ALL/STATION/EMPLOYEE` 扇出、`title/content` 任意）**仿冒**薪资通知（应用内钓鱼）。属代码改动、**不改表结构**（`type` 为 TINYINT）。**已落地（v1.4/B4a）**：`NotificationServiceImpl` 拆出 `PUBLISH_TYPES{1..6}` 与 `SYSTEM_TYPES{7,8,9,10}`，`sendSystem` 取两者并集（1..10），`publish` 仅认 `PUBLISH_TYPES`。
+- **接收人单一真源**：`findAdminEmployeeIds()`（`employee.role=ADMIN AND status=1`）作为「管理员集合」唯一真源；**禁止**复用 `resolveTargets("ALL"/"STATION")`（会误推站长 / 员工）。**已落地（v1.4/B4a）**。
+- **type 8 触发前置**：仅当状态已落 `PUBLISHED` 后触发；**禁止**在 `generate` / `approve` / `submit` 分支触发。断言：未发布状态下 type 8 通知数为 0。**已落地（v1.4/B4a）**：投递前以 DB 落库状态复核。
+- **type 7 门槛**：受该站 `station_payroll_setting.notify_enabled` 控制（`=0` 不投递）；接收人 = 全部在职 ADMIN。
+- **type 10（v1.4 新增）**：单驿站执行 `FAILED` / 僵死 `RUNNING` 回收告警，受 `hrm.payroll.schedule.notify-on-fail` 控制；**`biz_id` 传 null**（无单张工资单可跳转）。**来源：算法 v1.3 §13 失败告警；方案 §4.5 原仅定义 7/8/9**（算法 `algorithm-payroll-scheduling.md` §9 TODO-4「失败/耗尽告警通知类型」原为开放项）；本批取号 `10`，如需改号须同步本契约与上游文档。
+- **通知异常不阻断**：调用侧一律 `try / catch`，失败只写 `NOTIFY_SKIP` 留痕（应用日志，不落库）、不阻断主流程。**已落地（v1.4/B4a）**：`PayrollNotifySupport` 统一收口（类型 7/8/9/10）。
+- **通知类型定稿**：7 = 工资单待审核（→管理员）、8 = 工资单已发布（→员工本人）、9 = 工资单异议退回（→管理员）、10 = 自动算薪运行失败告警（→管理员）；原 1~4 不变，请假 5 / 6 见 §7.3。
+
+#### 4.12.22 手工调整对账汇总（I-10，v1.4 新增）
+
+| # | 方法 | 路径 | 权限 | 入参 | 出参 | 错误码 |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| I-10 | GET | `/api/v1/finance/payrolls/manual-adjustments/summary` | ADMIN | `month`（yyyy-MM，**必填**）、`stationId`（可选） | 按员工汇总 + 合计行（见下） | `400`（`month` 缺失 / 格式非法） |
+
+- **目的**：安全补偿控制 —— 回答「**谁在何时把谁加/扣了多少、理由是什么**」。
+- **汇总口径（真源）**：以 `payroll_log` 的**冗余定位列** `employee_id` + `month` 为准（`generate` 覆盖重建会物理删除 `DRAFT`/`REJECTED` 单、更换 `payroll_id`；按 `payroll_id` 关联会漏「已删单」上的加扣款留痕）。
+- **计入动作（v1.4/B4a 修补）**：`ITEM_ADD`（手工加/扣款，I-6）**与** `ITEM_UPDATE`（修改既有 MANUAL 项金额，C-3）**均纳入**——后者是「谁把谁的工资改成多少」的审计关键，早期只统计 `ITEM_ADD` 会漏掉改金额。
+- **分类与金额**：
+  - `ITEM_ADD`：取 `after.items[*]`，`itemType=ADDITION` 计加款、`DEDUCTION` 计扣款，金额取 `amount`；贡献既有的 `additionCount/additionTotal/deductionCount/deductionTotal/netImpact`（**ITEM_ADD 口径，语义不变**）。
+  - `ITEM_UPDATE`：按 `itemKey` 将 `after.items[*]` 与 `before.items[*]` 配对，**净影响 = 变动后 − 变动前**（`Δ = afterAmount − beforeAmount`），再折算为对实发的方向：`ADDITION` 项计 `+Δ`、`DEDUCTION` 项计 `−Δ`；正向计入 `updateIncreaseTotal`、负向计入 `updateDecreaseTotal`（取正数）。
+  - `totalNetImpact = netImpact + updateIncreaseTotal − updateDecreaseTotal`（含新增加/扣款与改金额的总净影响）。
+- **驿站过滤**：传 `stationId` 时按「员工归属驿站」收敛（`employee.station_id`）；该站无员工时返回空列表 + 零合计。
+
+**出参**
+
+| 字段 | 类型 | 说明 |
+| ---- | ---- | ---- |
+| `month` | string | 账期 |
+| `stationId` | number / null | 回显 |
+| `list[]` | array | 按员工汇总行（`employeeId` 升序） |
+| `list[].employeeId` / `employeeName` | number / string | 员工 id / 姓名 |
+| `list[].additionCount` / `additionTotal` | number / number | 新增加款笔数 / 总额（`ITEM_ADD`，`ADDITION`） |
+| `list[].deductionCount` / `deductionTotal` | number / number | 新增扣款笔数 / 总额（`ITEM_ADD`，`DEDUCTION`） |
+| `list[].netImpact` | number | 新增净影响 = `additionTotal − deductionTotal`（`ITEM_ADD` 口径，语义不变） |
+| `list[].addCount` | number | 新增动作笔数（`ITEM_ADD` 留痕条数） |
+| `list[].updateCount` | number | 改金额动作笔数（`ITEM_UPDATE` 留痕条数） |
+| `list[].updateIncreaseTotal` | number | 改金额对实发的净增合计（≥0；加款增额、扣款减额） |
+| `list[].updateDecreaseTotal` | number | 改金额对实发的净减合计（≥0，正数表示减少额；加款减额、扣款增额） |
+| `list[].totalNetImpact` | number | 总净影响 = `netImpact + updateIncreaseTotal − updateDecreaseTotal` |
+| `total` | object | 合计行（`employeeId=null`、`employeeName='合计'`，字段同 `list` 项） |
 
 ***
 

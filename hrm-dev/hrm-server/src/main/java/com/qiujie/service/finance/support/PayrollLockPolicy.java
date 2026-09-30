@@ -10,6 +10,9 @@ import java.util.List;
  * 口径：同员工同账期存在<b>非 DRAFT/REJECTED</b> 的工资单即视为「已出账」，锁定该账期；
  * 被锁定后撤回已批请假会让工资单与申请单对不上，故拒绝（P7 抛 9606）。
  * 锁策略走 {@code hrm.algo.leave.lockStatusPolicy}（默认 {@code NON_DRAFT_REJECTED}）。
+ * <p>
+ * 判据自 v1.1 起改绑 {@link PayrollStateMachine#isOverwritable}（方案 §2.3）——语义与旧 {@code isEditable}
+ * 完全一致，仅换名以保证「审核中 / 异议退回可改明细」不误伤账期锁（行为零突变）。
  */
 public final class PayrollLockPolicy {
 
@@ -26,7 +29,7 @@ public final class PayrollLockPolicy {
      * TODO(扩展): 若后续新增锁策略（如「仅 CONFIRMED 锁」），在此按 policy 分支。
      */
     public static boolean isLocked(String status, String policy) {
-        return !PayrollStateMachine.isEditable(status);
+        return !PayrollStateMachine.isOverwritable(status);
     }
 
     /** 从候选工资单中取第一条锁定单据，无则返回 null */

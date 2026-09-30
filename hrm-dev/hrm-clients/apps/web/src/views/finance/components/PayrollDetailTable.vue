@@ -96,7 +96,11 @@ const emptyText = computed(() => (props.total ? '当前筛选下没有工资单'
 
         <el-table-column label="状态" width="104">
           <template #default="{ row }">
-            <StatusTag :dict="PAYROLL_STATUS" :value="row.status" :variant="PAYROLL_STATUS[row.status].variant" />
+            <StatusTag
+              :dict="PAYROLL_STATUS"
+              :value="row.status"
+              :variant="(PAYROLL_STATUS[row.status] || {}).variant"
+            />
           </template>
         </el-table-column>
 

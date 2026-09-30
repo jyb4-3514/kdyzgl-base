@@ -1425,10 +1425,48 @@ async function main() {
     staffOthers.find((e) => !onHolders.has(e.id) && e.id !== 3) || activeEmployees().find((e) => e.id === 3)
   const windowEmpLogin = await login(windowEmp.username, 'demo1234')
   const windowEmpToken = windowEmpLogin.ok ? windowEmpLogin.result.token : ''
-  // 挑一个「上班卡时间窗不含当前时刻」的班次（三个班次的时间窗并集 [07:30,24:00]，任意时刻必有班次落在窗外）
-  const nonCovering = shifts1.result.find(
-    (s) => !(nowMinutes() >= clockMinutes(s.startTime) - 30 && nowMinutes() <= clockMinutes(s.endTime))
-  )
+  /*
+   * 挑一个「上班卡时间窗不含当前时刻」的**启用**班次（停用班次不可排班）。
+   * 旧写法直接挑现成班次，隐含「任意时刻必有班次落在窗外」的假设——该假设不成立：
+   * 种子三个启用班次 早班 08:00-16:00 / 中班 12:00-20:00 / 晚班 16:00-24:00，其上班卡窗
+   * （[开始-30, 结束]，OPEN_AHEAD_MIN=30）并集为 [07:30,24:00]；15:30-16:00 内三班次的窗同时
+   * 覆盖当前时刻，find 取到 undefined 后取 .id 抛错，整套门禁随之崩掉（已用固定时钟复现）。
+   * 故改为与运行时刻无关的确定性构造：非碰撞时段仍挑现成班次（行为不变）；无窗外班次可用时，
+   * 把早班临时改到「距当前时刻 ≥120 分钟」的窗口，使「当前时刻在窗外」恒真，验证后立即还原。
+   * 余量 2 分钟 > 脚本从选取到打卡的耗时，顺带消除临界分钟抖动。
+   * 该用例走单班次模型（不传 periodIndex），上班卡窗固定为 [开始-30, 结束]，与 allowEarlyMin/allowLateMin 无关。
+   */
+  const clockOfMin = (minutes) =>
+    `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+  const nowM = nowMinutes()
+  const NON_COVER_MARGIN = 2
+  const outsideWindow = (s) =>
+    !(
+      nowM >= clockMinutes(s.startTime) - 30 - NON_COVER_MARGIN &&
+      nowM <= clockMinutes(s.endTime) + NON_COVER_MARGIN
+    )
+  const earlyShiftSnapshot = shifts1.result.find((s) => s.id === 1)
+  let nonCovering = shifts1.result.find((s) => s.status === 1 && outsideWindow(s))
+  let shift1Retimed = false
+  if (!nonCovering) {
+    const retimed =
+      nowM >= 130
+        ? { startTime: '00:00', endTime: clockOfMin(nowM - 120) }
+        : { startTime: clockOfMin(nowM + 120), endTime: '24:00' }
+    await call('put', '/shifts/1', {
+      data: {
+        shiftName: earlyShiftSnapshot.shiftName,
+        startTime: retimed.startTime,
+        endTime: retimed.endTime,
+        color: earlyShiftSnapshot.color,
+        restMinutes: earlyShiftSnapshot.restMinutes,
+        status: 1
+      },
+      token: attAdminToken
+    })
+    shift1Retimed = true
+    nonCovering = { ...earlyShiftSnapshot, ...retimed }
+  }
   await call('post', '/schedules/batch', {
     data: { stationId: 1, items: [{ employeeId: windowEmp.id, workDate: today, shiftId: nonCovering.id }] },
     token: attAdminToken
@@ -1440,6 +1478,29 @@ async function main() {
     { data: { checkType: 'ON', wifiSsid }, token: windowEmpToken },
     9102
   )
+  // 仅碰撞时段改过早班：立即还原并断言，还原失败必须暴露（后续多处断言依赖早班 08:00-16:00）
+  if (shift1Retimed) {
+    await call('put', '/shifts/1', {
+      data: {
+        shiftName: earlyShiftSnapshot.shiftName,
+        startTime: earlyShiftSnapshot.startTime,
+        endTime: earlyShiftSnapshot.endTime,
+        color: earlyShiftSnapshot.color,
+        restMinutes: earlyShiftSnapshot.restMinutes,
+        status: 1
+      },
+      token: attAdminToken
+    })
+    const shiftsRestored = await call('get', '/shifts', { params: { stationId: 1 }, token: attAdminToken })
+    const earlyRestored = shiftsRestored.ok ? shiftsRestored.result.find((s) => s.id === 1) : null
+    check(
+      '时间窗外用例后早班已还原种子时段（08:00-16:00）',
+      !!earlyRestored &&
+        earlyRestored.startTime === '08:00' &&
+        earlyRestored.endTime === '16:00' &&
+        earlyRestored.status === 1
+    )
+  }
   // 单会话互踢：windowEmp 可能就是 st001_admin，其重新登录会顶掉站长令牌，这里补一次登录刷新
   const attStaRefresh = await login('st001_admin', 'demo1234')
   const attStaToken2 = attStaRefresh.ok ? attStaRefresh.result.token : ''

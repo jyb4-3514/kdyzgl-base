@@ -64,7 +64,7 @@ watch(
 <template>
   <div class="detail-page">
     <PageNav title="通知详情" :back-fallback="listPath" />
-    <div class="page" :class="[actions.length ? 'page--bar' : 'page--loose', actionNote ? 'reader--note' : '']">
+    <div class="page" :class="actions.length ? 'page--bar' : 'page--loose'">
       <van-notice-bar
         v-if="markFailed"
         class="notice"
@@ -160,10 +160,5 @@ watch(
 
 .reader__para + .reader__para {
   margin-top: var(--sp-4);
-}
-
-/* 动作区带原因说明时栏体高出 --actionbar-h，补一段底部留白避免遮住正文末尾 */
-.page--bar.reader--note {
-  padding-bottom: calc(var(--page-pad-bottom) + var(--sp-6));
 }
 </style>

@@ -113,7 +113,11 @@
             </el-table-column>
             <el-table-column label="状态" width="104">
               <template #default="{ row }">
-                <StatusTag :dict="PAYROLL_STATUS" :value="row.status" :variant="PAYROLL_STATUS[row.status].variant" />
+                <StatusTag
+                  :dict="PAYROLL_STATUS"
+                  :value="row.status"
+                  :variant="(PAYROLL_STATUS[row.status] || {}).variant"
+                />
               </template>
             </el-table-column>
           </el-table>

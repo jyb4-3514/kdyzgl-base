@@ -8,7 +8,7 @@
         <el-button v-else-if="page.activeTab === 'rule'" type="primary" :icon="Plus" @click="page.openRule(null)"
           >新建规则</el-button
         >
-        <el-button :icon="Refresh" @click="page.reloadAll">刷新</el-button>
+        <el-button :icon="Refresh" @click="onRefresh">刷新</el-button>
       </template>
     </PageHeader>
 
@@ -16,6 +16,8 @@
       <el-tab-pane name="payroll" label="工资单" />
       <el-tab-pane name="rule" label="计算规则" />
       <el-tab-pane name="objection" label="异议处理" />
+      <el-tab-pane name="adjustment" label="手工调整对账" />
+      <el-tab-pane name="setting" label="算薪日设置" />
     </el-tabs>
 
     <PayrollTabPanel
@@ -57,13 +59,16 @@
     />
 
     <PayrollObjectionsPanel
-      v-else
+      v-else-if="page.activeTab === 'objection'"
       :objections="page.objections"
       :loading="page.objectionLoading"
       :error="page.objectionError"
       @refresh="page.loadObjections"
       @handle="page.openDetail"
     />
+
+    <ManualAdjustmentPanel v-else-if="page.activeTab === 'adjustment'" ref="adjustPanelRef" :stations="page.stations" />
+    <PayrollSettingsPanel v-else ref="settingsPanelRef" />
 
     <GeneratePayrollDialog
       v-model="page.generateVisible"
@@ -78,7 +83,7 @@
 </template>
 
 <script setup>
-import { defineAsyncComponent, onMounted } from 'vue'
+import { defineAsyncComponent, onMounted, ref } from 'vue'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import PageHeader from '../../components/PageHeader.vue'
 import PayrollTabPanel from './components/PayrollTabPanel.vue'
@@ -94,14 +99,31 @@ import { useFinancePage } from './composables/useFinancePage.js'
  * 异步拆 chunk 后不阻塞工资单列表首屏。保持常驻渲染（不加 v-if），DOM 结构不变。
  */
 const PayrollRuleEditor = defineAsyncComponent(() => import('./components/PayrollRuleEditor.vue'))
+/**
+ * 对账面板与算薪日设置面板各自只在一个 Tab 内出现，
+ * 按需异步拆 chunk，避免把两张表的首屏体积压到工资单主视图上。
+ */
+const ManualAdjustmentPanel = defineAsyncComponent(() => import('./components/ManualAdjustmentPanel.vue'))
+const PayrollSettingsPanel = defineAsyncComponent(() => import('./components/PayrollSettingsPanel.vue'))
 
 /**
  * 财务管理（需求9）页面壳
  *
- * 只做装配：标题 + 三 Tab + 三个面板 + 四个弹层。取数、筛选、批量动作与审核提交收在 useFinancePage；
- * 「工资单 / 计算规则 / 异议处理」三段的内容编排各自下沉为域内面板组件。
+ * 只做装配：标题 + 五个 Tab + 五个面板 + 四个弹层。取数、筛选、批量动作与审核提交收在 useFinancePage；
+ * 对账 / 算薪日设置两个 Tab 的面板自带取数，刷新时按当前 Tab 转发到对应面板（面板 expose refresh）。
+ * 「自动算薪运行」Tab 已下线（前端不再展示运行记录/手工触发，后端能力保留）。
  */
 const page = useFinancePage()
+
+const adjustPanelRef = ref(null)
+const settingsPanelRef = ref(null)
+
+/** 刷新按当前 Tab 分流：既有两 Tab 走 useFinancePage，自带取数的两 Tab 走各自面板的 refresh */
+function onRefresh() {
+  if (page.activeTab === 'adjustment') adjustPanelRef.value?.refresh?.()
+  else if (page.activeTab === 'setting') settingsPanelRef.value?.refresh?.()
+  else page.reloadAll()
+}
 
 onMounted(() => page.init())
 </script>

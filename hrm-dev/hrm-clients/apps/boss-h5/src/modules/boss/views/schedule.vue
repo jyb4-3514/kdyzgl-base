@@ -31,10 +31,14 @@ const stationId = ref(null)
 const weekStart = ref(formatDate(mondayOf(new Date())))
 const matrix = ref(null)
 const selectedDate = ref(formatDate(new Date()))
-/** 本地待提交的排班：`员工ID|日期` → shiftId（null 表示清空该天） */
+/** 本地待提交的排班：`员工ID|日期` → 班次 id 数组（空数组 = 休息） */
 const draft = ref({})
-const sheet = ref({ show: false, employeeId: null, employeeName: '' })
+/** 多选弹层：selected 为工作副本，点「完成」才落草稿；关闭弹层 = 放弃本次选择 */
+const sheet = ref({ show: false, employeeId: null, employeeName: '', selected: [] })
 const showStation = ref(false)
+
+/** 单日班次上限（架构 A-② 裁定 = 2；文案统一「单日最多选择 2 个班次」） */
+const MAX_SHIFTS_PER_DAY = 2
 
 /* ---------- 批量工具（需求2） ---------- */
 
@@ -63,13 +67,32 @@ const currentStationName = computed(() => {
   return hit ? hit.stationName : '-'
 })
 
-/** 服务端当前值：脏检查与「清空」判断的基准 */
+/* ---------- 多班次工具 ---------- */
+
+const shiftById = (id) => shifts.value.find((item) => item.id === id) || null
+const clockMinutes = (text) => {
+  const [h, m] = String(text || '')
+    .split(':')
+    .map(Number)
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : 0
+}
+const startMinute = (id) => {
+  const shift = shiftById(id)
+  return shift ? clockMinutes(shift.startTime) : 0
+}
+/** 按开始时间升序：展示与提交顺序一致，也保证服务端存的「首条」= 最早班次 */
+const sortShiftIds = (ids) => ids.slice().sort((a, b) => startMinute(a) - startMinute(b))
+/** 集合比较键：排序后 join，规避顺序差异产生的假脏 */
+const joinIds = (ids) => (ids || []).slice().sort((a, b) => a - b).join(',')
+const idsOfDay = (day) => (Array.isArray(day.shiftIds) ? day.shiftIds : day.shiftId != null ? [day.shiftId] : [])
+
+/** 服务端当前值（班次集合）：脏检查与「清空」判断的基准 */
 const serverMap = computed(() => {
   const map = {}
   if (!matrix.value) return map
   matrix.value.employees.forEach((employee) => {
     employee.days.forEach((day) => {
-      map[`${employee.employeeId}|${day.workDate}`] = day.shiftId
+      map[`${employee.employeeId}|${day.workDate}`] = idsOfDay(day)
     })
   })
   return map
@@ -77,11 +100,11 @@ const serverMap = computed(() => {
 
 const pendingItems = computed(() =>
   Object.keys(draft.value)
-    .filter((key) => (serverMap.value[key] || null) !== (draft.value[key] || null))
+    .filter((key) => joinIds(serverMap.value[key]) !== joinIds(draft.value[key]))
     .map((key) => {
       const [employeeId, workDate] = key.split('|')
-      // shiftId 显式传 null 表示清空：undefined 会被 JSON.stringify 丢掉，服务端就收不到这条调整
-      return { employeeId: Number(employeeId), workDate, shiftId: draft.value[key] || null }
+      // shiftIds 显式给数组（空数组 = 清空该天）：undefined 会被 JSON.stringify 丢掉，服务端收不到这条调整
+      return { employeeId: Number(employeeId), workDate, shiftIds: sortShiftIds(draft.value[key] || []) }
     })
 )
 
@@ -90,22 +113,45 @@ const selectedText = computed(() => {
   return `${selectedDate.value.slice(5)} ${WEEKDAYS[d.getDay()]}`
 })
 
-/** 当天员工：同时给出「当前生效班次」与「本地待保存班次」，让改动一眼可见 */
+/** 当天员工：同时给出「当前生效班次集合」与「本地待保存班次集合」，让改动一眼可见 */
 const dayRows = computed(() => {
   if (!matrix.value) return []
   return matrix.value.employees.map((employee) => {
     const key = `${employee.employeeId}|${selectedDate.value}`
-    const shiftId = draft.value[key] || null
+    const ids = draft.value[key] || []
     return {
       employeeId: employee.employeeId,
       employeeName: employee.employeeName,
-      shift: shifts.value.find((item) => item.id === shiftId) || null,
-      changed: (serverMap.value[key] || null) !== shiftId
+      shifts: sortShiftIds(ids)
+        .map((id) => shiftById(id))
+        .filter(Boolean),
+      changed: joinIds(serverMap.value[key]) !== joinIds(ids)
     }
   })
 })
 
-const scheduledCount = computed(() => dayRows.value.filter((row) => row.shift).length)
+const scheduledCount = computed(() => dayRows.value.filter((row) => row.shifts.length).length)
+
+/** 弹层内的冲突提示（即时）：上限 = 2 / 时间重叠（半开区间 [s,e) 口径，架构 §2.4） */
+const sheetConflict = computed(() => {
+  const ids = sheet.value.selected
+  if (ids.length > MAX_SHIFTS_PER_DAY) return `单日最多选择 ${MAX_SHIFTS_PER_DAY} 个班次`
+  const list = ids.map((id) => shiftById(id)).filter(Boolean)
+  for (let i = 0; i < list.length; i += 1) {
+    for (let j = i + 1; j < list.length; j += 1) {
+      const a = list[i]
+      const b = list[j]
+      const overlap =
+        clockMinutes(a.startTime) < clockMinutes(b.endTime) && clockMinutes(b.startTime) < clockMinutes(a.endTime)
+      if (overlap)
+        return `所选班次时间有重叠：${a.shiftName}(${a.startTime}-${a.endTime}) 与 ${b.shiftName}(${b.startTime}-${b.endTime})，请调整`
+    }
+  }
+  return ''
+})
+
+/** 班次数据是否提供「时段/配对」信息：当前契约无该字段（架构 A-③：不引入配对字段），故「全天」按钮禁用降级 */
+const canQuickFullDay = computed(() => shifts.value.some((item) => item.periodType || item.pairId))
 
 const actions = computed(() => [
   { key: 'save', label: '保存排班', plain: false, loading: saving.value, disabled: !pendingItems.value.length }
@@ -136,7 +182,7 @@ const spreadPreview = computed(() => {
     spreadDates.value.forEach((date) => {
       if (!dates.value.includes(date)) return
       matrix.value.employees.forEach((employee) => {
-        if (serverMap.value[`${employee.employeeId}|${date}`]) skipped += 1
+        if ((serverMap.value[`${employee.employeeId}|${date}`] || []).length) skipped += 1
       })
     })
   }
@@ -144,7 +190,7 @@ const spreadPreview = computed(() => {
   return { staff, total, skipped, created: total - skipped, partial: knownOutside }
 })
 
-/** 复制预览：三类计数分别列出，用户才能判断「这次复制会动多少东西」 */
+/** 复制预览：三类计数分别列出，用户才能判断「这次复制会动多少东西」（按格比较班次集合） */
 const copyPreview = computed(() => {
   const result = { created: 0, overwritten: 0, cleared: 0 }
   if (!prevWeek.value || !matrix.value) return { ...result, total: 0 }
@@ -152,12 +198,12 @@ const copyPreview = computed(() => {
     const source = prevWeek.value.employees.find((item) => item.employeeId === employee.employeeId)
     if (!source) return
     dates.value.forEach((date, index) => {
-      const current = serverMap.value[`${employee.employeeId}|${date}`] || null
-      const next = (source.days[index] && source.days[index].shiftId) || null
-      if (current === next) return
-      if (!next) {
-        if (current) result.cleared += 1
-      } else if (current) result.overwritten += 1
+      const current = serverMap.value[`${employee.employeeId}|${date}`] || []
+      const next = source.days[index] ? idsOfDay(source.days[index]) : []
+      if (joinIds(current) === joinIds(next)) return
+      if (!next.length) {
+        if (current.length) result.cleared += 1
+      } else if (current.length) result.overwritten += 1
       else result.created += 1
     })
   })
@@ -172,7 +218,7 @@ function shiftOfDate(dateText) {
 function buildDraft() {
   const next = {}
   Object.keys(serverMap.value).forEach((key) => {
-    next[key] = serverMap.value[key]
+    next[key] = serverMap.value[key].slice()
   })
   draft.value = next
 }
@@ -256,11 +302,45 @@ function backToThisWeek() {
 }
 
 function openSheet(row) {
-  sheet.value = { show: true, employeeId: row.employeeId, employeeName: row.employeeName }
+  const key = `${row.employeeId}|${selectedDate.value}`
+  // 工作副本：弹层内选中不直接改草稿，关闭弹层即放弃（设计 7.2）
+  sheet.value = {
+    show: true,
+    employeeId: row.employeeId,
+    employeeName: row.employeeName,
+    selected: (draft.value[key] || []).slice()
+  }
 }
 
-function applyShift(shiftId) {
-  draft.value = { ...draft.value, [`${sheet.value.employeeId}|${selectedDate.value}`]: shiftId }
+/** 整行切换勾选：命中上限时阻止继续勾选（即时 role=alert 由 sheetConflict 呈现） */
+function toggleSelect(shiftId) {
+  const selected = sheet.value.selected
+  if (selected.includes(shiftId)) {
+    sheet.value.selected = selected.filter((id) => id !== shiftId)
+    return
+  }
+  if (selected.length >= MAX_SHIFTS_PER_DAY) return
+  sheet.value.selected = selected.concat(shiftId)
+}
+
+/** 「早班+晚班（全天）」：班次数据无时段/配对字段时禁用（不隐藏），点击为空操作 */
+function onQuickFullDay() {
+  if (!canQuickFullDay.value) return
+}
+
+/** 「清空（休息）」恒可用：直接落草稿空数组并关闭（设计 7.3） */
+function onQuickClear() {
+  draft.value = { ...draft.value, [`${sheet.value.employeeId}|${selectedDate.value}`]: [] }
+  sheet.value.show = false
+}
+
+/** 「完成」：冲突未消解时不落草稿；落草稿后关弹层 */
+function onSheetComplete() {
+  if (sheetConflict.value) return
+  draft.value = {
+    ...draft.value,
+    [`${sheet.value.employeeId}|${selectedDate.value}`]: sortShiftIds(sheet.value.selected)
+  }
   sheet.value.show = false
 }
 
@@ -269,7 +349,8 @@ async function onSave() {
   saving.value = true
   try {
     const result = await saveSchedules({ stationId: stationId.value, items: pendingItems.value })
-    showSuccessToast(`已保存 ${result.saved} 条${result.removed ? `，清空 ${result.removed} 条` : ''}`)
+    // saved/removed 为「班次行数」口径（覆盖式，架构 §2.4.1）；removed 为本次被移除的班次行数
+    showSuccessToast(`已保存 ${result.saved} 个班次${result.removed ? `，移除 ${result.removed} 个` : ''}`)
     await load()
   } catch (e) {
     // 错误提示由 http 层统一弹出；本地改动保留，用户修完可再点保存
@@ -372,7 +453,8 @@ async function onCopyConfirm() {
     const source = prevWeek.value.employees.find((item) => item.employeeId === employee.employeeId)
     if (!source) return
     dates.value.forEach((date, index) => {
-      next[`${employee.employeeId}|${date}`] = (source.days[index] && source.days[index].shiftId) || null
+      // 按格整体复制班次集合（非单值），与多班次口径一致（设计 7.5）
+      next[`${employee.employeeId}|${date}`] = source.days[index] ? idsOfDay(source.days[index]) : []
     })
   })
   draft.value = next
@@ -393,7 +475,7 @@ async function onClearWeek() {
   const next = { ...draft.value }
   matrix.value.employees.forEach((employee) => {
     dates.value.forEach((date) => {
-      next[`${employee.employeeId}|${date}`] = null
+      next[`${employee.employeeId}|${date}`] = []
     })
   })
   draft.value = next
@@ -466,10 +548,17 @@ onMounted(init)
             @click="openSheet(row)"
           >
             <span class="emp-row__name">{{ row.employeeName }}</span>
-            <span v-if="row.shift" class="emp-row__shift" :style="{ '--shift-color': row.shift.color }">
-              {{ row.shift.shiftName }} {{ row.shift.startTime }}-{{ row.shift.endTime }}
+            <span class="emp-row__shifts">
+              <span
+                v-for="shift in row.shifts"
+                :key="shift.id"
+                class="shift-tag"
+                :style="{ '--shift-color': shift.color }"
+              >
+                {{ shift.shiftName }} {{ shift.startTime }}-{{ shift.endTime }}
+              </span>
+              <span v-if="!row.shifts.length" class="emp-row__rest">休息（未排班）</span>
             </span>
-            <span v-else class="emp-row__shift emp-row__shift--rest">休息（未排班）</span>
             <span v-if="row.changed" class="emp-row__flag">待保存</span>
           </button>
           <p v-if="!dayRows.length" class="tip">该驿站当天无可排班员工</p>
@@ -495,15 +584,45 @@ onMounted(init)
     <ActionBar :actions="actions" :note="barNote" :submitting="saving" @select="onSave" />
 
     <van-popup v-model:show="sheet.show" round position="bottom" safe-area-inset-bottom>
-      <div class="sheet">
+      <div class="sheet" role="group" :aria-label="`${sheet.employeeName} ${selectedText} 班次选择`">
         <div class="sheet__title">{{ sheet.employeeName }} · {{ selectedText }}</div>
-        <button v-for="item in shifts" :key="item.id" type="button" class="sheet__item" @click="applyShift(item.id)">
+        <p class="sheet__hint-line">关闭不保存，点「完成」才应用到待保存区</p>
+
+        <div class="sheet__quick" role="group" aria-label="班次快捷动作">
+          <button
+            type="button"
+            class="chip chip--sm"
+            :disabled="!canQuickFullDay"
+            @click="onQuickFullDay"
+          >
+            早班+晚班（全天）
+          </button>
+          <button type="button" class="chip chip--sm" @click="onQuickClear">清空（休息）</button>
+        </div>
+        <p v-if="!canQuickFullDay" class="sheet__quick-tip">
+          需先在「班次管理」维护班次时段（上午/下午）后才能一键选全天
+        </p>
+
+        <p v-if="sheetConflict" class="sheet__alert" role="alert">{{ sheetConflict }}</p>
+        <p class="sheet__live" aria-live="polite">已选 {{ sheet.selected.length }} 个班次</p>
+
+        <button
+          v-for="item in shifts"
+          :key="item.id"
+          type="button"
+          class="sheet__item"
+          :aria-pressed="sheet.selected.includes(item.id)"
+          @click="toggleSelect(item.id)"
+        >
           <span>{{ item.shiftName }} {{ item.startTime }}-{{ item.endTime }}</span>
-          <span class="sheet__dot" :style="{ background: item.color }" aria-hidden="true"></span>
+          <van-icon v-if="sheet.selected.includes(item.id)" name="passed" aria-hidden="true" />
+          <span v-else class="sheet__dot" :style="{ background: item.color }" aria-hidden="true" />
         </button>
-        <button type="button" class="sheet__item sheet__item--danger" @click="applyShift(null)">
-          清空该天排班（休息）
-        </button>
+        <p v-if="!shifts.length" class="tip">该驿站暂无可用班次</p>
+
+        <div class="sheet__foot">
+          <van-button block type="primary" :disabled="!!sheetConflict" @click="onSheetComplete">完成</van-button>
+        </div>
       </div>
     </van-popup>
 
@@ -557,7 +676,7 @@ onMounted(init)
               {{ item.shiftName }}
             </button>
           </div>
-          <p v-if="!shifts.length" class="tip">该驿站暂无可用班次，请先在 PC 端维护班次</p>
+          <p v-if="!shifts.length" class="tip">该驿站暂无可用班次，请先在「班次管理」维护班次</p>
 
           <p class="spread__label">日期区间</p>
           <div class="spread__range">
@@ -803,17 +922,29 @@ onMounted(init)
   font-weight: var(--fw-medium);
 }
 
-.emp-row__shift {
+/* 多班次标签：横向排列、超出换行（flex-wrap），不做横向滚动 */
+.emp-row__shifts {
+  display: flex;
   flex: 1;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: center;
   min-width: 0;
-  overflow: hidden;
-  font-size: var(--fs-caption);
-  color: var(--text-2);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.emp-row__shift--rest {
+.shift-tag {
+  display: inline-flex;
+  gap: var(--sp-1);
+  align-items: center;
+  padding-left: var(--sp-2);
+  font-size: var(--fs-caption);
+  color: var(--text-2);
+  /* 班次色条仅辅助，班次名 + 时间始终以文字呈现（状态不只靠颜色） */
+  border-left: var(--shift-bar-w) solid var(--shift-color, var(--color-primary-icon));
+}
+
+.emp-row__rest {
+  font-size: var(--fs-caption);
   color: var(--text-3);
 }
 
@@ -877,6 +1008,55 @@ onMounted(init)
   color: var(--color-danger);
 }
 
+/* 选中态：主色文字 + 浅底（与 StationPicker 的 sheet__item[aria-pressed] 同口径） */
+.sheet__item[aria-pressed='true'] {
+  color: var(--color-primary);
+  background: var(--color-primary-surface);
+}
+
+.sheet__hint-line {
+  padding: 0 var(--sp-4);
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--text-3);
+  text-align: center;
+}
+
+.sheet__quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-4) var(--sp-2);
+}
+
+.sheet__quick-tip {
+  padding: 0 var(--sp-4) var(--sp-2);
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--text-3);
+}
+
+.sheet__alert {
+  padding: var(--sp-2) var(--sp-4);
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--color-danger);
+}
+
+.sheet__live {
+  padding: 0 var(--sp-4) var(--sp-2);
+  margin: 0;
+  font-size: var(--fs-caption);
+  color: var(--text-3);
+}
+
+.sheet__foot {
+  padding: var(--sp-4) var(--sp-4) var(--sp-5);
+}
+
 .sheet__dot {
   flex: none;
   width: 10px;
@@ -899,6 +1079,11 @@ onMounted(init)
   min-height: 44px;
   padding: 0 var(--sp-3);
   font-size: var(--fs-caption);
+}
+
+/* 禁用（如「早班+晚班（全天）」在无时段字段时）：文字降档 + 原因由 .sheet__quick-tip 说明 */
+.chip--sm:disabled {
+  color: var(--text-disabled);
 }
 
 .sheet__hint {

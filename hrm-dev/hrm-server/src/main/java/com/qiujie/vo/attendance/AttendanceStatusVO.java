@@ -30,8 +30,10 @@ public class AttendanceStatusVO {
     /** 今日最近一次有效上班卡（无则 null）；与 records 行结构一致 */
     private AttendanceRecordVO onRecord;
     private AttendanceRecordVO offRecord;
-    /** 规则要求的每日打卡次数（无规则时 null） */
+    /** 规则要求的每日打卡次数（无规则时 null；真源统一后 = 启用班次数 × 2） */
     private Integer checkFrequency;
+    /** 该驿站是否已配置启用班次（false 时前端置「无班次」空态并禁用打卡） */
+    private Boolean shiftConfigured;
     /** 规则要求摘要（无规则时 null） */
     private String requireSummary;
     private List<PeriodStatus> periods;

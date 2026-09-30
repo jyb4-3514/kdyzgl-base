@@ -71,6 +71,16 @@ public class SessionInfo {
     private Long loginEpochSeconds;
 
     /**
+     * 是否已完成首登改密（ARCH-C-7 / 主代理裁定 A-⑤，登录时从 {@code employee.pwd_changed} 快照）。
+     * <p>
+     * 三态语义：{@code false}=未改密（业务接口被 {@code PwdChangedInterceptor} 拦截）；{@code true}=已改密；
+     * {@code null}=本次升级前写入的旧会话，由 {@code JwtAuthFilter} 回查员工表补齐并回写（与 stationId 同自愈口径）。
+     * <p>
+     * 为什么随会话快照：避免每请求回表；改密接口成功后删除全部会话，用户须重登，新会话即携带权威值。
+     */
+    private Boolean pwdChanged;
+
+    /**
      * 兼容构造器（原 6 参签名，保持既有编译兼容）。
      * 新增字段（sid/employeeId/clientType/deviceId）由调用方经 setter 补齐。
      */

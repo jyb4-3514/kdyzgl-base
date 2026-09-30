@@ -1,0 +1,93 @@
+-- ----------------------------------------------------------------
+-- Flyway 迁移：V22__attendance_schedule_multi_shift.sql（排班多班次 · 活跃唯一键）
+-- 权威设计：boss-management-architecture.md §2.4「迁移 V22（ARCH-S-1）」/ §0.5；
+--           algorithm-multi-shift-scheduling.md §1.2（现状仅普通索引无 UNIQUE）/ §8-1（存量查重预检）
+-- 评审依据：tech-review-boss-management.md 必改项 M-1（键必须与 @TableLogic 逻辑删自洽）、M-6（预检范围含软删行）
+-- 主代理裁定（本脚本据此定稿）：排班「活跃唯一」采用**生成列式部分唯一**（沿用 V16 employee.phone_active 手法），
+--   不用裸三元 UNIQUE。
+-- 体例基准：V16__employee_phone_unique.sql（生成列 + UNIQUE 的既有范式）、V21（表 COMMENT 更新与回滚段体例）
+-- 批次：B7（排班多班次）。前置：P0.6 技术评审「通过 / 有条件通过」+ 用户裁定（A-①/A-②）+ C 档三步授权
+--   + 执行前备份 + 预检② 返回 0 行。
+--
+-- 为什么这样设计：
+--   1. 事实更正（评审 M-1）：AttendanceSchedule 实体带 @TableLogic、Mapper 为裸 BaseMapper
+--      （AttendanceSchedule.java:39-40、AttendanceScheduleMapper.java:9）⇒ 删除是**逻辑删（UPDATE is_deleted=1）**，
+--      而非架构/算法此前所述「物理删（deleteById）」。故若用裸 UNIQUE(employee_id, work_date, shift_id)，
+--      「清空某班次（软删）→ 再排同班次」将命中残留软删行 → 1062，多班次主流程直接失败。
+--   2. 形态：生成列 active_shift_key = IF(is_deleted=0, CONCAT(employee_id,'|',work_date,'|',shift_id), NULL) STORED
+--      + UNIQUE KEY uk_attendance_schedule_active_shift(active_shift_key)。
+--      NULL 在唯一索引中可重复 ⇒ 软删行不占键，「删了再排」不再冲突；同员工同天不同班次因含 shift_id 得以并存。
+--      但**活跃行**同 (employee_id, work_date, shift_id) 仍被 DB 原子拒绝（1062）—— 即「活跃唯一」最终防线 + 并发防线。
+--   3. 长度：active_shift_key 取 VARCHAR(64)。employee_id / shift_id 为 BIGINT（各 ≤ 20 位）、work_date 定宽 10 位，
+--      加两个分隔符，最长 20 + 1 + 10 + 1 + 20 = 52 < 64，足够；分隔符 + 定宽日期使拼接可无歧义还原三键。
+--   4. 本批**不加** attendance_shift 时段/序号字段（架构决策 D-6；算法 §8 可能提及的 period_type/pair_id 属待确认项）
+--      → 见文末「待确认项」，本脚本不含。
+--   5. 只 DDL、无 DML、无数据回填：新增生成列非持久业务数据，不搬运/改写任何业务列。
+--
+-- 【索引冗余评估（结论：两个既有普通索引均**保留**，不删）】
+--   新唯一键建在**单个生成列表达式** active_shift_key 上，其最左前缀即该表达式本身，
+--   **不能**被 WHERE station_id / employee_id / work_date 使用（表达式索引仅在查询条件匹配该表达式时才可命中，
+--   不支持按组成列下钻）。故：
+--     · idx_attendance_schedule_station_date (station_id, work_date)：周矩阵主路径，**保留**（新键不覆盖）；
+--     · idx_attendance_schedule_emp_date (employee_id, work_date)：「我的排班」/计薪逐日查 + Service 活跃查重路径，
+--       **保留**（新键不覆盖）。
+--   对照 V21：那里的 uk_attempt 建在**原始复合列**上，其最左前缀可吃 idx_payroll_run_station_month 并删之；
+--   本脚本是**表达式**唯一键，前提不同，故不删任何既有索引。若将来改回裸复合唯一键，才需重评冗余。
+--
+-- 【执行前置 · 存量查重预检（评审 M-6：范围必须显式包含 is_deleted=1 的软删行）】
+--   背景（为何 M-6 要求纳入软删行）：原口径默认「物理删」、只查活跃行；若采用**裸三元 UNIQUE**，
+--   则 is_deleted=1 行同样占用唯一键，预检漏软删行 → 预检通过后建键仍 1062。
+--   本脚本已改用**生成列式部分唯一**，软删行 active_shift_key 置 NULL 不占键 —— 但仍须**扫描含软删行的全量**，
+--   用途有二：① 核实「软删行确实都不占键（全为 NULL）」这一前提并留证；② 据此明确区分阻断口径。
+--   预检①（全量，含软删行；诊断用，允许 > 0 行）：
+--     SELECT employee_id, work_date, shift_id,
+--            SUM(is_deleted = 0) AS active_cnt,
+--            SUM(is_deleted = 1) AS deleted_cnt,
+--            GROUP_CONCAT(CONCAT(id, ':', is_deleted) ORDER BY id) AS id_deleted_pairs
+--     FROM attendance_schedule
+--     GROUP BY employee_id, work_date, shift_id
+--     HAVING SUM(is_deleted = 0) > 1 OR SUM(is_deleted = 1) > 1;
+--   预检②（阻断判据：**仅活跃行**重复组，必须返回 0 行）—— 生成列式唯一下的正确判据：
+--     SELECT employee_id, work_date, shift_id,
+--            COUNT(*)                     AS active_cnt,
+--            GROUP_CONCAT(id ORDER BY id) AS ids
+--     FROM attendance_schedule
+--     WHERE is_deleted = 0
+--     GROUP BY employee_id, work_date, shift_id
+--     HAVING COUNT(*) > 1;
+--   预检③（`is_deleted` 取值分布核对；评审 N-4，与算法 §8-1 段③对齐）：
+--     SELECT is_deleted, COUNT(*) AS cnt FROM attendance_schedule GROUP BY is_deleted ORDER BY is_deleted;
+--   用途：确认取值仅 0/1（无脏值），据此认定预检①/② 的扫描覆盖完整，并留证。
+--   判据说明：**建键会失败的充要条件 = 预检② 非 0 行**（活跃重复）；预检① 的 is_deleted=1 分组即便 > 0
+--   也**不阻断**（软删行 → NULL），仅供留证与人工核对。若预检② 非 0 行：先人工合并/软删重复活跃行
+--   （属数据变更，须 C 档授权 + 人工确认）后再执行，禁止未处理强跑（必然 1062 失败）。
+--
+-- 【执行前置】迁移属 C 档（结构变更），须主智能体三步授权后由运维执行；执行前先备份库、先跑预检② = 0 行。
+-- 【规模与锁】STORED 生成列须重建表（ALGORITHM=COPY/INPLACE）；attendance_schedule 非现有设计所列大表
+--   （对照 parcel 20 万级），但本机无 MySQL、未实测存量行数 → 建议低峰执行；是否触发「大表（数据库+算法）联评」
+--   由主智能体按实测存量行数裁定。
+-- ----------------------------------------------------------------
+
+ALTER TABLE `attendance_schedule`
+  ADD COLUMN `active_shift_key` VARCHAR(64)
+      GENERATED ALWAYS AS (IF(`is_deleted` = 0, CONCAT(`employee_id`, '|', `work_date`, '|', `shift_id`), NULL)) STORED
+      COMMENT '活跃排班键生成列：is_deleted=0 时拼 employee_id|work_date|shift_id，否则 NULL；仅活跃行唯一（V22）',
+  ADD UNIQUE KEY `uk_attendance_schedule_active_shift` (`active_shift_key`),
+  COMMENT = '排班（员工+日期+班次 活跃唯一：生成列 active_shift_key 唯一键收口「活跃唯一」，软删行置 NULL 不占键；V22）';
+
+-- ----------------------------------------------------------------
+-- 回滚（人工执行；不使用 Flyway undo，社区版不支持）：
+--   ALTER TABLE `attendance_schedule`
+--     DROP INDEX `uk_attendance_schedule_active_shift`,
+--     DROP COLUMN `active_shift_key`,
+--     COMMENT = '排班（员工+日期活跃唯一，Service 查重）';
+-- 说明：回滚仅撤销本次新增的唯一索引、生成列，并还原表注释（生成列非持久业务数据，不改数据）；回滚顺序必须先删索引、再删列。
+--   若已有数据依赖多班次（同员工同天多行），回滚后 Service 查重键若仍按 (employee_id, work_date) 会误判重复
+--   —— 回滚须与后端代码回退同批。
+-- ----------------------------------------------------------------
+--
+-- 【待确认项（不在本脚本，勿擅自加列）】
+--   · attendance_shift 是否补时段/序号字段（如 period_type / pair_id / shift_no）：属 algorithm-multi-shift-scheduling.md §8
+--     可能提及项，架构决策 D-6 本批「不补」（「早/晚」由 start_time + middayBoundaryMinute 派生、「全天」由班次数派生）。
+--     待**算法 / 架构确认**后再另立新版本（V24+），本脚本不含。
+-- ----------------------------------------------------------------

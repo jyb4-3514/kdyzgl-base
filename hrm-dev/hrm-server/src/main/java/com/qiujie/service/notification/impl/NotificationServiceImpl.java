@@ -9,6 +9,7 @@ import com.qiujie.dto.notification.NotificationQuery;
 import com.qiujie.entity.Employee;
 import com.qiujie.entity.Notification;
 import com.qiujie.enums.ErrorCode;
+import com.qiujie.enums.RoleEnum;
 import com.qiujie.exception.BusinessException;
 import com.qiujie.mapper.EmployeeMapper;
 import com.qiujie.mapper.NotificationMapper;
@@ -40,8 +41,23 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class NotificationServiceImpl implements NotificationService {
 
-    /** 发布放行的通知类型（含 5/6 请假类型；新增值必须同步放行，见 api.md §7.3） */
+    /**
+     * 手工公告（{@code publish}）放行的通知类型：1..6。
+     * <p>
+     * <b>安全 M-7 红线</b>：本集合<b>不得</b>放宽以放行薪资类型 7/8/9——否则 ADMIN 可经
+     * {@code POST /notifications/publish}（任意 title/content、按范围扇出）仿冒薪资通知（应用内钓鱼）。
+     */
     private static final Set<Integer> PUBLISH_TYPES = Set.of(1, 2, 3, 4, 5, 6);
+    /**
+     * 系统联动类型（{@code sendSystem} 专用，独立于公告白名单）：薪资自动化扩展段。
+     * <p>
+     * 7=工资单待审核→管理员、8=工资单已发布→员工本人、9=工资单异议退回→管理员、10=自动算薪运行失败告警→管理员。
+     * <p>
+     * {@code sendSystem} 的放行集 = {@link #PUBLISH_TYPES} ∪ {@link #SYSTEM_TYPES}（即 1..10）：
+     * 1..6 为既有系统联动（工单 1/2、请假 5/6 等）沿用，7..10 为薪资段。**安全边界在公告端点**——
+     * {@code publish} 仍只认 {@code PUBLISH_TYPES}，绝不放行 7/8/9/10。
+     */
+    private static final Set<Integer> SYSTEM_TYPES = Set.of(7, 8, 9, 10);
     /** 发布范围 */
     private static final Set<String> PUBLISH_SCOPES = Set.of("ALL", "STATION", "EMPLOYEE");
     /** 标题长度区间 */
@@ -181,7 +197,9 @@ public class NotificationServiceImpl implements NotificationService {
         if (employeeId == null) {
             return;
         }
-        if (!PUBLISH_TYPES.contains(type)) {
+        // 系统联动放行 = 既有 1..6（工单 1/2、请假 5/6 等沿用）∪ 薪资段 7/8/9/10；
+        // 与公告端点分离：publish 仍只认 PUBLISH_TYPES（安全 M-7）。
+        if (!PUBLISH_TYPES.contains(type) && !SYSTEM_TYPES.contains(type)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "通知类型非法");
         }
         if (!textLen(title, TITLE_MIN, TITLE_MAX)) {
@@ -205,6 +223,26 @@ public class NotificationServiceImpl implements NotificationService {
         notification.setPublisherName(null);
         notification.setPublishScope(null);
         notificationMapper.insert(notification);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Long> findAdminEmployeeIds() {
+        LambdaQueryWrapper<Employee> wrapper = new LambdaQueryWrapper<>();
+        wrapper.select(Employee::getId, Employee::getRole, Employee::getStatus)
+                .eq(Employee::getRole, RoleEnum.ADMIN.name())
+                .eq(Employee::getStatus, 1);
+        List<Long> ids = new ArrayList<>();
+        for (Employee employee : employeeMapper.selectList(wrapper)) {
+            // 为什么二次收口：DB 条件已是权威，但查询口径漂移 / 脏数据可能越集；以常量口径再过滤一次，
+            // 保证「管理员集合」在任何调用点都是同一真源（安全 M-7：不误推站长/员工）。
+            if (employee.getId() != null
+                    && RoleEnum.ADMIN.name().equals(employee.getRole())
+                    && Integer.valueOf(1).equals(employee.getStatus())) {
+                ids.add(employee.getId());
+            }
+        }
+        return ids;
     }
 
     // ==================== 私有方法 ====================

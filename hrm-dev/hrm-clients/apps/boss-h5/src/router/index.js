@@ -121,12 +121,45 @@ const routes = [
     component: () => import('../modules/boss/views/hrDetail.vue'),
     meta: { roles: BOSS_ROLES, title: '员工档案' }
   },
-  // 站点管理（只读骨架）：入口在「我的 · 管理与配置」人事管理之后；先选驿站再看该站员工名册
+  // 驿站管理（管理能力扩展）：列表 → 详情 → 表单 / 账号维护。
+  // 路由注册顺序：静态路径（create）先于路径参数（:id），与 mock engine「首个命中」规则保持一致。
   {
     path: '/boss/station',
     name: 'bossStation',
     component: () => import('../modules/boss/views/station.vue'),
-    meta: { roles: BOSS_ROLES, title: '站点管理' }
+    meta: { roles: BOSS_ROLES, title: '驿站管理' }
+  },
+  {
+    path: '/boss/station/create',
+    name: 'bossStationCreate',
+    component: () => import('../modules/boss/views/stationForm.vue'),
+    meta: { roles: BOSS_ROLES, title: '新增驿站' }
+  },
+  {
+    path: '/boss/station/:id/edit',
+    name: 'bossStationEdit',
+    component: () => import('../modules/boss/views/stationForm.vue'),
+    meta: { roles: BOSS_ROLES, title: '编辑驿站' }
+  },
+  // 账号新增（角色由 ?role= 预置：STAFF / STATION_ADMIN）
+  {
+    path: '/boss/station/:id/account/create',
+    name: 'bossAccountCreate',
+    component: () => import('../modules/boss/views/accountForm.vue'),
+    meta: { roles: BOSS_ROLES, title: '新增账号' }
+  },
+  // 账号编辑（改资料 / 状态 / 重置口令；不含用户名与口令字段）
+  {
+    path: '/boss/station/:id/account/:employeeId',
+    name: 'bossAccountEdit',
+    component: () => import('../modules/boss/views/accountForm.vue'),
+    meta: { roles: BOSS_ROLES, title: '账号编辑' }
+  },
+  {
+    path: '/boss/station/:id',
+    name: 'bossStationDetail',
+    component: () => import('../modules/boss/views/stationDetail.vue'),
+    meta: { roles: BOSS_ROLES, title: '驿站详情' }
   },
   {
     path: '/boss/payroll',
@@ -139,6 +172,28 @@ const routes = [
     name: 'bossPayrollDetail',
     component: () => import('../modules/boss/views/payrollDetail.vue'),
     meta: { roles: BOSS_ROLES, title: '工资单详情' }
+  },
+  // 财务管理（含员工工资设置）：原地升级自算薪日设置列表；/boss/finance 为规范别名（宫格入口用它），
+  // 保留 /boss/payroll-settings 兼容既有深链与「我的」跳转（设计 ③.5，不新增独立路由记录）
+  {
+    path: '/boss/payroll-settings',
+    name: 'bossPayrollSettings',
+    component: () => import('../modules/boss/views/payrollSettings.vue'),
+    alias: '/boss/finance',
+    meta: { roles: BOSS_ROLES, title: '财务管理' }
+  },
+  {
+    path: '/boss/payroll-settings/:stationId',
+    name: 'bossPayrollSettingEdit',
+    component: () => import('../modules/boss/views/payrollSettingEdit.vue'),
+    meta: { roles: BOSS_ROLES, title: '员工工资设置' }
+  },
+  // 审批中心（管理能力扩展）：分组列表视图，复用 stores/todo.js，不含工单
+  {
+    path: '/boss/approval',
+    name: 'bossApproval',
+    component: () => import('../modules/boss/views/approval.vue'),
+    meta: { roles: BOSS_ROLES, title: '审批中心' }
   },
   {
     path: '/boss/flow',
@@ -176,6 +231,26 @@ const routes = [
     name: 'bossSchedule',
     component: () => import('../modules/boss/views/schedule.vue'),
     meta: { roles: BOSS_ROLES, title: '排班管理' }
+  },
+  // 班次管理（设计 ⑭）：考勤概览「考勤管理」置首入口。同一复数资源段 shifts 贯串三条路由，
+  // 注册顺序沿用「静态 create 先于 :id/edit」（与 /boss/station 系列同构，engine 取首个命中）。
+  {
+    path: '/boss/shifts',
+    name: 'bossShifts',
+    component: () => import('../modules/boss/views/shift.vue'),
+    meta: { roles: BOSS_ROLES, title: '班次管理' }
+  },
+  {
+    path: '/boss/shifts/create',
+    name: 'bossShiftCreate',
+    component: () => import('../modules/boss/views/shiftForm.vue'),
+    meta: { roles: BOSS_ROLES, title: '新增班次' }
+  },
+  {
+    path: '/boss/shifts/:id/edit',
+    name: 'bossShiftEdit',
+    component: () => import('../modules/boss/views/shiftForm.vue'),
+    meta: { roles: BOSS_ROLES, title: '编辑班次' }
   },
   {
     path: '/boss/attendance/records',

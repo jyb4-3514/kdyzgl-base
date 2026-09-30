@@ -14,6 +14,7 @@ import com.qiujie.mapper.HrProfileMapper;
 import com.qiujie.mapper.HrSalaryMapper;
 import com.qiujie.mapper.StationMapper;
 import com.qiujie.service.employee.EmployeeService;
+import com.qiujie.service.audit.OperationAuditWriter;
 import com.qiujie.service.hr.port.PayrollSettlementPort;
 import com.qiujie.service.hr.support.HrConstants;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,7 +50,7 @@ class HrFlowServiceStepTest {
                 mock(HrProfileMapper.class),
                 mock(HrSalaryMapper.class), mock(EmployeeMapper.class), mock(DepartmentMapper.class),
                 mock(StationMapper.class), mock(EmployeeService.class), mock(HrSalaryWriter.class),
-                payrollSettlementPort, new HrProperties());
+                payrollSettlementPort, new HrProperties(), mock(OperationAuditWriter.class));
     }
 
     private HrFlow flow(String flowType) {

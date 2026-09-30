@@ -34,10 +34,12 @@ import com.qiujie.service.hr.HrFlowService;
 import com.qiujie.service.hr.port.PayrollSettlementCommand;
 import com.qiujie.service.hr.port.PayrollSettlementPort;
 import com.qiujie.service.hr.port.PayrollSettlementRef;
+import com.qiujie.service.audit.OperationAuditWriter;
 import com.qiujie.service.hr.support.HrConstants;
 import com.qiujie.service.hr.support.HrFlowStepGuard;
 import com.qiujie.service.hr.support.HrSalaryValidator;
 import com.qiujie.service.hr.support.HrValidateSupport;
+import com.qiujie.service.hr.support.PositionConstants;
 import com.qiujie.service.registration.support.RegistrationConstants;
 import com.qiujie.service.registration.support.RegistrationRetentionPolicy;
 import com.qiujie.util.DesensitizeUtil;
@@ -59,6 +61,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -95,6 +98,8 @@ public class HrFlowServiceImpl implements HrFlowService {
     private final HrSalaryWriter hrSalaryWriter;
     private final PayrollSettlementPort payrollSettlementPort;
     private final HrProperties hrProperties;
+    /** 操作审计留痕出口（ARCH-S-2 / §3.3 #7/#7b；入职建档与分配驿站为间接账号写路径） */
+    private final OperationAuditWriter operationAuditWriter;
 
     // ==================== 入职流程 ====================
 
@@ -407,6 +412,11 @@ public class HrFlowServiceImpl implements HrFlowService {
         employee.setRemark("入职流程 " + flow.getFlowNo() + " 转入");
         employeeMapper.insert(employee);
 
+        // 审计留痕（§3.3 #7）：入职流程建档开户 = 账号的「增」，属 A-⑥ 范围；口令不涉及（只留流程号）
+        operationAuditWriter.record(OperationAuditWriter.TARGET_EMPLOYEE, employee.getId(), employee.getRealName(),
+                OperationAuditWriter.ACTION_CREATE, null,
+                Map.of("flowNo", flow.getFlowNo() == null ? "" : flow.getFlowNo()));
+
         flow.setEmployeeId(employee.getId());
         flow.setDeptId(deptId);
         flow.setStationId(stationId);
@@ -445,6 +455,9 @@ public class HrFlowServiceImpl implements HrFlowService {
         if (employee == null) {
             throw new BusinessException(ErrorCode.HR_ONBOARDING_STATUS_INVALID, "尚未建档生成员工，无法分配驿站/岗位");
         }
+        // 审计留痕（§3.3 #7b）：分配驿站/岗位为账号的「改」，变更前快照先取
+        Map<String, Object> before = assignmentSnapshot(employee.getStationId(), employee.getPosition(),
+                employee.getRole());
         if (body.getDeptId() != null) {
             if (departmentMapper.selectById(body.getDeptId()) == null) {
                 throw new BusinessException(ErrorCode.DEPT_NOT_FOUND);
@@ -461,13 +474,18 @@ public class HrFlowServiceImpl implements HrFlowService {
             }
             employee.setStationId(body.getStationId());
         }
-        if (body.getPosition() != null) {
-            // 岗位双写唯一入口（U-07/§11.9）：employee.position 为权威事实，hr_flow.position 为流程留痕；
-            // 禁止他处单独写 employee.position（防注册侧岗位注入）
-            String position = trim(body.getPosition());
-            employee.setPosition(position);
-            flow.setPosition(position);
+        // 岗位双写唯一入口（U-07/§11.9）：employee.position 为权威事实，hr_flow.position 为流程留痕；
+        // 禁止他处单独写 employee.position（防注册侧岗位注入）。
+        // 必填 + 枚举白名单（用户裁定：店员 / 站长 / 管理员）：取值非法会让出参与数据同时不可解释
+        String position = trim(body.getPosition());
+        if (HrValidateSupport.isBlank(position)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "请填写岗位");
         }
+        if (!PositionConstants.isValid(position)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, PositionConstants.invalidMessage());
+        }
+        employee.setPosition(position);
+        flow.setPosition(position);
         if (body.getRole() != null) {
             if (!HrConstants.ASSIGNABLE_ROLES.contains(body.getRole())) {
                 throw new BusinessException(ErrorCode.BAD_REQUEST, "role 仅支持 STATION_ADMIN / STAFF");
@@ -477,6 +495,20 @@ public class HrFlowServiceImpl implements HrFlowService {
         }
         employeeMapper.updateById(employee);
         hrFlowMapper.updateById(flow);
+
+        // 审计留痕（§3.3 #7b）：目标名取员工姓名；变更字段由 Writer 按差异剪裁（仅列出真正变化的项）
+        operationAuditWriter.record(OperationAuditWriter.TARGET_EMPLOYEE, employee.getId(), employee.getRealName(),
+                OperationAuditWriter.ACTION_UPDATE, before,
+                assignmentSnapshot(employee.getStationId(), employee.getPosition(), employee.getRole()));
+    }
+
+    /** 分配快照（审计白名单键：驿站 / 岗位 / 角色） */
+    private Map<String, Object> assignmentSnapshot(Long stationId, String position, String role) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("stationId", stationId);
+        map.put("position", position);
+        map.put("role", role);
+        return map;
     }
 
     private void salaryForFlow(HrFlow flow, HrStepCompleteRequest body) {
@@ -756,6 +788,10 @@ public class HrFlowServiceImpl implements HrFlowService {
                 && !HrConstants.educationKeys().contains(request.getEducation())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "学历取值非法");
         }
+        // 岗位：可选（缺省留空，待审批定岗时必填），但一旦传入须命中白名单
+        if (!HrValidateSupport.isBlank(request.getPosition()) && !PositionConstants.isValid(request.getPosition())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, PositionConstants.invalidMessage());
+        }
         if (!HrValidateSupport.isBlank(request.getExpectedEntryDate())
                 && !HrValidateSupport.isDate(request.getExpectedEntryDate())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "expectedEntryDate 格式须为 YYYY-MM-DD");
@@ -835,8 +871,13 @@ public class HrFlowServiceImpl implements HrFlowService {
         if (request == null) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "审批入参不能为空");
         }
-        if (!HrValidateSupport.textLen(request.getPosition(), 1, 50)) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "请填写岗位（1-50 字）");
+        // 岗位必填（主智能体裁定：审批台岗位必填）+ 枚举白名单（店员 / 站长 / 管理员）
+        String position = trim(request.getPosition());
+        if (HrValidateSupport.isBlank(position)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "请填写岗位");
+        }
+        if (!PositionConstants.isValid(position)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, PositionConstants.invalidMessage());
         }
         if (request.getDeptId() == null) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "请选择部门");
@@ -955,6 +996,8 @@ public class HrFlowServiceImpl implements HrFlowService {
         vo.setId(flow.getId());
         vo.setFlowType(flow.getFlowType());
         vo.setFlowNo(flow.getFlowNo());
+        // ARCH-C-6：列表与详情共用本方法，补出参 source 供审批中心识别「员工注册」
+        vo.setSource(flow.getSource());
         vo.setCandidateName(flow.getCandidateName());
         vo.setEmployeeId(flow.getEmployeeId());
         vo.setEmployeeName(resolveEmployeeName(flow, employees));

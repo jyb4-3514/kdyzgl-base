@@ -92,7 +92,10 @@ const DICT_COLORS = new Map([
       PENDING_APPROVAL: { surface: 'var(--color-warning-surface)', text: 'var(--color-warning)' },
       REJECTED: { surface: 'var(--color-danger-surface)', text: 'var(--color-danger)' },
       PUBLISHED: { surface: 'var(--color-primary-surface)', text: 'var(--color-primary)' },
-      CONFIRMED: { surface: 'var(--color-success-surface)', text: 'var(--color-success)' }
+      CONFIRMED: { surface: 'var(--color-success-surface)', text: 'var(--color-success)' },
+      // OBJECTED 是 solid 变体：不补覆盖会回落 warning 淡底（与 soft 无异），必须显式给实底 + 白字
+      OBJECTED: { surface: 'var(--color-warning)', text: 'var(--text-on-dark)' }
+      // PAID 为 success + outline，文字色与描边由 variant 类与 type 兜底决定，无需覆盖
     }
   ]
 ])

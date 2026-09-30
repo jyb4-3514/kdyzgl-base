@@ -67,16 +67,16 @@ const alertText = computed(() =>
 /** 「异常预警」总数 = 超时未处理工单（MVP 裁剪后仅剩这一项口径） */
 const alertTotal = computed(() => overdueUnhandled.value)
 
-/** 宫格实时值：计数型给数值（null=未知），状态型给文案（null=取数失败显示 `—`） */
+/** 宫格实时值：计数型给数值（null=未知），状态型给文案（null=取数失败显示 `—`）。
+ *  v1.1：删除 4 类审批 key（makeups/payrolls/flows/leaves）—— 入口统一由审批中心承接（设计 ②.2.1）。 */
 const quickData = computed(() => ({
   orders: todo.counts.orders ?? null,
-  makeups: todo.counts.makeups ?? null,
-  payrolls: todo.counts.payrolls ?? null,
-  flows: todo.counts.flows ?? null,
-  // 待终审请假：与消息 Tab 的「待终审请假」同一份快照（M11 §3.4-A）
-  leaves: todo.counts.leaves ?? null,
   attendance: attendanceAbnormal.value,
-  alerts: alertTotal.value
+  alerts: alertTotal.value,
+  // 审批中心角标（派生，不含工单）：任一子组未知即 null → 不渲染角标
+  approvals: todo.approvalTotal,
+  // 驿站管理副行：复用已加载的 dashboard.stationTotal，不新增请求（设计 ②.3）
+  stations: team.value ? `共 ${team.value.stationTotal} 个` : null
 }))
 </script>
 
@@ -129,7 +129,7 @@ const quickData = computed(() => ({
       :loading="loading"
       :entries="BOSS_QUICK_ENTRIES"
       :data="quickData"
-      hint="按待办优先排序"
+      hint="待办与概览在前"
     />
 
     <!-- 组织规模：一期指标移到末位并默认折叠（B2） -->

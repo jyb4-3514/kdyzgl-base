@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { approvePayroll, getPayrolls, publishPayrolls, submitPayrolls } from '../../../api/finance.js'
+import { approvePayroll, getPayrolls, payPayroll, publishPayrolls, submitPayrolls } from '../../../api/finance.js'
 
 /**
  * 工资单动作（行内 / 批量提交与发布 / 审核弹窗）
@@ -65,7 +65,24 @@ export function usePayrollActions({ query, pendingSubmitCount, approvedCount, fe
       return
     }
     if (action === 'publish') {
-      confirmPublish([row.id], row.employeeName)
+      // C-2：来源 OBJECTED 为「重新发布」，文案与首发区分（不可与首发混淆）
+      confirmPublish([row.id], row.employeeName, row.status === 'OBJECTED')
+      return
+    }
+    if (action === 'pay') {
+      // I-8：不可逆终态，四要素确认（对象 / 影响面 / 不可逆声明 / 具体动词按钮）
+      ElMessageBox.confirm(
+        `对象：${row.employeeName} · ${row.month} · 实发 ${row.netAmount} 元；发放后单据进入「已发放」并归档冻结，员工可见该归档态；本期不支持撤销 / 冲正，确认后不可修改。`,
+        '确认工资已发放',
+        { confirmButtonText: '确认已发放', cancelButtonText: '再想想', type: 'warning' }
+      )
+        .then(() => payPayroll(row.id))
+        .then(() => {
+          ElMessage.success('已标记发放，工资单已归档')
+          closeDetail()
+          fetchList()
+        })
+        .catch(() => {})
     }
   }
 
@@ -112,16 +129,20 @@ export function usePayrollActions({ query, pendingSubmitCount, approvedCount, fe
     fetchList()
   }
 
-  /** 单份发布：与批量发布共用一份文案口径 */
-  function confirmPublish(ids, employeeName) {
-    ElMessageBox.confirm(`将发布 ${employeeName} 的工资单。发布后员工可见并需确认，发布动作不可撤回。`, '发布工资单', {
-      confirmButtonText: '确认发布',
+  /** 单份发布：与批量发布共用一份文案口径；republish=true 时文案改为「重新发布」（来源 OBJECTED） */
+  function confirmPublish(ids, employeeName, republish = false) {
+    const title = republish ? '确认重新发布' : '发布工资单'
+    const message = republish
+      ? `将重新发布 ${employeeName} 的工资单。发布后员工可见并需重新确认，不可撤回。`
+      : `将发布 ${employeeName} 的工资单。发布后员工可见并需确认，发布动作不可撤回。`
+    ElMessageBox.confirm(message, title, {
+      confirmButtonText: republish ? '确认重新发布' : '确认发布',
       cancelButtonText: '再想想',
       type: 'warning'
     })
       .then(() => publishPayrolls({ ids }))
       .then((data) => {
-        ElMessage.success(`已发布 ${data.published} 份工资单`)
+        ElMessage.success(`${republish ? '已重新发布' : '已发布'} ${data.published} 份工资单`)
         closeDetail()
         fetchList()
       })

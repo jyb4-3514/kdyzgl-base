@@ -54,8 +54,9 @@ const DIMS = [
     label: '缺卡',
     tone: 'danger',
     hit: '',
-    // 缺卡是差集而非打卡事实，页顶必须先说清，否则用户会以为系统漏数据（§14.5-A）
-    caliber: '缺卡 = 应到 − 实到，名单中的人当天没有有效打卡记录',
+    // 缺卡是差集而非打卡事实，页顶必须先说清，否则用户会以为系统漏数据（§14.5-A）。
+    // 口径为班次粒度（api.md §4.6.9）：多班次站点同一员工可出多行，故按「员工 × 班次」表述。
+    caliber: '缺卡 = 应到班次 − 实到班次，某班次无匹配有效上班卡即列入（多班次站点按「员工 × 班次」逐行）',
     empty: '今日无缺卡，全员出勤正常'
   }
 ]
@@ -74,7 +75,7 @@ const DEMO_SCOPE_TAIL = demoEnabled ? '；演示数据仅城东驿站有排班�
 const DIM_REMARK = {
   LATE: '晚于班次上班时间打卡',
   EARLY_LEAVE: '早于班次下班时间打卡',
-  ABSENT: '当日无有效打卡记录（应到未到）'
+  ABSENT: '该班次无匹配有效上班卡（应到未到）'
 }
 
 const route = useRoute()
@@ -118,6 +119,12 @@ function selectDim(value) {
 
 /** 身份行：驿站 · 班次（无班次退时段名）；两者都空则不渲染整行 */
 const identityText = (row) => [row.stationName, row.shiftName || row.periodName].filter(Boolean).join(' · ')
+
+/**
+ * 行 key：明细缺卡已改为班次粒度（api.md §4.6.9），多班次站点同一员工可出多行，
+ * 故用「员工 × 班次」组合，不得只用 employeeId（否则多行会被 Vue diff 合并成一行）。
+ */
+const rowKey = (row) => `${row.employeeId}-${row.shiftName || row.periodName || ''}`
 
 /** 'YYYY-MM-DD HH:mm:ss' → 合法 datetime（HTML 规范要求日期与时间用 T 分隔） */
 const datetimeOf = (time) => (time ? String(time).replace(' ', 'T') : '')
@@ -165,7 +172,7 @@ watch(dim, load, { immediate: true })
       <PageState v-if="!list.length" :empty="true" :empty-text="meta.empty" />
 
       <div v-else class="detail-list">
-        <ListItemCard v-for="row in list" :key="row.employeeId" :density="2">
+        <ListItemCard v-for="row in list" :key="rowKey(row)" :density="2">
           <template #title>
             <span class="detail-row__name">{{ row.employeeName }}</span>
             <StatusTag :dict="DAY_ATTENDANCE_STATE" :value="row.dayState" />

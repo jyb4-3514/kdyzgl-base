@@ -4,8 +4,8 @@ import { getPayrolls } from '../../../api/finance.js'
 /**
  * 异议处理（Tab 3）
  *
- * 契约没有独立的异议列表接口，本表取「待审核」状态的单据后筛选有异议原因的行，
- * 故这里只做一次状态查询 + 本地过滤，不额外造一层接口。
+ * 契约没有独立的异议列表接口，本表按「异议退回（OBJECTED）」状态取数（C-1 后员工异议落 OBJECTED）；
+ * OBJECTED 本身即异议态，无需再按 objectionReason 本地过滤。
  */
 export function usePayrollObjections() {
   const objections = ref([])
@@ -19,9 +19,9 @@ export function usePayrollObjections() {
     objectionLoading.value = true
     objectionError.value = false
     try {
-      const page = await getPayrolls({ status: 'PENDING_APPROVAL', pageNum: 1, pageSize: 100 })
+      const page = await getPayrolls({ status: 'OBJECTED', pageNum: 1, pageSize: 100 })
       if (seq !== objectionSeq) return
-      objections.value = (page.list || []).filter((row) => !!row.objectionReason)
+      objections.value = page.list || []
     } catch (e) {
       if (seq !== objectionSeq) return
       objectionError.value = true

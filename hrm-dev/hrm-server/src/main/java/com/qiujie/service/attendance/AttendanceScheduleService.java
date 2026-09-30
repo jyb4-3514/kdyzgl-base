@@ -10,18 +10,19 @@ import com.qiujie.vo.attendance.ScheduleStationResultVO;
 /**
  * 排班服务（4 接口：GET schedules / GET schedules/my / POST schedules/batch / POST schedules/batch-by-station）。
  * <p>
- * 唯一性 = {@code employeeId + workDate}（活跃唯一，Service 查重，不依赖数据库唯一索引）；
+ * 唯一性 = {@code (employeeId, workDate, shiftId)} <b>活跃唯一</b>（一天可并存 ≤{@code maxShiftsPerDay} 个班次，
+ * DB 侧由 V22 生成列 {@code active_shift_key} 唯一键收口）；批量保存语义为「当天班次集合整体覆盖」（A-④）。
  * 整站排班在 {@code shiftId} 缺省时由 <b>S3 算法</b>（贪心构造 + 模拟退火）生成，失败降级返回贪心解 + 违规清单。
  */
 public interface AttendanceScheduleService {
 
-    /** 周排班矩阵（stationId 必填；weekStart 可空 = 本周） */
+    /** 周排班矩阵（stationId 必填；weekStart 可空 = 本周；出参 {@code shiftIds[]} 兼容保留首条） */
     ScheduleMatrixVO matrix(Long stationId, String weekStart);
 
-    /** 我的排班（按周） */
+    /** 我的排班（按周；出参 {@code shifts[]} 兼容保留首条扁平字段） */
     MyScheduleVO mine(Long employeeId, String weekStart);
 
-    /** 手动批量保存（唯一性 employeeId+workDate，≤200 条） */
+    /** 手动批量保存（集合整体覆盖，{@code shiftIds[]} 为准；≤200 条） */
     ScheduleSaveResultVO saveBatch(ScheduleBatchRequest request);
 
     /** 整站排班：shiftId 给定 = 铺同一班次（Mock 语义）；缺省 = S3 智能排班 */

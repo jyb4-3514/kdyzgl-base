@@ -27,7 +27,14 @@ body {
   min-height: 100vh;
   /* 状态栏占位：固定 NavBar 用同一变量下移，两者始终对齐（7.1） */
   padding-top: var(--safe-top);
-  overflow-x: hidden;
+
+  /* 横向裁剪禁止滚动用 clip，不能用 hidden：按 CSS Overflow L3 §3.1，一个轴为 hidden 时另一轴的
+   * visible 会**隐式计算为 auto**，于是 #app 变成滚动容器。而 #app 高度是 auto（内容撑开、自身从不滚动），
+   * Vant PullRefresh 的 getScrollParent 会把滚动父级错判成 #app（其 scrollTop 恒 0），
+   * 使 reachTop 恒真 → 任何「手指下滑 = 内容上滚」的手势都被 touchmove preventDefault 吞掉，
+   * 表现为「页面滑到底后滑不上去」。clip 只裁剪、不产生滚动容器（另一轴仍是 visible），
+   * 滚动父级正确落到 window；不支持 clip 的旧 WebView 由 html/body 的 overflow-x: hidden 继续裁剪。 */
+  overflow-x: clip;
   /* 宽屏兜底（P2-3）：折叠屏/平板竖屏下单列会被拉成整屏宽的一行，这里收在 480。
    * 480 是顶层兜底值，640 由本文件末尾的横屏媒体查询覆盖（source order 在后，同优先级胜出） */
   max-width: 480px;
@@ -346,6 +353,27 @@ body {
   color: var(--color-danger);
   background: var(--color-danger-surface);
   border-color: var(--color-danger);
+}
+
+/* 筛选 chip（fchip）：低于主 chip 一档的形态，用于「全部/启用/停用」这类筛选。
+ * 管理能力扩展批把此前各页 scoped 各写一份的实现上提为全局工具类（设计 ⑫-15 / 架构裁定 #15），
+ * 新增页面统一复用，避免第 4~7 份重复；既有页面 scoped 定义优先级更高，不受影响。 */
+.fchip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-caption);
+  color: var(--text-2);
+  background: var(--surface-card);
+  border: 1px solid var(--border-line);
+  border-radius: var(--r-full);
+}
+
+.fchip--active {
+  color: var(--color-primary);
+  background: var(--color-primary-surface);
+  border-color: var(--color-primary-icon);
 }
 
 /* ==================== 宫格入口 ==================== */

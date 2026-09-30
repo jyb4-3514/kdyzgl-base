@@ -2,7 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getEmployees } from '@/api/employee.js'
-import { NOTIFICATION_TYPE } from '@kdyzgl/shared/constants/dict'
+import { NOTIFICATION_TYPE, NOTIFICATION_PUBLISH_TYPES } from '@kdyzgl/shared/constants/dict'
 import { publishNotification } from '../../../api/notification.js'
 import StateBlock from '../../../components/StateBlock.vue'
 
@@ -44,6 +44,11 @@ const RULES = {
 }
 
 const selectedEmployees = computed(() => employees.value.filter((item) => form.employeeIds.includes(item.id)))
+
+/** 只列公告端点可发的类型（1~6）；7~10 为系统联动类型，不在手工发布表单里出现 */
+const typeOptions = computed(() =>
+  NOTIFICATION_PUBLISH_TYPES.map((value) => ({ value, label: NOTIFICATION_TYPE[value].label }))
+)
 
 /** 收件人名单（仅用于预览前 3 名；实际收件人以服务端返回的 count 为准） */
 const recipientList = computed(() => {
@@ -204,9 +209,7 @@ watch(
       <el-form v-else ref="formRef" :model="form" :rules="RULES" label-width="90px" :disabled="submitting">
         <el-form-item label="通知类型">
           <el-radio-group v-model="form.type">
-            <el-radio v-for="(item, key) in NOTIFICATION_TYPE" :key="key" :value="Number(key)">{{
-              item.label
-            }}</el-radio>
+            <el-radio v-for="item in typeOptions" :key="item.value" :value="item.value">{{ item.label }}</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="标题" prop="title">

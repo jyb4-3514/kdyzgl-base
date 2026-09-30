@@ -9,7 +9,7 @@ import {
   rejectOffboarding,
   rejectOnboarding
 } from '../../../api/hr.js'
-import { FLOW_STATUS, OFFBOARDING_TYPE } from '@kdyzgl/shared/constants/dict.js'
+import { FLOW_STATUS, OFFBOARDING_TYPE, POSITION_OPTIONS, isPositionOption } from '@kdyzgl/shared/constants/dict.js'
 import FlowSteps from '../../../components/FlowSteps.vue'
 import RejectDialog from '../../../components/RejectDialog.vue'
 import StateBlock from '../../../components/StateBlock.vue'
@@ -59,8 +59,10 @@ async function load() {
     // 退回流程既有 position；审批人可改。registration 缺失时不影响既有行为。
     const step = flow.value.steps.find((item) => item.key === flow.value.currentStepKey)
     if (isOnboarding.value && step && step.key === 'ASSIGN_STATION') {
-      const intent = (flow.value.registration && flow.value.registration.intentPosition) || flow.value.position || ''
-      stepForm.value.position = intent
+      // 岗位为枚举三值（用户裁定）：注册意向/流程值仅在其命中枚举时预填，非枚举的自由文本（如「快递员」）
+      // 不预填，由审批人在下拉里显式选择，避免落库出枚举外取值
+      const candidates = [flow.value.registration && flow.value.registration.intentPosition, flow.value.position]
+      stepForm.value.position = candidates.find((value) => isPositionOption(value)) || ''
     }
   } catch (e) {
     error.value = true
@@ -131,8 +133,8 @@ function stepPayload() {
 }
 
 function validateStep() {
-  // 定岗岗位前端必填（Q3 裁定 / §8.2）：后端仍允许缺省取意向，此处拦在提交前，避免空岗建档
-  if (NEEDS_ASSIGN.value && !String(stepForm.value.position || '').trim()) return '请填写岗位名称'
+  // 定岗岗位前端必填且限枚举三值（用户裁定）：避免空岗/枚举外取值建档；后端仍允许缺省取意向
+  if (NEEDS_ASSIGN.value && !isPositionOption(stepForm.value.position)) return '请选择岗位'
   if (NEEDS_ACCOUNT.value) {
     if (!/^[A-Za-z][A-Za-z0-9_]{3,29}$/.test(String(stepForm.value.username || '')))
       return '登录账号须为字母开头、4-30 位字母数字下划线'
@@ -273,7 +275,14 @@ async function handleReject(reason) {
 
                 <div v-if="NEEDS_ASSIGN" class="flow-detail__grid">
                   <el-form-item label="岗位名称" required>
-                    <el-input v-model="stepForm.position" maxlength="50" show-word-limit placeholder="如：快递员" />
+                    <el-select v-model="stepForm.position" placeholder="请选择岗位" style="width: 100%">
+                      <el-option
+                        v-for="item in POSITION_OPTIONS"
+                        :key="item.value"
+                        :value="item.value"
+                        :label="item.label"
+                      />
+                    </el-select>
                   </el-form-item>
                   <el-form-item label="角色">
                     <el-select v-model="stepForm.role" clearable style="width: 100%">

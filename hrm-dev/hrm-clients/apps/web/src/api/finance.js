@@ -76,14 +76,15 @@ export function approvePayroll(id, data) {
 }
 
 // PUT /api/v1/finance/payrolls/{id}/items 修改人工项金额（仅 ADMIN）
-// 只有 MANUAL 来源项可改，且单据须处于草稿/已驳回；改动后服务端重算应发/扣款/实发合计
-export function updatePayrollItems(id, items) {
-  return request.put(`/finance/payrolls/${id}/items`, { items })
+// 可编辑状态 = isItemEditable（DRAFT / REJECTED / PENDING_APPROVAL / OBJECTED）；只有 MANUAL 来源项可改；
+// reason（变更事由）必填 2-200（C-3，缺失/越界回 9412）；改动后服务端重算应发/扣款/实发合计
+export function updatePayrollItems(id, items, reason) {
+  return request.put(`/finance/payrolls/${id}/items`, { items, reason })
 }
 
 /* ==================== 员工侧（本人） ==================== */
 
-// GET /api/v1/finance/payrolls/my 我的工资单：只返回本人已发布/已确认的单据
+// GET /api/v1/finance/payrolls/my 我的工资单：只返回本人已发布/已确认/已发放的单据（C-6）
 export function getMyPayrolls(params) {
   return request.get('/finance/payrolls/my', { params })
 }
@@ -96,4 +97,48 @@ export function confirmPayroll(id) {
 // POST /api/v1/finance/payrolls/{id}/objection 员工提异议（原因 2-200 字）：单据退回待审核，由管理员重新核定
 export function objectPayroll(id, reason) {
   return request.post(`/finance/payrolls/${id}/objection`, { reason })
+}
+
+/* ==================== 薪资结算自动化（I-1~I-10） ==================== */
+
+// GET /api/v1/finance/payroll-settings 算薪配置列表（仅 ADMIN）：驿站列表 + 各站配置，可 stationId / enabled 过滤
+export function getPayrollSettings(params) {
+  return request.get('/finance/payroll-settings', { params })
+}
+
+// GET /api/v1/finance/payroll-settings/{stationId} 单驿站配置（仅 ADMIN）：尚未配置回 9406，页面按默认值呈现
+export function getPayrollSetting(stationId) {
+  return request.get(`/finance/payroll-settings/${stationId}`)
+}
+
+// PUT /api/v1/finance/payroll-settings/{stationId} 保存配置（仅 ADMIN）：算薪日 9407 / 时间 9408
+export function savePayrollSetting(stationId, data) {
+  return request.put(`/finance/payroll-settings/${stationId}`, data)
+}
+
+// GET /api/v1/finance/payroll-settings/{stationId}/logs 配置变更历史（仅 ADMIN）：action ∈ CREATE/UPDATE/ENABLE/DISABLE
+export function getPayrollSettingLogs(stationId, params) {
+  return request.get(`/finance/payroll-settings/${stationId}/logs`, { params })
+}
+
+// I-5 运行记录 / I-4 手工触发的封装已随「自动算薪运行」Tab 下线而移除（后端端点保留，前端不再消费）
+
+// POST /api/v1/finance/payrolls/{id}/items/add 手工加 / 扣款（I-6，仅 ADMIN）：事由必填 2-200（9412）
+export function addPayrollItem(id, data) {
+  return request.post(`/finance/payrolls/${id}/items/add`, data)
+}
+
+// POST /api/v1/finance/payrolls/{id}/pay 确认工资已发放（I-8，仅 ADMIN）：来源须 CONFIRMED，已归档 9413
+export function payPayroll(id, data) {
+  return request.post(`/finance/payrolls/${id}/pay`, data || {})
+}
+
+// GET /api/v1/finance/payrolls/{id}/logs 操作留痕（I-7）：服务端按角色裁剪 before/after/operator_*
+export function getPayrollLogs(id) {
+  return request.get(`/finance/payrolls/${id}/logs`)
+}
+
+// GET /api/v1/finance/payrolls/manual-adjustments/summary 手工调整对账汇总（I-10，仅 ADMIN）：month 必填
+export function getManualAdjustmentSummary(params) {
+  return request.get('/finance/payrolls/manual-adjustments/summary', { params })
 }

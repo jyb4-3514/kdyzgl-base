@@ -5,10 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>快递驿站智汇系统</title>
 <!--
-  三端门户页（静态，无构建依赖）
-  为什么独立成文件：生产构建 `npm run build:prod` 只产出 pc.html / mobile.html，不产出 index.html，
-  故部署演示站时须把本文件拷为 dist/index.html，否则根路径 404。
-  部署：cat hrm-dev/deploy/docker-demo/portal.html > dist/index.html（保持 inode，勿用 mv）
+  三端聚合门户页（静态，无构建依赖）
+  定位：公网可见，仅提供三端入口，不展示任何功能说明/更新内容（信息最小暴露）
+  部署：覆盖 dist/index.html 并同步容器 hrm-demo-static:/usr/share/nginx/html/index.html（该容器为镜像内置文件，无卷挂载）
 -->
 <style>
   body{margin:0;font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh;align-items:center;justify-content:center}
@@ -25,12 +24,11 @@
 <body>
 <div class="box">
   <h1>快递驿站智汇系统</h1>
-  <p>请选择访问端（已接入真实后端）</p>
+  <p>请选择访问端</p>
   <div class="row">
-    <!-- B8 前置：门户入口改指三端独立工程（/web/ /staff/ /boss/），不再指向演示站 pc.html / mobile.html?as=* -->
-    <a href="/web/">网页端<small>PC 管理端 · 仅管理员账号可登录</small></a>
-    <a class="alt" href="/staff/">驿站助手<small>员工端 H5 · 员工 / 站长</small></a>
-    <a class="alt2" href="/boss/">驿站精灵<small>管理端 H5 · 管理员 / 站长</small></a>
+    <a href="/web/">网页端<small>PC 管理端</small></a>
+    <a class="alt" href="/staff/">驿站助手<small>员工端 H5</small></a>
+    <a class="alt2" href="/boss/">驿站精灵<small>管理端 H5</small></a>
   </div>
 </div>
 </body>

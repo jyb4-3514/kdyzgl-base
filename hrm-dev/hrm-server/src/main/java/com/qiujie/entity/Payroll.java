@@ -64,7 +64,7 @@ public class Payroll {
     /** 实发净额（应发 − 扣项） */
     private BigDecimal netAmount;
 
-    /** 状态：DRAFT/PENDING_APPROVAL/APPROVED/REJECTED/PUBLISHED/CONFIRMED */
+    /** 状态：DRAFT/PENDING_APPROVAL/APPROVED/REJECTED/PUBLISHED/CONFIRMED/OBJECTED/PAID */
     private String status;
 
     /** 备注 */
@@ -99,6 +99,15 @@ public class Payroll {
 
     /** 异议时间 */
     private LocalDateTime objectionTime;
+
+    /** 确认发放人（逻辑外键 employee.id；V20 加列，已发放终态） */
+    private Long paidById;
+
+    /** 确认发放人姓名快照（V20 加列） */
+    private String paidByName;
+
+    /** 确认发放时间（V20 加列；NULL 表示未发放） */
+    private LocalDateTime paidTime;
 
     /** 离职流程（结算单来源，逻辑外键 hr_flow.id） */
     private Long offboardingId;

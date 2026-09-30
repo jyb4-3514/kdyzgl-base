@@ -79,10 +79,19 @@ public class PayrollVO {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
     private LocalDateTime objectionTime;
 
+    /** 确认发放人（ADMIN 全量可见；I-8 后有效） */
+    private Long paidById;
+
+    /** 确认发放人姓名快照 */
+    private String paidByName;
+
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    private LocalDateTime paidTime;
+
     /** 离职流程 id（结算单来源） */
     private Long offboardingId;
 
-    /** 当前状态允许动作（submit/approve/reject/publish/confirm/objection） */
+    /** 当前状态允许动作（动作级子集：submit/approve/reject/publish/confirm/objection/pay） */
     private List<String> actions;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")

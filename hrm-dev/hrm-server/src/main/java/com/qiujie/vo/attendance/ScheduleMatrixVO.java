@@ -34,13 +34,22 @@ public class ScheduleMatrixVO {
         private List<DayCell> days;
     }
 
-    /** 单日格子：未排班时 scheduleId / shiftId 为 null */
+    /**
+     * 单日格子（ARCH-C-3：新增 {@code shiftIds}，向后兼容保留首条）。
+     * <p>
+     * 未排班时 {@code shiftIds} 为空列表、{@code scheduleId}/{@code shiftId} 为 null；
+     * 多班次时 {@code shiftIds} 含全部班次，{@code scheduleId}/{@code shiftId} 取首条（按 id 升序）。
+     */
     @Data
     public static class DayCell {
         @JsonFormat(pattern = "yyyy-MM-dd")
         private LocalDate workDate;
 
+        /** 首条排班 id（兼容旧客户端；多班次下为 id 最小者） */
         private Long scheduleId;
+        /** 首条班次 id（兼容旧客户端） */
         private Long shiftId;
+        /** 当日全部班次 id（多班次；不排班时为空列表） */
+        private List<Long> shiftIds;
     }
 }

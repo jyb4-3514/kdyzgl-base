@@ -31,6 +31,14 @@ public class LoginUser {
     /** 设备标识（M1 新增，可空）。仅作审计/会话维度，不作安全依据 */
     private String deviceId;
 
+    /**
+     * 是否已完成首登改密（ARCH-C-7 新增，取自 Redis 会话，服务端权威）。
+     * <p>
+     * {@code false}=未改密（{@code PwdChangedInterceptor} 拦截非白名单业务接口）；{@code true}=已改密；
+     * {@code null}=旧会话未标记（不拦截，避免误锁存量用户，下次登录即写入权威值）。
+     */
+    private Boolean pwdChanged;
+
     /** 兼容构造器（原 5 参签名，保持既有调用方/Tests 编译兼容） */
     public LoginUser(Long userId, String username, String role, String jti, String stationId) {
         this.userId = userId;

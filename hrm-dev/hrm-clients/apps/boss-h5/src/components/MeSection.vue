@@ -51,11 +51,13 @@ async function onRetryMe() {
     <div class="section-title">管理与配置</div>
     <van-cell-group inset>
       <van-cell title="人事管理" label="员工档案查询与调薪" is-link to="/boss/hr" />
-      <van-cell title="站点管理" label="按驿站查看名下员工" is-link to="/boss/station" />
+      <van-cell title="驿站管理" label="驿站列表、详情与站内账号维护" is-link to="/boss/station" />
       <van-cell title="排班管理" label="按驿站排班与批量铺排" is-link to="/boss/schedule" />
       <van-cell title="打卡规则" label="配置打卡时段与校验方式" is-link to="/boss/attendance/rule" />
       <van-cell title="打卡记录" label="全域打卡记录查询" is-link to="/boss/attendance/records" />
       <van-cell title="请假扣款设置" label="全局单开关：请假是否影响工资" is-link to="/boss/leave/settings" />
+      <!-- 「算薪日设置」行已移除：并入财务管理页的「员工工资设置」区块（boss-management-ui-design.md ②.4） -->
+      <!-- 「自动算薪运行」行已移除：前端不再展示运行记录/手工触发（后端能力保留） -->
     </van-cell-group>
 
     <div class="section-title">账号信息</div>

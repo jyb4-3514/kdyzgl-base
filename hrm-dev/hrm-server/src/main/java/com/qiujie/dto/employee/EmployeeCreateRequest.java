@@ -41,9 +41,13 @@ public class EmployeeCreateRequest {
     /** 归属驿站（须为存在、未删除且启用的驿站） */
     private Long stationId;
 
-    /** 一期仅 ADMIN / STAFF */
+    /**
+     * 角色白名单（ARCH-C-1 放开 {@code STATION_ADMIN}）。
+     * <p>
+     * {@code STATION_ADMIN} 须同时满足「归属启用驿站」，由 Service 层做条件必填校验（DTO 只约束取值集合）。
+     */
     @NotBlank(message = "角色不能为空")
-    @Pattern(regexp = "^(ADMIN|STAFF)$", message = "角色取值仅支持 ADMIN/STAFF")
+    @Pattern(regexp = "^(ADMIN|STATION_ADMIN|STAFF)$", message = "角色取值仅支持 ADMIN/STATION_ADMIN/STAFF")
     private String role;
 
     /** 入职日期 yyyy-MM-dd */

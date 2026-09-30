@@ -80,6 +80,16 @@ public enum ErrorCode {
      * 注意：本码是<b>产品 / 审计约束</b>而非安全边界——端类型由客户端自称；真正的安全边界恒为「角色 + 数据范围」。
      */
     LOGIN_CLIENT_NOT_ALLOWED(1110, "该账号无权登录此端"),
+    /**
+     * 首登 / 重置后未修改口令，服务端强制拦截（ARCH-C-7 / 主代理裁定 A-⑤）。
+     * <p>
+     * 契约形态：<b>HTTP 200 + code=1111</b>（与 1108/1110 同段同映射，由 {@code PwdChangedInterceptor} 写出），
+     * 前端按业务码引导进入「修改密码」流程；白名单端点（改密 / 登出 / 读本人 / 公开端点）不受拦截。
+     * <p>
+     * 为什么新增专用码而非复用 403：403 用于「无权限」（角色门槛），本码是「凭据有效但须先完成改密」的
+     * 前置状态，语义不同；前端需据此跳改密页而非静默回登录页。
+     */
+    PASSWORD_CHANGE_REQUIRED(1111, "首次登录须先修改口令"),
 
     // ==================== 20xx 员工 ====================
 
@@ -89,6 +99,13 @@ public enum ErrorCode {
     LAST_ADMIN_PROTECTED(2002, "不允许对最后一个可用管理员执行该操作"),
     /** phone 与活跃数据重复 */
     PHONE_EXISTS(2003, "手机号已被其他员工使用"),
+    /**
+     * 角色 {@code STATION_ADMIN} 未归属启用驿站（ARCH-C-1）。
+     * <p>
+     * 站长数据范围限本人驿站（{@code RoleEnum}），无归属将导致数据范围收敛为「无数据」且语义不自洽；
+     * 因此 {@code stationId} 条件必填且所归属驿站须为启用状态。
+     */
+    STATION_ADMIN_STATION_REQUIRED(2004, "站长必须归属启用驿站"),
 
     // ==================== 30xx 部门 ====================
 
@@ -179,6 +196,39 @@ public enum ErrorCode {
     ATTENDANCE_MAKEUP_DUPLICATE(9108, "该时段当日已有补卡申请或已正常打卡"),
     /** 补卡申请状态不允许该操作 */
     ATTENDANCE_MAKEUP_STATUS_INVALID(9109, "补卡申请状态不允许该操作"),
+    /**
+     * 同员工同天班次时间重叠（ARCH-C-5 / 算法 §1.3）。
+     * <p>
+     * 判定用半开区间 {@code [start,end)}（相邻不重叠）；可用 {@code hrm.algo.attendance.allowShiftOverlap}
+     * 显式关闭该拒绝（默认 false）。
+     */
+    ATTENDANCE_SHIFT_TIME_OVERLAP(9110, "同日班次时间重叠"),
+    /**
+     * 单日班次数量超过上限（ARCH-C-5 / 主代理裁定 A-②）。
+     * <p>
+     * 上限由 {@code hrm.algo.attendance.maxShiftsPerDay} 外置（默认 2，与计薪序号编码 {@code epochDay×2+ordinal} 绑定）。
+     */
+    ATTENDANCE_SHIFT_DAILY_LIMIT_EXCEEDED(9111, "单日排班班次超过上限"),
+    /**
+     * 同日各排班次时段归属序号（{@code ordinal}）冲突（评审 M-4 / 算法 §1.3.1）。
+     * <p>
+     * {@code ordinal = start_time < middayBoundaryMinute ? 0(早) : 1(晚)}；同日两班同属半天会使计薪
+     * 应出班次去重后少算。默认由 {@code hrm.algo.attendance.requireDistinctOrdinalPerDay=true} 拒绝整批。
+     */
+    ATTENDANCE_SHIFT_ORDINAL_CONFLICT(9112, "同日排班须一早一晚（时段归属冲突）"),
+    /**
+     * 该驿站无启用班次（打卡时间真源统一后的新边界，方案 §3.2 / §7.7）。
+     * <p>
+     * 时段真源改为「该驿站启用班次」后，无班次即无时间基准，打卡/补卡须拒绝并提示前往维护班次。
+     */
+    ATTENDANCE_NO_ENABLED_SHIFT(9113, "该驿站未配置启用班次，无法打卡，请先维护班次"),
+    /**
+     * 班次定义非法（班次定义侧校验，方案 §3.2 / §6.4 / §7.7，U-6 已裁定新增）。
+     * <p>
+     * 触发：① 班次名归一化（{@code trim}）后撞计薪保留哨兵名（默认「全天班」）；
+     * ② 站点启用班次数超上限；③ 启用班次时段归属（{@code ordinal}）冲突。不复用排班侧 9111/9112。
+     */
+    ATTENDANCE_SHIFT_DEFINITION_INVALID(9114, "班次定义非法：请检查班次名称与时段归属"),
 
     // ==================== 92xx KPI ====================
 
@@ -231,6 +281,26 @@ public enum ErrorCode {
     FINANCE_PAYROLL_NO_PERMISSION(9404, "无权查看他人工资单"),
     /** 该月工资单已提交审核或已发布，不可重复生成 */
     FINANCE_PAYROLL_GENERATED(9405, "该月工资单已提交审核或已发布，不可重复生成"),
+    /** 该驿站尚未配置算薪设置（I-2） */
+    FINANCE_PAYROLL_SETTING_NOT_EXISTS(9406, "该驿站尚未配置算薪设置"),
+    /** 算薪日取值非法（须为 1-31，月末自动钳位到当月最后一天） */
+    FINANCE_PAYROLL_SETTING_DAY_INVALID(9407, "算薪日取值非法（须为 1-31，月末自动钳位到当月最后一天）"),
+    /** 算薪时间格式非法（须为 HH:mm） */
+    FINANCE_PAYROLL_SETTING_TIME_INVALID(9408, "算薪时间格式非法（须为 HH:mm）"),
+    /** 运行记录不存在（自动算薪运行记录，号段保留） */
+    FINANCE_PAYROLL_RUN_NOT_EXISTS(9409, "运行记录不存在"),
+    /** 该驿站该账期正在运行、已占位或当日已尝试，不可重复触发 */
+    FINANCE_PAYROLL_RUN_IN_PROGRESS(9410, "该驿站该账期正在运行、已占位或当日已尝试，不可重复触发"),
+    /** 工资单项键已存在（I-6，item_key 重复） */
+    FINANCE_PAYROLL_ITEM_EXISTS(9411, "工资单项键已存在"),
+    /** 加扣款事由必填（2-200 字）——可判定业务分支（I-6 / 金额变更） */
+    FINANCE_PAYROLL_REASON_REQUIRED(9412, "加扣款事由必填（2-200 字）"),
+    /** 工资单已发放归档，不可修改（PAID 终态冻结，统一由 assertMutable 收口） */
+    FINANCE_PAYROLL_ARCHIVED(9413, "工资单已发放归档，不可修改"),
+    // 9414 作废（原「补跑窗口已过期」）：日粒度重试模型下无「超窗口」概念，号段保留不复用。
+    /** 该驿站未启用自动算薪 */
+    FINANCE_PAYROLL_RUN_DISABLED(9415, "该驿站未启用自动算薪"),
+    // 9416 作废（原「重试次数耗尽」）：不得设重试硬上限，连续失败改为告警，号段保留不复用。
 
     // ==================== 95xx 同步配置中心 ====================
 

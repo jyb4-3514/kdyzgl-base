@@ -232,6 +232,13 @@ hrm:
       sa: { iterations: 6000, initialTemp: 8, cooling: 0.9995 }
     attendance:
       anomaly: { useRobust: true, lateWarn: 3.5, lateCritical: 5.0, consecutiveAbsent: 3, minSamples: 5, windowDays: 30 }
+      # ===== 多班次排班（ARCH-C-2~5；algorithm-multi-shift-scheduling.md §2 参数表） =====
+      allowShiftOverlap: false            # false=同日班次时间重叠被拒（半开区间 [s,e)）
+      maxShiftsPerDay: 2                  # 单日班次上限（与计薪序号编码 epochDay×2+ordinal 绑定；>2 须先做计薪编码扩展）
+      overlapToleranceMinutes: 0          # 重叠判定容差（0=严格半开区间）
+      crossMidnightAsNextDay: true        # end_time <= start_time 视为跨零点顺延（e += 1440）
+      duplicateShiftPolicy: IDEMPOTENT    # 重复排同一班次：IDEMPOTENT=no-op / REJECT=报错
+      requireDistinctOrdinalPerDay: true  # 同日两班须一早一晚（ordinal 互异），否则拒绝整批（评审 M-4）
     leave:
       maxLeaveDays: 30
       occupiedStatus: [ PENDING_STATION, PENDING_BOSS, APPROVED ]
@@ -277,6 +284,23 @@ hrm:
     log: { dedupeWindowSeconds: 10, textMax: 2000, sweepEvery: 2000, ringBufferCap: 200 }
     # P9 新增（同步配置中心；默认值与 Mock syncConfigCsv.js 等价）
     sync: { importRowLimit: 1000, csvColumnCount: 16 }
+
+  # ---------- 薪资自动算薪调度（B3；键名/默认值逐键对齐 algorithm-payroll-scheduling.md v1.3 §2） ----------
+  # 与 hrm.algo.* 区分：本组为调度基础设施参数（轮询/回收/节流/告警节奏），业务配置（算薪日/时间）走 DB 热改。
+  # 调度总开关默认 false：上线不自动跑数，由管理员显式启用（ADR-01）。
+  payroll:
+    schedule:
+      enabled: false                     # 自动算薪总开关（默认关，安全）
+      zone: Asia/Shanghai                # 判定时区（同时派生 attempt_date）；与数据源 serverTimezone 一致
+      tick-interval-ms: 600000           # 轮询间隔 fixedDelay（10min）；= 到点/补跑钟点/回收扫描检测精度
+      catch-up-time-of-day: ""           # 补跑日每日尝试钟点；空 = 继承该站 payroll_time
+      max-stations-per-tick: 0           # 单 tick 串行处理驿站上限（0=不限，剩余顺延）
+      inter-station-delay-ms: 200        # 驿站间串行间隔（错峰节流）
+      running-timeout-minutes: 30        # 僵死 RUNNING 回收阈值（须 ≥ 最坏单驿站耗时）
+      stale-reclaim-enabled: true        # 僵死回收总开关（单实例默认开）
+      alert-after-consecutive-fail-days: 3   # 连续失败天数告警阈值（只告警不停止；B4a 消费）
+      alert-repeat-interval-days: 0      # 告警重复间隔天数（0=仅首次；B4a 消费）
+      notify-on-fail: true               # 失败/连续失败/僵死回收告警总开关（B4a 投递时消费）
 
 # ---------- 日志 ----------
 logging:

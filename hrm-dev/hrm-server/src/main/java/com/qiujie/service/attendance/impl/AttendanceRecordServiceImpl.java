@@ -3,6 +3,7 @@ package com.qiujie.service.attendance.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qiujie.common.PageResult;
+import com.qiujie.config.AlgoProperties;
 import com.qiujie.dto.attendance.AttendanceCheckInRequest;
 import com.qiujie.dto.attendance.AttendanceDetailQuery;
 import com.qiujie.dto.attendance.AttendanceRecordQuery;
@@ -82,6 +83,8 @@ public class AttendanceRecordServiceImpl implements AttendanceRecordService {
     private final AttendanceShiftService attendanceShiftService;
     /** 地理端口（M2 接入）：围栏距离计算走端口，默认/降级实现为 Haversine，行为与改造前等价 */
     private final GeoService geoService;
+    /** 算法参数：班次序号界值 / 历史哨兵 / 迟到粒度 / 应到-缺卡粒度（B7b 班次口径） */
+    private final AlgoProperties algoProperties;
 
     // ==================== 记录列表 / 导出 ====================
 
@@ -148,12 +151,39 @@ public class AttendanceRecordServiceImpl implements AttendanceRecordService {
                 : AttendanceSupport.parseDate(query.getDate());
         Long stationId = query.getStationId();
 
-        int shouldCount = scheduleRows(stationId, workDate).size();
+        List<AttendanceSchedule> schedules = scheduleRows(stationId, workDate);
         List<AttendanceRecord> rows = recordRows(stationId, workDate, null);
-        List<AttendanceCard> onCards = cardsOf(rows, AttendanceConstants.CHECK_TYPE_ON);
-        List<AttendanceCard> offCards = cardsOf(rows, AttendanceConstants.CHECK_TYPE_OFF);
 
-        AttendanceSummaryPolicy.Summary s = AttendanceSummaryPolicy.summarize(shouldCount, onCards, offCards);
+        AttendanceSummaryPolicy.Summary s;
+        if (AttendanceConstants.ABSENT_GRANULARITY_PER_DAY.equals(
+                algoProperties.getAttendance().getAbsentGranularity())) {
+            // 回落开关：旧「按人/天去重」口径（应到 = 排班人数、实到 = 有效上班卡员工去重）
+            s = AttendanceSummaryPolicy.summarize(schedules.size(),
+                    cardsOf(rows, AttendanceConstants.CHECK_TYPE_ON),
+                    cardsOf(rows, AttendanceConstants.CHECK_TYPE_OFF));
+        } else {
+            // B7b 默认：应到/实到/缺卡按班次粒度；班次单元与记录→班次映射复用计薪唯一真源
+            Map<Long, String> shiftStartTimes = shiftStartTimes(schedules);
+            List<AttendanceSummaryPolicy.ScheduleSlot> slots = new ArrayList<>(schedules.size());
+            for (AttendanceSchedule schedule : schedules) {
+                if (schedule.getEmployeeId() != null) {
+                    slots.add(new AttendanceSummaryPolicy.ScheduleSlot(schedule.getEmployeeId(),
+                            shiftStartTimes.get(schedule.getShiftId())));
+                }
+            }
+            List<AttendanceSummaryPolicy.RecordSlot> recordSlots = new ArrayList<>(rows.size());
+            for (AttendanceRecord row : rows) {
+                if (row.getEmployeeId() != null) {
+                    recordSlots.add(new AttendanceSummaryPolicy.RecordSlot(row.getEmployeeId(),
+                            row.getPeriodIndex(), row.getPeriodName(), row.getCheckType(), row.getStatus()));
+                }
+            }
+            s = AttendanceSummaryPolicy.summarizeByShift(workDate, slots, recordSlots,
+                    algoProperties.getPayroll().getMiddayBoundaryMinute(),
+                    algoProperties.getPayroll().getLegacyPeriodSentinel(),
+                    algoProperties.getPayroll().getLateGranularity());
+        }
+
         AttendanceSummaryVO vo = new AttendanceSummaryVO();
         vo.setDate(workDate);
         vo.setShouldCount(s.shouldCount());
@@ -181,18 +211,24 @@ public class AttendanceRecordServiceImpl implements AttendanceRecordService {
 
         List<AttendanceSchedule> schedules = scheduleRows(stationId, workDate);
         Map<Long, String> shiftNames = shiftNames(schedules);
+        Map<Long, String> shiftStartTimes = shiftStartTimes(schedules);
         List<AttendanceDetailPolicy.Member> shouldRows = new ArrayList<>(schedules.size());
         for (AttendanceSchedule schedule : schedules) {
+            // 缺卡按班次粒度判定，应到行须带班次开始时间（派生班次单元）
             shouldRows.add(new AttendanceDetailPolicy.Member(schedule.getEmployeeId(),
-                    shiftNames.get(schedule.getShiftId())));
+                    shiftNames.get(schedule.getShiftId()), shiftStartTimes.get(schedule.getShiftId())));
         }
 
         List<AttendanceRecord> rows = recordRows(stationId, workDate, null);
         List<AttendanceCard> validOn = AttendanceSummaryPolicy.validCards(cardsOf(rows, AttendanceConstants.CHECK_TYPE_ON));
         List<AttendanceCard> validOff = AttendanceSummaryPolicy.validCards(cardsOf(rows, AttendanceConstants.CHECK_TYPE_OFF));
 
-        List<AttendanceDetailPolicy.Member> members =
-                AttendanceDetailPolicy.members(query.getDim(), shouldRows, validOn, validOff);
+        // 缺卡（ABSENT）按班次粒度、与概况同源；其余维度仍按卡状态过滤去重（members 不含 ABSENT）
+        List<AttendanceDetailPolicy.Member> members = "ABSENT".equals(query.getDim())
+                ? AttendanceDetailPolicy.absentMembers(workDate, shouldRows, validOnRecords(rows),
+                        algoProperties.getPayroll().getMiddayBoundaryMinute(),
+                        algoProperties.getPayroll().getLegacyPeriodSentinel())
+                : AttendanceDetailPolicy.members(query.getDim(), shouldRows, validOn, validOff);
 
         Set<Long> employeeIds = new LinkedHashSet<>();
         for (AttendanceDetailPolicy.Member member : members) {
@@ -283,37 +319,39 @@ public class AttendanceRecordServiceImpl implements AttendanceRecordService {
         LocalDateTime now = LocalDateTime.now().withNano(0);
         int nowMinutes = now.getHour() * 60 + now.getMinute();
 
-        List<AttendancePeriodResolver.ResolvedPeriod> periods = AttendancePeriodResolver.resolve(rule);
+        // 时段真源 = 该驿站启用班次（不再读 rule.checkPeriods，方案 §4 / U-1 站点级）
+        List<AttendancePeriodResolver.ResolvedPeriod> periods = derivedPeriods(stationId);
         boolean usePeriod = periodIndex != null;
-        AttendancePeriodResolver.ResolvedPeriod period = null;
+        AttendancePeriodResolver.ResolvedPeriod period;
         if (usePeriod) {
-            period = periodIndex < periods.size() ? periods.get(periodIndex) : null;
+            // M1：按 ordinal 按值查找，禁止 `periods.get(periodIndex)` 下标取值（单班次晚班站点会越界）
+            if (periods.isEmpty()) {
+                throw new BusinessException(ErrorCode.ATTENDANCE_NO_ENABLED_SHIFT);
+            }
+            period = AttendancePeriodResolver.findByOrdinal(periods, periodIndex);
             if (period == null) {
                 throw new BusinessException(ErrorCode.ATTENDANCE_PERIOD_NOT_FOUND);
             }
-        }
-
-        // 时段模型以规则时段为基准（不依赖排班）；单班次模型仍需排班班次，否则迟到早退无从判定
-        double startMin;
-        double endMin;
-        if (usePeriod) {
-            startMin = AttendancePeriodResolver.minutesOfDay(period.startTime());
-            endMin = AttendancePeriodResolver.minutesOfDay(period.endTime());
         } else {
+            // 单班次模型：取排班班次；无排班 → 首个启用班次（U-2：员工无排班仍可打卡）；无启用班次 → 9113
             AttendanceSchedule schedule = findSchedule(employeeId, workDate);
-            Double shiftStart = null;
-            Double shiftEnd = null;
             if (schedule != null) {
                 AttendanceShift shift = attendanceShiftMapper.selectById(schedule.getShiftId());
                 if (shift == null || shift.getStatus() == null || shift.getStatus() != 1) {
                     throw new BusinessException(ErrorCode.ATTENDANCE_SHIFT_UNAVAILABLE);
                 }
-                shiftStart = AttendancePeriodResolver.minutesOfDay(shift.getStartTime());
-                shiftEnd = AttendancePeriodResolver.minutesOfDay(shift.getEndTime());
+                period = new AttendancePeriodResolver.ResolvedPeriod(
+                        AttendancePeriodResolver.shiftOrdinal(shift.getStartTime(), middayBoundaryMinute()),
+                        shift.getShiftName(), shift.getStartTime(), shift.getEndTime());
+            } else {
+                if (periods.isEmpty()) {
+                    throw new BusinessException(ErrorCode.ATTENDANCE_NO_ENABLED_SHIFT);
+                }
+                period = periods.get(0);
             }
-            startMin = shiftStart != null ? shiftStart : AttendancePeriodResolver.minutesOfDay(rule.getWorkStartTime());
-            endMin = shiftEnd != null ? shiftEnd : AttendancePeriodResolver.minutesOfDay(rule.getWorkEndTime());
         }
+        double startMin = AttendancePeriodResolver.minutesOfDay(period.startTime());
+        double endMin = AttendancePeriodResolver.minutesOfDay(period.endTime());
 
         AttendanceCheckPolicy.ClockFacts facts = new AttendanceCheckPolicy.ClockFacts(
                 isEnabled(rule.getEnableTimeWindow()),
@@ -352,8 +390,9 @@ public class AttendanceRecordServiceImpl implements AttendanceRecordService {
         // 围栏距离走地理端口（M2）：默认/降级为 Haversine，与改造前逐位等价；高德仅补逆地理编码（展示用）
         AttendanceCheckPolicy.ClockDecision decision = AttendanceCheckPolicy.evaluate(facts, geoService);
 
-        int recordPeriodIndex = usePeriod ? periodIndex : 0;
-        String recordPeriodName = usePeriod ? period.name() : periods.get(0).name();
+        // 记录快照：period_index = 命中班次序号（单班次模型取所用班次的 ordinal，避免与计薪班次单元错位）
+        int recordPeriodIndex = usePeriod ? periodIndex : Math.max(period.periodIndex(), 0);
+        String recordPeriodName = period.name();
 
         AttendanceRecord record = new AttendanceRecord();
         record.setEmployeeId(employeeId);
@@ -396,6 +435,10 @@ public class AttendanceRecordServiceImpl implements AttendanceRecordService {
     private AttendanceStatusVO todayStatus(Employee employee, Long stationId) {
         LocalDate workDate = AttendanceSupport.today();
         AttendanceRule rule = attendanceRuleService.findRule(stationId);
+        // 时段真源 = 该驿站启用班次（站点级，U-1）；无启用班次 → periods 空、shiftConfigured=false
+        List<AttendanceShift> enabledShifts = attendanceShiftService.enabledShifts(stationId);
+        List<AttendancePeriodResolver.ResolvedPeriod> shiftPeriods = AttendancePeriodResolver.resolveByShifts(
+                enabledShifts, middayBoundaryMinute());
         AttendanceSchedule schedule = findSchedule(employee.getId(), workDate);
         AttendanceShift scheduledShift = null;
         if (schedule != null && schedule.getShiftId() != null) {
@@ -414,7 +457,7 @@ public class AttendanceRecordServiceImpl implements AttendanceRecordService {
 
         List<AttendanceStatusVO.PeriodStatus> periods = new ArrayList<>();
         if (rule != null) {
-            for (AttendancePeriodResolver.ResolvedPeriod p : AttendancePeriodResolver.resolve(rule)) {
+            for (AttendancePeriodResolver.ResolvedPeriod p : shiftPeriods) {
                 AttendanceRecord periodOn = validCard(employee.getId(), workDate, AttendanceConstants.CHECK_TYPE_ON,
                         p.periodIndex());
                 AttendanceRecord periodOff = validCard(employee.getId(), workDate, AttendanceConstants.CHECK_TYPE_OFF,
@@ -436,11 +479,14 @@ public class AttendanceRecordServiceImpl implements AttendanceRecordService {
             }
         }
         vo.setPeriods(periods);
-        vo.setCheckFrequency(rule == null ? null : rule.getCheckFrequency());
-        vo.setRequireSummary(rule == null ? null : rule.getRuleName() + "｜每日 " + rule.getCheckFrequency()
+        vo.setShiftConfigured(!enabledShifts.isEmpty());
+        // 频次只读派生 = 启用班次数 × 2（无启用班次 → 0）；无规则时不返回频次（对齐既有）
+        Integer frequency = shiftPeriods.size() * 2;
+        vo.setCheckFrequency(rule == null ? null : frequency);
+        vo.setRequireSummary(rule == null ? null : rule.getRuleName() + "｜每日 " + frequency
                 + " 次打卡（" + String.join("、", periods.stream().map(AttendanceStatusVO.PeriodStatus::getName).toList())
                 + "）");
-        // 未排班时返回规则合成的兜底班次，员工端只需渲染一个班次区块
+        // 未排班时返回「首个启用班次」派生的兜底班次；无启用班次 → null（前端置空态）
         if (scheduledShift != null && scheduledShift.getStatus() != null && scheduledShift.getStatus() == 1) {
             vo.setShift(attendanceShiftService.toVO(scheduledShift));
         } else {
@@ -507,7 +553,7 @@ public class AttendanceRecordServiceImpl implements AttendanceRecordService {
         LambdaQueryWrapper<AttendanceRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.select(AttendanceRecord::getId, AttendanceRecord::getEmployeeId, AttendanceRecord::getCheckType,
                         AttendanceRecord::getStatus, AttendanceRecord::getCheckTime, AttendanceRecord::getPeriodName,
-                        AttendanceRecord::getRemark)
+                        AttendanceRecord::getPeriodIndex, AttendanceRecord::getRemark)
                 .eq(AttendanceRecord::getWorkDate, workDate);
         if (stationId != null) {
             wrapper.eq(AttendanceRecord::getStationId, stationId);
@@ -527,6 +573,26 @@ public class AttendanceRecordServiceImpl implements AttendanceRecordService {
             }
         }
         return cards;
+    }
+
+    /**
+     * 有效上班卡槽（{@code check_type=ON} 且非 ABNORMAL）：缺卡班次粒度判定用。
+     * <p>
+     * 与概况共用 {@link AttendanceSummaryPolicy.RecordSlot}（含 periodIndex/periodName/status），
+     * 供「记录 → 班次」三态映射，避免明细另建一套映射载体。
+     */
+    private List<AttendanceSummaryPolicy.RecordSlot> validOnRecords(List<AttendanceRecord> rows) {
+        List<AttendanceSummaryPolicy.RecordSlot> slots = new ArrayList<>();
+        for (AttendanceRecord row : rows) {
+            if (row.getEmployeeId() == null
+                    || !AttendanceConstants.CHECK_TYPE_ON.equals(row.getCheckType())
+                    || !AttendanceConstants.isValidCard(row.getStatus())) {
+                continue;
+            }
+            slots.add(new AttendanceSummaryPolicy.RecordSlot(row.getEmployeeId(), row.getPeriodIndex(),
+                    row.getPeriodName(), row.getCheckType(), row.getStatus()));
+        }
+        return slots;
     }
 
     private AttendanceSchedule findSchedule(Long employeeId, LocalDate workDate) {
@@ -571,6 +637,26 @@ public class AttendanceRecordServiceImpl implements AttendanceRecordService {
             names.put(shift.getId(), shift.getShiftName());
         }
         return names;
+    }
+
+    /** 班次开始时间（shiftId → start_time）：班次粒度「应到」的 shiftOrdinal 输入 */
+    private Map<Long, String> shiftStartTimes(List<AttendanceSchedule> schedules) {
+        Set<Long> ids = new HashSet<>();
+        for (AttendanceSchedule schedule : schedules) {
+            if (schedule.getShiftId() != null) {
+                ids.add(schedule.getShiftId());
+            }
+        }
+        Map<Long, String> startTimes = new HashMap<>();
+        if (ids.isEmpty()) {
+            return startTimes;
+        }
+        LambdaQueryWrapper<AttendanceShift> wrapper = new LambdaQueryWrapper<>();
+        wrapper.select(AttendanceShift::getId, AttendanceShift::getStartTime).in(AttendanceShift::getId, ids);
+        for (AttendanceShift shift : attendanceShiftMapper.selectList(wrapper)) {
+            startTimes.put(shift.getId(), shift.getStartTime());
+        }
+        return startTimes;
     }
 
     private Map<Long, Employee> loadEmployees(Set<Long> ids) {
@@ -726,6 +812,17 @@ public class AttendanceRecordServiceImpl implements AttendanceRecordService {
 
     private int nz(Integer value) {
         return value == null ? 0 : value;
+    }
+
+    /** 班次序号界值（{@code hrm.algo.payroll.middayBoundaryMinute}，默认 720） */
+    private int middayBoundaryMinute() {
+        return algoProperties.getPayroll().getMiddayBoundaryMinute();
+    }
+
+    /** 该驿站启用班次派生的打卡时段（时段真源；站点级，U-1） */
+    private List<AttendancePeriodResolver.ResolvedPeriod> derivedPeriods(Long stationId) {
+        return AttendancePeriodResolver.resolveByShifts(
+                attendanceShiftService.enabledShifts(stationId), middayBoundaryMinute());
     }
 
     private Integer boolToInt(boolean value) {

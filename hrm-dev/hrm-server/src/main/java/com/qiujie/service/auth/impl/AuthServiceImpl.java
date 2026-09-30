@@ -510,6 +510,8 @@ public class AuthServiceImpl implements AuthService {
         sessionInfo.setDeviceId(deviceIdText == null ? "" : deviceIdText);
         // 认证时刻（服务端单调时钟）：重认证窗口判定的权威依据（安全报告 §4.3 建议 ①）
         sessionInfo.setLoginEpochSeconds(now.atZone(ZoneId.systemDefault()).toEpochSecond());
+        // ARCH-C-7：首登强制改密标记随会话快照（服务端权威，避免每请求回表）
+        sessionInfo.setPwdChanged(employee.getPwdChanged() != null && employee.getPwdChanged() == 1);
         sessionUtil.saveBySid(sid, sessionInfo);
 
         // 更新最后登录时间（同步刷新内存对象，使登录出参的 lastLoginTime 为本次登录时间）

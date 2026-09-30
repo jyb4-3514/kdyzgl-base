@@ -6,9 +6,10 @@ import { computed } from 'vue'
  * 为什么不自绘：连接线、居中排版、步骤自适应宽度都由 el-steps 负责，
  * 本组件只做「状态 → active / process-status」的映射与 --step-* 尺寸覆盖，不再造第二套步骤条。
  *
- * 状态口径以 shared/mock/financeStore.js 的 PAYROLL_ACTIONS 为准：
- * DRAFT → PENDING_APPROVAL → APPROVED → PUBLISHED → CONFIRMED，REJECTED 是由「待审核」驳回产生的分支状态，
- * 员工提异议（objection）会让单据退回「待审核」，故异议标记也落在该步上。
+ * 状态口径以 shared/mock/financeStore.js 的 PAYROLL_ACTIONS 为准（契约 8 态）：
+ * 主链路 DRAFT → PENDING_APPROVAL → APPROVED → PUBLISHED → CONFIRMED → PAID；
+ * REJECTED（管理员驳回）与 OBJECTED（员工异议退回）是由「待审核 / 已发布」产生的分支状态，
+ * 二者都回到「重新核定」，故 active 落在 PENDING_APPROVAL 步并以标记文字区分（谁退的）。
  */
 const props = defineProps({
   // 契约状态值（financeStore.PAYROLL_STATUS_LABEL 的键）
@@ -22,24 +23,26 @@ const STEPS = [
   { key: 'PENDING_APPROVAL', label: '待审核' },
   { key: 'APPROVED', label: '已通过' },
   { key: 'PUBLISHED', label: '已发布' },
-  { key: 'CONFIRMED', label: '已确认' }
+  { key: 'CONFIRMED', label: '已确认' },
+  { key: 'PAID', label: '已发放' }
 ]
 
 /**
- * active 取「当前状态所在步」：已确认时取 5（越过末步），否则末步会被 el-steps 当成进行中，
- * 已完成的终态看起来像「还在跑」。
+ * active 取「当前状态所在步」：已发放时取 STEPS.length（越过末步，全部完成），
+ * 否则末步会被 el-steps 当成进行中，已完成的终态看起来像「还在跑」。
+ * 驳回 / 异议退回均为回到「待审核」步的分支。
  */
 const activeIndex = computed(() => {
-  if (props.status === 'REJECTED') return 1
-  if (props.status === 'CONFIRMED') return STEPS.length
+  if (props.status === 'REJECTED' || props.status === 'OBJECTED') return 1
+  if (props.status === 'PAID') return STEPS.length
   const found = STEPS.findIndex((step) => step.key === props.status)
   return found < 0 ? 0 : found
 })
 
-// 驳回让「待审核」步变成 error；异议不改步骤色，用文字标签表达（SC 1.4.1：状态不只靠颜色）
-const processStatus = computed(() => (props.status === 'REJECTED' ? 'error' : 'process'))
+// 驳回与异议退回都让「待审核」步变成 error；异议另用文字标记（SC 1.4.1：状态不只靠颜色）
+const processStatus = computed(() => (props.status === 'REJECTED' || props.status === 'OBJECTED' ? 'error' : 'process'))
 
-const hasObjection = computed(() => !!(props.payroll && props.payroll.objectionReason))
+const hasObjection = computed(() => props.status === 'OBJECTED')
 
 /** 流转留痕：只列出已发生的事实，未发生的步骤不占位（避免出现「审核时间 —」这种噪声） */
 const timeline = computed(() => {
@@ -57,6 +60,7 @@ const timeline = computed(() => {
   if (row.approveRemark) items.push({ label: '审核意见', text: row.approveRemark })
   if (row.publishTime) items.push({ label: '发布', text: `${row.publishTime} ${row.publisherName || ''}`.trim() })
   if (row.confirmTime) items.push({ label: '员工确认', text: row.confirmTime })
+  if (row.paidTime) items.push({ label: '发放', text: `${row.paidTime} ${row.paidByName || ''}`.trim() })
   return items
 })
 </script>

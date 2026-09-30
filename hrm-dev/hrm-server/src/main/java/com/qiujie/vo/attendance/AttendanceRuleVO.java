@@ -29,12 +29,17 @@ public class AttendanceRuleVO {
     private BigDecimal longitude;
     private BigDecimal latitude;
     private Integer radius;
-    /** 2 / 4 */
+    /** 2 / 4（只读派生：= 该驿站启用班次数 × 2，U-4） */
     private Integer checkFrequency;
+    /** 由该驿站启用班次派生（只读；值域为班次名与班次起止） */
     private List<CheckPeriod> checkPeriods;
+    /** 时段是否只读（真源统一后恒为 true，供前端渲染「由班次决定」） */
+    private Boolean checkPeriodsReadonly;
     private Integer allowEarlyMin;
     private Integer allowLateMin;
+    /** 派生：首班开始（无启用班次时为 null） */
     private String workStartTime;
+    /** 派生：末班结束（无启用班次时为 null） */
     private String workEndTime;
     private Integer lateThresholdMin;
     private Integer earlyLeaveThresholdMin;

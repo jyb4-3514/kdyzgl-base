@@ -7,6 +7,10 @@ import { computed, ref } from 'vue'
  * 关键操作排在内容流末尾时一线员工得先滑到底才能操作（现状 P31，本轮最高优先级修复）。
  * 三种形态：single 单主操作 / dual 主 + 次 / multi 主 + 「更多」弹层（按钮不堆叠）。
  * 配套：使用本组件的页面根容器加 .page--bar，否则末元素会被固定栏盖住。
+ *
+ * 两种排布：默认固定悬浮（工单/包裹类内容长的详情页，操作随时可达）；
+ * inline=true 时改随内容滚动（详情页把按钮做进页面内容里，滚到底即可见、不遮挡），
+ * 由页面按业务选择，二者共用同一套动作/note/更多弹层逻辑，不写第二份。
  */
 const props = defineProps({
   /** [{ key, label, type, plain, loading, disabled }]，第 1 个为主操作；loading 为按钮级，主/次操作同口径 */
@@ -14,7 +18,9 @@ const props = defineProps({
   /** 主操作不可用时的原因说明 / 权限说明，渲染在按钮上方 */
   note: { type: String, default: '' },
   /** 全局提交中：所有按钮禁用，避免连点产生多次流转 */
-  submitting: { type: Boolean, default: false }
+  submitting: { type: Boolean, default: false },
+  /** 内嵌形态：随内容滚动、不固定悬浮；页面据此改用 .page--loose，不再预留固定栏高度 */
+  inline: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['select'])
@@ -40,7 +46,7 @@ function onSelect(action) {
   <div
     v-if="actions.length"
     class="actionbar"
-    :class="{ 'actionbar--with-note': note }"
+    :class="{ 'actionbar--with-note': note, 'actionbar--inline': inline }"
     role="toolbar"
     aria-label="页面操作"
   >
@@ -111,6 +117,18 @@ function onSelect(action) {
 
   /* 底部安全区留白：壳内避让系统手势条 */
   padding: 0 var(--sp-3) var(--safe-bottom);
+}
+
+/* 内嵌形态：按钮做进页面内容流，随内容滚动，彻底消除固定栏对末元素的遮挡。
+   左右内边距归零（.page 已留 12px），底部仍避让系统手势条，顶部留一段与内容的呼吸。
+   双类名提高优先级，稳定压过 mobile.scss 给 .actionbar 的固定栏限宽/居中规则。 */
+.actionbar.actionbar--inline {
+  position: static;
+  z-index: auto;
+  padding: 0 0 var(--safe-bottom);
+  margin-top: var(--sp-4);
+  border-top: none;
+  box-shadow: none;
 }
 
 .actionbar__row {

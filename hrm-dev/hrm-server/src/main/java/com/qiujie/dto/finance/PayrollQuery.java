@@ -21,7 +21,7 @@ public class PayrollQuery extends PageQuery {
     /** 员工（可空） */
     private Long employeeId;
 
-    /** 状态（可空；取值须为六态之一） */
+    /** 状态（可空；取值须为八态之一） */
     private String status;
 
     /** 单据类型（可空；MONTHLY / SETTLEMENT） */

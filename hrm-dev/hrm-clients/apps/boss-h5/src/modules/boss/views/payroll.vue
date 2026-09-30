@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog, showSuccessToast } from 'vant'
 import MonthPicker from '@kdyzgl/shared/ui/MonthPicker.vue'
 import PageNav from '@kdyzgl/shared/ui/PageNav.vue'
@@ -25,8 +25,12 @@ import { moneyText, recentMonths } from '@/utils/format.js'
 const PAGE_SIZE = 20
 
 const router = useRouter()
+const route = useRoute()
 const month = ref(recentMonths()[0])
-const status = ref('PENDING_APPROVAL')
+// 支持 ?status= 深链（审批中心「工资单异议」组跳 OBJECTED、待审核组跳 PENDING_APPROVAL）；
+// 非法值回落到默认「待审核」，避免被构造的 query 带偏筛选
+const routeStatus = String(route.query.status || '')
+const status = ref(PAYROLL_FILTERS.some((item) => item.value === routeStatus) ? routeStatus : 'PENDING_APPROVAL')
 const stationId = ref(null)
 const stations = ref([])
 const stationsLoading = ref(true)

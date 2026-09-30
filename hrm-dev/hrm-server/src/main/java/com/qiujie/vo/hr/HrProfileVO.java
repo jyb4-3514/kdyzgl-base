@@ -27,6 +27,9 @@ public class HrProfileVO {
 
     private String stationName;
 
+    /** 岗位（取值 店员 / 站长 / 管理员；未登记为 null） */
+    private String position;
+
     private LocalDate entryDate;
 
     private String education;
